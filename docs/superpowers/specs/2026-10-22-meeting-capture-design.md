@@ -1,7 +1,7 @@
 # Muninn: meeting capture, transcription and client recaps
 
 **Date:** 2026-10-22
-**Status:** In progress
+**Status:** In progress — [PR #1](https://github.com/michaelrigart/muninn/pull/1)
 **Scope:** phase 1 (meetings). Dictation is phase 2 and gets its own spec.
 
 ## Intent

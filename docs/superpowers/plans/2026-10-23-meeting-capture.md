@@ -1,6 +1,6 @@
 # Muninn meeting capture: implementation plan
 
-**Status:** In progress
+**Status:** In progress — [PR #1](https://github.com/michaelrigart/muninn/pull/1)
 
 > **Execution complete (2026-10-23).** All 25 tasks are implemented. Do not run this plan again.
 
