@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>be.netronix.muninn</string>
+    <key>CFBundleExecutable</key>
+    <string>Muninn</string>
+    <key>CFBundleName</key>
+    <string>Muninn</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Muninn records your microphone during calls you choose to record.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Muninn records the audio of calls you choose to record.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Muninn connects to your Network Mac's model server on your local network.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
