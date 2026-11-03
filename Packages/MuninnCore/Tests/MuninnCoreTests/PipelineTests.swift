@@ -1558,7 +1558,6 @@ struct PipelineTests {
 
         h.summarizer.released.reach()
         await first.value
-        await waitUntil { (try? status(h, b)) != .waiting(.queued) }
         await waitUntil { await !pipeline.hasJob(for: b) }
         #expect(try status(h, b) == .ready)
     }
@@ -1576,7 +1575,7 @@ struct PipelineTests {
         h.probe.environment.set(.make(thisMacReachable: false))
 
         await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
-        #expect(await pipeline.snapshot().queued == [b])
+        #expect(await pipeline.snapshot().queued.isEmpty)
         #expect(try status(h, b) == .waiting(.thisMacUnreachable))
         #expect(waits(h).isEmpty)
 
@@ -1602,9 +1601,11 @@ struct PipelineTests {
         #expect(try status(h, b) == .waiting(.thisMacUnreachable))
         #expect(try h.store.load(b).needsAttention)
         #expect(waits(h) == [.waiting(.thisMacUnreachable)])
+        #expect(await pipeline.snapshot().queued.isEmpty)
 
         h.probe.environment.set(.make())
         await pipeline.requeueWaiting()
+        #expect(await pipeline.snapshot().queued == [b])
         #expect(try status(h, b) == .waiting(.queued))
         #expect(try !h.store.load(b).needsAttention)
         #expect(waits(h) == [.waiting(.thisMacUnreachable), .waiting(.queued)])
@@ -1664,12 +1665,27 @@ struct PipelineTests {
         #expect(try status(h, h.id) == .ready)
     }
 
+    @Test func aMeetingHeldForARecordingIsLeftToTheRecordingsEnd() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.recording))
+        h.recording.set(true)
+        var settings = h.settings.get()
+        settings.defaultEngine = .claude
+        h.settings.set(settings)
+        await h.pipeline.requeueWaiting(only: nil)
+        #expect(try status(h, h.id) == .waiting(.recording))
+        #expect(h.changes.get().isEmpty)
+        #expect(await h.pipeline.snapshot().queued.isEmpty)
+        #expect(await !h.pipeline.hasJob(for: h.id))
+    }
+
     @Test(.timeLimit(.minutes(1))) func aQueuedWaitRunsAfterARelaunch() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
         try setStatus(h, "m1", .waiting(.queued))
         await h.pipeline.requeueWaiting(only: WaitRetry.reasons(forTick: 1))
-        await waitUntil { (try? status(h, h.id)) == .ready }
+        await waitUntil { await !h.pipeline.hasJob(for: h.id) }
         #expect(try status(h, h.id) == .ready)
     }
 
