@@ -352,7 +352,6 @@ struct LLMClientTests {
                 Issue.record("Expected an error")
             } catch let error as LLMError {
                 #expect(error == .promptTruncated(model: "qwen", contextTokens: 8192))
-                #expect(error.localizedDescription == "The transcript is too long for qwen's context (8192 tokens) and was cut off; use the Network Mac or Claude")
             }
         }
     }

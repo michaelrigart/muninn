@@ -316,7 +316,7 @@ final class RecordingController: ObservableObject {
         if let id {
             do {
                 try model.mutate(id) {
-                    $0.status = .failed(detail)
+                    $0.status = .failed(ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording)))
                     $0.endedAt = Date()
                 }
             } catch {

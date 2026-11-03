@@ -14,17 +14,6 @@ public enum LLMError: Error, Equatable {
     case promptTruncated(model: String, contextTokens: Int)
 }
 
-extension LLMError: LocalizedError {
-    public var errorDescription: String? {
-        switch self {
-        case .promptTruncated(let model, let contextTokens):
-            "The transcript is too long for \(model)'s context (\(contextTokens) tokens) and was cut off; use the Network Mac or Claude"
-        default:
-            nil
-        }
-    }
-}
-
 enum LLMTransport {
     static let timeout: TimeInterval = 300
 

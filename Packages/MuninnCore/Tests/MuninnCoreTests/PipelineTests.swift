@@ -443,7 +443,10 @@ struct PipelineTests {
         await h.pipeline.process(h.id)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Couldn't tell the other speakers apart; the call side is one speaker.")
+        #expect(meeting.engineNotice == nil)
+        let notice = try #require(meeting.transcriptNotice)
+        #expect(notice.title == "Couldn't tell the other speakers apart" && notice.severity == .warning)
+        #expect(notice.details.errorDomain?.contains("DiarizerFailure") == true && notice.details.errorCode != nil)
         let transcript = try #require(try h.store.loadTranscript(h.id))
         #expect(transcript.segments.map(\.speaker) == [Transcript.youSpeaker, "S1"])
         #expect(transcript.segments.map(\.text) == ["Hello there", "Good morning"])
@@ -460,7 +463,8 @@ struct PipelineTests {
         await h.pipeline.resumeWaiting()
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Couldn't tell the other speakers apart; the call side is one speaker.")
+        #expect(meeting.engineNotice == nil)
+        #expect(meeting.transcriptNotice?.title == "Couldn't tell the other speakers apart")
     }
 
     @Test func jobsRunAtBackgroundPriority() async throws {
@@ -761,12 +765,81 @@ struct PipelineTests {
         defer { h.cleanUp() }
         h.summarizer.failure.set(SummarizerFailure())
         await h.pipeline.process(h.id)
-        guard case .failed(let message) = try h.meetingNow().status else {
+        guard case .failed(let problem) = try h.meetingNow().status else {
             Issue.record("expected failed, got \(try h.meetingNow().status)")
             return
         }
-        #expect(message.contains("SummarizerFailure"))
+        #expect(problem.title == "Something went wrong while writing the recap")
+        #expect(!problem.explanation.contains("SummarizerFailure"))
         #expect(h.changes.get().last.map { if case .failed = $0 { true } else { false } } == true)
+    }
+
+    @Test func failureCarriesTheStageAndEngine() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let request = RequestFacts(method: "POST", path: "/api/chat", host: "127.0.0.1")
+        h.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await h.pipeline.process(h.id)
+        guard case .failed(let problem) = try h.meetingNow().status else {
+            Issue.record("expected failed, got \(try h.meetingNow().status)")
+            return
+        }
+        #expect(problem.title == "Ollama isn't running on This Mac")
+        #expect(problem.details.stage == .writingRecap && problem.details.engine == .macbook)
+        #expect(problem.details.elapsedSeconds != nil)
+    }
+
+    @Test func aFailureBeforeAnyStageStartsHasNoStage() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try Data("not json".utf8).write(to: h.store.directory(h.id).appendingPathComponent("transcript.json"))
+        await h.pipeline.process(h.id)
+        guard case .failed(let problem) = try h.meetingNow().status else {
+            Issue.record("expected failed, got \(try h.meetingNow().status)")
+            return
+        }
+        #expect(problem.details.stage == .other)
+    }
+
+    @Test func theFailureKnowsWhetherAClaudeKeyIsSaved() async throws {
+        let withKey = try await Harness()
+        defer { withKey.cleanUp() }
+        let request = RequestFacts(method: "POST", path: "/api/chat", host: "127.0.0.1")
+        withKey.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await withKey.pipeline.process(withKey.id)
+        guard case .failed(let problem) = try withKey.meetingNow().status else { Issue.record("expected failed"); return }
+        #expect(problem.actions.contains(.writeWithClaude))
+
+        let without = try await Harness()
+        defer { without.cleanUp() }
+        without.probe.environment.set(.make(claudeKeyPresent: false))
+        without.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await without.pipeline.process(without.id)
+        guard case .failed(let other) = try without.meetingNow().status else { Issue.record("expected failed"); return }
+        #expect(!other.actions.contains(.writeWithClaude))
+    }
+
+    @Test func diarisationNoticeSurvivesAFailedRegeneration() async throws {
+        let h = try await Harness(diarizerFailure: DiarizerFailure())
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        let before = try #require(try h.meetingNow().transcriptNotice)
+        h.summarizer.failure.set(SummarizerFailure())
+        await h.pipeline.regenerate(h.id, engine: .claude)
+        let meeting = try h.meetingNow()
+        #expect(meeting.status == .ready)
+        #expect(meeting.transcriptNotice == before)
+        #expect(meeting.engineNotice?.severity == .problem)
+    }
+
+    @Test func aSuccessfulDiarisationClearsAStaleTranscriptNotice() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        var meeting = try h.meetingNow()
+        meeting.transcriptNotice = Problems.diarisationDegraded(mode: meeting.captureMode)
+        try h.store.save(meeting)
+        await h.pipeline.process(h.id)
+        #expect(try h.meetingNow().transcriptNotice == nil)
     }
 
     @Test func resumeSkipsCompletedTranscription() async throws {
@@ -829,8 +902,8 @@ struct PipelineTests {
         var m = Harness.meeting("m", mode: .micOnly, status: .recording)
         #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .transcribing)
         #expect(MeetingActions.finishRecording(m, endedAt: endedAt).endedAt == endedAt)
-        m.status = .failed("x")
-        #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .failed("x"))
+        m.status = .failed(Problems.legacyFailure())
+        #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .failed(Problems.legacyFailure()))
     }
 
     @Test func fallbackNoticeSet() async throws {
@@ -844,7 +917,7 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac unreachable — summarized on This Mac")
+        #expect(meeting.engineNotice == Problems.writtenOnThisMac(because: .studioUnreachable))
     }
 
     @Test func fallbackNoticeSaysWhenTheNetworkMacIsNotSetUp() async throws {
@@ -858,7 +931,7 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac not set up — summarized on This Mac")
+        #expect(meeting.engineNotice == Problems.writtenOnThisMac(because: .studioNotConfigured))
     }
 
     @Test func regenerateWaitKeepsTheSummaryWhenTheNetworkMacIsNotSetUp() async throws {
@@ -869,7 +942,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Network Mac address not set — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioNotConfigured, api: .ollama))
     }
 
     @Test func llmCleanupSkippedWhenGateWaits() async throws {
@@ -974,7 +1047,7 @@ struct PipelineTests {
         var meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac unreachable — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama))
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.summarizer.engines.get() == [.macbook])
@@ -983,7 +1056,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .claude)
         meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "No Claude API key — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.claudeKeyMissing, api: .ollama))
     }
 
     @Test func requestedEngineSurvivesResume() async throws {
@@ -1073,7 +1146,7 @@ struct PipelineTests {
         let h = try await Harness()
         defer { h.cleanUp() }
         var meeting = try h.meetingNow()
-        meeting.engineNotice = "old notice"
+        meeting.engineNotice = Problems.keptRecap(.memoryPressure, api: .ollama)
         try h.store.save(meeting)
         await h.pipeline.process(h.id)
         #expect(try h.meetingNow().engineNotice == nil)
@@ -1163,14 +1236,14 @@ struct PipelineTests {
         try FileManager.default.removeItem(at: directory.appendingPathComponent("transcript.json"))
         try FileManager.default.removeItem(at: directory.appendingPathComponent("transcript.clean.json"))
         var failed = try h.meetingNow()
-        failed.status = .failed("earlier problem")
+        failed.status = .failed(Problems.legacyFailure())
         try h.store.save(failed)
 
         h.probe.environment.set(.make(studioReachable: false))
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Network Mac unreachable — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama))
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.transcriber.calls.get().count == 4)
     }
@@ -1186,7 +1259,9 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Claude failed: SummarizerFailure() — kept the existing summary")
+        #expect(meeting.engineNotice?.severity == .problem)
+        #expect(meeting.engineNotice?.explanation.hasSuffix("Muninn kept the recap you had.") == true)
+        #expect(meeting.engineNotice?.details.engine == .claude)
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
     }

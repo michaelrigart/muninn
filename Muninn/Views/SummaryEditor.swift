@@ -59,8 +59,8 @@ struct SummaryEditor: View {
                         .help(blockedHelp)
                 }
             }
-        case .failed(let message):
-            banner(symbol: "exclamationmark.triangle.fill", tint: .red, text: message) {
+        case .failed(let problem):
+            banner(symbol: "exclamationmark.triangle.fill", tint: .red, text: problem.title) {
                 Button("Retry") { model.process(meeting.id) }
             }
         case .ready:
@@ -73,7 +73,10 @@ struct SummaryEditor: View {
             }
         }
         if let notice = meeting.engineNotice {
-            banner(symbol: "info.circle.fill", tint: .blue, text: notice) {}
+            banner(symbol: "info.circle.fill", tint: .blue, text: notice.title) {}
+        }
+        if let notice = meeting.transcriptNotice {
+            banner(symbol: "info.circle.fill", tint: .blue, text: notice.title) {}
         }
     }
 

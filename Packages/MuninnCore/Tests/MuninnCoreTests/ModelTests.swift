@@ -82,7 +82,7 @@ import Testing
     }
 
     @Test func clientWithoutAssociationRoundTrips() throws {
-        let original = Self.meeting(mode: .micOnly, status: .failed("boom"), association: nil, client: "Acme", accountID: "other")
+        let original = Self.meeting(mode: .micOnly, status: .failed(Problems.somethingWentWrong(stage: .other)), association: nil, client: "Acme", accountID: "other")
         let decoded = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original))
         #expect(decoded.association == nil)
         #expect(decoded.client == "Acme")
@@ -97,9 +97,106 @@ import Testing
         #expect(waiting == #"{"reason":"memoryPressure","type":"waiting"}"#)
         let call = String(decoding: try encoder.encode(CaptureMode.call(appBundleID: "a.b")), as: UTF8.self)
         #expect(call == #"{"appBundleID":"a.b","type":"call"}"#)
-        for status in [ProcessingStatus.recording, .transcribing, .diarizing, .cleaning, .summarizing, .ready, .failed("x"), .waiting(.studioUnreachable), .waiting(.studioNotConfigured)] {
+        for status in [ProcessingStatus.recording, .transcribing, .diarizing, .cleaning, .summarizing, .ready, .failed(Problems.legacyFailure()), .waiting(.studioUnreachable), .waiting(.studioNotConfigured)] {
             #expect(try JSONDecoder().decode(ProcessingStatus.self, from: encoder.encode(status)) == status)
         }
+    }
+
+    private func storedMeeting(mode: CaptureMode = .call(appBundleID: "us.zoom.xos"), status: Any? = nil, engineNotice: Any? = nil, transcriptNotice: Any? = nil) throws -> (meeting: Meeting, json: String) {
+        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.meeting(mode: mode, status: .ready))) as? [String: Any])
+        if let status { object["status"] = status }
+        if let engineNotice { object["engineNotice"] = engineNotice }
+        if let transcriptNotice { object["transcriptNotice"] = transcriptNotice }
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let meeting = try JSONDecoder().decode(Meeting.self, from: data)
+        return (meeting, String(decoding: try JSONEncoder().encode(meeting), as: UTF8.self))
+    }
+
+    @Test func failedStatusRoundTripsItsProblem() throws {
+        let status = ProcessingStatus.failed(Problems.claudeBusy())
+        let encoded = try JSONEncoder().encode(status)
+        #expect(try JSONDecoder().decode(ProcessingStatus.self, from: encoded) == status)
+        let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["type"] as? String == "failed")
+        #expect(object["problem"] != nil)
+        #expect(object["message"] == nil)
+    }
+
+    @Test func legacyFailureStringLoadsAsAGenericProblem() throws {
+        let stored = try storedMeeting(status: ["type": "failed", "message": "Error Domain=NSURLErrorDomain Code=-1004 \(SEED)"])
+        guard case .failed(let problem) = stored.meeting.status else {
+            Issue.record("expected failed, got \(stored.meeting.status)")
+            return
+        }
+        #expect(problem.title == "This meeting couldn't be finished" && problem.actions == [.tryAgain] && problem.details.fromEarlierVersion)
+        #expect(!stored.json.contains("Henderson"))
+    }
+
+    @Test func aFailedStatusWithNeitherAProblemNorAMessageStillLoads() throws {
+        let stored = try storedMeeting(status: ["type": "failed", "problem": "not a problem"])
+        #expect(stored.meeting.status == .failed(Problems.legacyFailure()))
+    }
+
+    @Test func legacyEngineNoticeLoadsWithoutItsText() throws {
+        let stored = try storedMeeting(engineNotice: "Claude failed: \(SEED) — kept the existing summary")
+        #expect(stored.meeting.engineNotice?.title == "An earlier recap attempt didn't finish" && stored.meeting.engineNotice?.severity == .problem)
+        #expect(stored.meeting.engineNotice?.actions == [.tryAgain, .writeWithAnotherEngine] && stored.meeting.needsAttention)
+        #expect(!stored.json.contains("Henderson"))
+    }
+
+    @Test func legacyFallbackNoticeStaysAWarning() throws {
+        let unreachable = try storedMeeting(engineNotice: "Network Mac unreachable — summarized on This Mac")
+        #expect(unreachable.meeting.engineNotice == Problems.writtenOnThisMac(because: .studioUnreachable) && !unreachable.meeting.needsAttention)
+        let notSetUp = try storedMeeting(engineNotice: "Network Mac not set up — summarized on This Mac")
+        #expect(notSetUp.meeting.engineNotice == Problems.writtenOnThisMac(because: .studioNotConfigured) && !notSetUp.meeting.needsAttention)
+    }
+
+    @Test func legacyDiarisationNoticeBecomesATranscriptNotice() throws {
+        let call = try storedMeeting(engineNotice: "Couldn't tell the other speakers apart; the call side is one speaker.")
+        #expect(call.meeting.transcriptNotice?.title == "Couldn't tell the other speakers apart" && call.meeting.engineNotice == nil)
+        let mic = try storedMeeting(mode: .micOnly, engineNotice: "Couldn't tell the speakers apart; the conversation is one speaker.")
+        #expect(mic.meeting.transcriptNotice == Problems.diarisationDegraded(mode: .micOnly) && mic.meeting.engineNotice == nil)
+    }
+
+    @Test func legacyNoticeJoiningBothPartsSplitsIntoTwoNotices() throws {
+        let stored = try storedMeeting(engineNotice: "Couldn't tell the other speakers apart; the call side is one speaker. Network Mac unreachable — summarized on This Mac")
+        #expect(stored.meeting.transcriptNotice == Problems.diarisationDegraded(mode: .call(appBundleID: "us.zoom.xos")))
+        #expect(stored.meeting.engineNotice == Problems.writtenOnThisMac(because: .studioUnreachable))
+    }
+
+    @Test func aLegacyNoticeDoesNotReplaceAStoredTranscriptNotice() throws {
+        let stored = try storedMeeting(
+            engineNotice: "Couldn't tell the other speakers apart; the call side is one speaker.",
+            transcriptNotice: try JSONSerialization.jsonObject(with: JSONEncoder().encode(Problems.diarisationDegraded(mode: .micOnly)))
+        )
+        #expect(stored.meeting.transcriptNotice == Problems.diarisationDegraded(mode: .micOnly))
+    }
+
+    @Test func noticesRoundTripAndAnOddStoredNoticeDoesNotFailTheMeeting() throws {
+        var original = Self.meeting()
+        original.engineNotice = Problems.keptRecap(.studioUnreachable, api: .ollama)
+        original.transcriptNotice = Problems.diarisationDegraded(mode: original.captureMode)
+        #expect(try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original)) == original)
+
+        let odd = try storedMeeting(engineNotice: 5, transcriptNotice: ["title": 5])
+        #expect(odd.meeting.engineNotice == nil && odd.meeting.transcriptNotice == nil)
+        #expect(odd.meeting.title == "Acme monthly sync")
+    }
+
+    @Test func needsAttention() {
+        func meeting(_ status: ProcessingStatus, notice: Problem? = nil) -> Meeting {
+            var meeting = Self.meeting(status: status)
+            meeting.engineNotice = notice
+            return meeting
+        }
+        #expect(meeting(.failed(Problems.claudeBusy())).needsAttention)
+        #expect(meeting(.waiting(.claudeKeyMissing)).needsAttention)
+        #expect(meeting(.waiting(.studioNotConfigured)).needsAttention)
+        #expect(!meeting(.waiting(.studioUnreachable)).needsAttention)
+        #expect(meeting(.ready, notice: Problems.keptRecap(.memoryPressure, api: .ollama)).needsAttention)
+        #expect(!meeting(.ready, notice: Problems.writtenOnThisMac(because: .studioUnreachable)).needsAttention)
+        #expect(!meeting(.ready).needsAttention)
+        #expect(!meeting(.recording).needsAttention)
     }
 
     @Test func idSlug() {

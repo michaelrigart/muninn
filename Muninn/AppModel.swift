@@ -220,7 +220,7 @@ final class AppModel: ObservableObject {
                         ids.append(meeting.id)
                     case .markUnreadable:
                         try mutate(meeting.id) {
-                            $0.status = .failed(LaunchRecovery.unreadableMessage)
+                            $0.status = .failed(Problems.recordingUnreadable())
                             $0.endedAt = endedAt
                         }
                     }
