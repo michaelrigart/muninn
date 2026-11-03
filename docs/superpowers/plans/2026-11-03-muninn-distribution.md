@@ -1,12 +1,16 @@
 # Muninn build and distribution Implementation Plan
 
+**Status:** Implemented — [PR #2](https://github.com/michaelrigart/muninn/pull/2)
+
+> **Execution complete (2026-11-03).** All 8 tasks are implemented. Do not run this plan again. Acceptance 2, 3, 6 and 7 are checked by hand and at the first two releases.
+
 **Goal:** Muninn builds, installs, verifies and releases with the same recipe as Hulder and Linger, and the three repositories' build steps become identical apart from the name.
 
 **Architecture:** Muninn moves from a Command Line Tools SwiftPM build to XcodeGen + `xcodebuild` with Personal Team signing. The app target moves to `Muninn/`, the libraries to `Packages/MuninnPlatform`. The release tooling (verifier, changelog, release script, cask, CI) is ported from Hulder, renamed. Hulder and Linger get small alignment changes on their own branches.
 
 **Tech Stack:** Swift (5 language mode), SwiftPM, XcodeGen 2.46.0 via mise, Xcode 27.2, bash, Python 3 (`/usr/bin/python3`), GitHub Actions, Homebrew casks.
 
-**Spec:** `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md` (Approved). Templates it copies: a Hulder checkout (`michaelrigart/hulder`: `scripts/`, `.github/workflows/ci.yml`, `project.yml`, `README.md`, `AGENTS.md`) and a Linger checkout (`michaelrigart/linger`).
+**Spec:** `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md`. Templates it copies: a Hulder checkout (`michaelrigart/hulder`: `scripts/`, `.github/workflows/ci.yml`, `project.yml`, `README.md`, `AGENTS.md`) and a Linger checkout (`michaelrigart/linger`).
 
 ## Global Constraints
 

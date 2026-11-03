@@ -1,7 +1,7 @@
 # Muninn build and distribution — design
 
 **Date:** 2026-11-03
-**Status:** Approved (2026-11-03)
+**Status:** Implemented — [PR #2](https://github.com/michaelrigart/muninn/pull/2)
 **Template:** Hulder's distribution design (`michaelrigart/hulder`,
 `docs/superpowers/specs/2026-11-03-hulder-distribution-design.md`), which follows Linger's
 (`michaelrigart/linger`, `docs/superpowers/specs/2026-11-01-linger-distribution-design.md`).
