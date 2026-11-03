@@ -120,7 +120,10 @@ private extension ProblemDetails {
 }
 
 private struct Masks {
-    private static let email = #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#
+    /// An address with or without a dot in its domain, so `ann@studio` counts too.
+    private static let email = #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*"#
+    /// The user and password in a URL such as `http://user:password@host`.
+    private static let userInfo = #"(?<=://)[^\s/?#@]+(?=@)"#
     /// The shape `MeetingID.make` builds, for ids whose meeting is on no shown entry.
     private static let meetingID = #"\d{4}-\d{2}-\d{2}-\d{4}(?:-[a-z0-9]+)*"#
     private static let ipv4 = #"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d)"#
@@ -131,17 +134,19 @@ private struct Masks {
         var pattern: String
     }
 
-    /// One alternation over every literal, longest first and each with its own boundaries, so no mask can split another.
-    private let literals: NSRegularExpression?
-    private let labels: [String: String]
-    private let hostLabels: [String: String]
-    private let home: String
+    /// Each is matched on the same text, and overlapping matches are replaced as one run, so no mask can split another.
+    private let masks: [(regex: NSRegularExpression, label: String)]
 
     init(settings: Settings, entries: [ActivityEntry], homeDirectory: String) {
         var found: [Literal] = []
         func word(_ text: String) -> String { #"(?<!\w)"# + NSRegularExpression.escapedPattern(for: text) + #"(?!\w)"# }
-        func hostToken(_ text: String) -> String { #"(?<![\w\-@])"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-])"# }
         func token(_ text: String) -> String { #"(?<![\w\-])"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-])"# }
+        /// A host and any subdomains in front of it, in any case.
+        func host(_ text: String) -> String { #"(?i:(?<![\w\-])(?:[A-Za-z0-9\-]+\.)*"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-]))"# }
+
+        var home = homeDirectory
+        while home.hasSuffix("/") { home.removeLast() }
+        found.append(Literal(text: home, label: "~", pattern: NSRegularExpression.escapedPattern(for: home) + #"(?![\w\-])"#))
 
         var seen: [String] = []
         for meeting in entries.compactMap(\.meeting) {
@@ -162,54 +167,43 @@ private struct Masks {
 
         let entryHosts = entries.compactMap { $0.details?.request?.host }
         let settingsHosts = [settings.macbook.baseURL, settings.studio.baseURL].compactMap { URL(string: $0)?.host }
-        var hostLabels: [String: String] = [:]
-        for host in entryHosts + settingsHosts where !host.isEmpty {
-            hostLabels[host.lowercased()] = "<host>"
-            found.append(Literal(text: host, label: "<host>", pattern: "(?i:" + hostToken(host) + ")"))
+        for text in entryHosts + settingsHosts {
+            found.append(Literal(text: text, label: "<host>", pattern: host(text)))
         }
-        self.hostLabels = hostLabels
 
-        var labels: [String: String] = [:]
         var distinct: [Literal] = []
         for literal in found where !literal.text.isEmpty && !distinct.contains(where: { $0.pattern == literal.pattern }) {
-            if labels[literal.text] == nil { labels[literal.text] = literal.label }
             distinct.append(literal)
         }
-        self.labels = labels
-        let ordered = distinct.sorted { $0.text.count > $1.text.count }
-        literals = ordered.isEmpty ? nil : try? NSRegularExpression(pattern: ordered.map(\.pattern).joined(separator: "|"))
-
-        var home = homeDirectory
-        while home.hasSuffix("/") { home.removeLast() }
-        self.home = home
+        let patterns = distinct.map { ($0.pattern, $0.label) }
+            + [(Self.email, "<email>"), (Self.userInfo, "<email>"), (Self.ipv4, "<host>"), (Self.meetingID, "another meeting")]
+        masks = patterns.compactMap { pattern, label in (try? NSRegularExpression(pattern: pattern)).map { ($0, label) } }
     }
 
+    /// A run takes the label of its first match: the earliest to start, then the longest, then the earliest-listed mask.
     func apply(to text: String) -> String {
-        var result = text
-        if !home.isEmpty {
-            result = Self.replace(NSRegularExpression.escapedPattern(for: home) + #"(?![\w\-])"#, in: result, with: "~")
+        let source = text as NSString
+        var matches: [(range: NSRange, label: String, order: Int)] = []
+        for (order, mask) in masks.enumerated() {
+            matches += mask.regex.matches(in: text, range: NSRange(location: 0, length: source.length)).map { ($0.range, mask.label, order) }
         }
-        if let literals {
-            let source = result as NSString
-            var masked = ""
-            var last = 0
-            for match in literals.matches(in: result, range: NSRange(location: 0, length: source.length)) {
-                let found = source.substring(with: match.range)
-                masked += source.substring(with: NSRange(location: last, length: match.range.location - last))
-                masked += labels[found] ?? hostLabels[found.lowercased()] ?? found
-                last = match.range.location + match.range.length
-            }
-            result = masked + source.substring(from: last)
-        }
-        result = Self.replace(Self.email, in: result, with: "<email>")
-        result = Self.replace(Self.ipv4, in: result, with: "<host>")
-        result = Self.replace(Self.meetingID, in: result, with: "another meeting")
-        return Redaction.redact(result)
-    }
+        matches.sort { ($0.range.location, -$0.range.length, $0.order) < ($1.range.location, -$1.range.length, $1.order) }
 
-    private static func replace(_ pattern: String, in text: String, with replacement: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
-        return regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+        var runs: [(range: NSRange, label: String)] = []
+        for match in matches {
+            if let last = runs.last, match.range.location < NSMaxRange(last.range) {
+                runs[runs.count - 1].range = NSUnionRange(last.range, match.range)
+            } else {
+                runs.append((match.range, match.label))
+            }
+        }
+        var masked = ""
+        var cursor = 0
+        for run in runs {
+            masked += source.substring(with: NSRange(location: cursor, length: run.range.location - cursor)) + run.label
+            cursor = NSMaxRange(run.range)
+        }
+        return Redaction.redact(masked + source.substring(from: cursor))
     }
 
     /// A, B, … Z, AA, AB, …

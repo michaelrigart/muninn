@@ -278,4 +278,44 @@ struct DiagnosticsTests {
         let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("Reached STUDIO and Studio and studio", meeting: studio)]))
         #expect(!text.lowercased().contains("studio"), "\(text)")
     }
+
+    @Test func anAddressOnASingleLabelHostIsMaskedWhole() {
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("Denied for michael@studio")]))
+        #expect(text.contains("Denied for <email>"))
+        #expect(!text.contains("michael"))
+    }
+
+    @Test(arguments: ["admin@studio", "admin:hunter2@studio"])
+    func aURLsUserInfoIsMaskedWithItsHost(authority: String) {
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("GET http://\(authority):11434/api failed")]))
+        #expect(text.contains("GET http://<email>:11434/api failed"))
+        for secret in ["admin", "hunter2", "studio"] {
+            #expect(!text.contains(secret), "\(secret)")
+        }
+    }
+
+    @Test func anAddressOnASubdomainOfAConfiguredHostIsMaskedWhole() {
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio.lan:11434"), entries: [entry("Mail to ann@mail.studio.lan bounced")]))
+        #expect(text.contains("Mail to <email> bounced"))
+    }
+
+    @Test func aSubdomainOfAConfiguredHostIsMaskedWhole() {
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio.lan:11434"), entries: [entry("Reached henderson-vpn.studio.lan")]))
+        #expect(text.contains("Reached <host>"))
+        #expect(!text.contains("henderson"))
+    }
+
+    @Test(arguments: [
+        ("ann@client.example Henderson renewal", "Draft failed"),
+        ("Call with ann", "Call with ann@client.example failed"),
+        ("Henderson studio", "Reached Henderson studio.lan"),
+    ])
+    func masksThatOverlapAreReplacedAsOne(title: String, message: String) {
+        let meeting = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-intro"), title: title)
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio.lan:11434"), entries: [entry(message, meeting: meeting)]))
+        for secret in ["Henderson", "renewal", "client.example", ".lan"] {
+            #expect(!text.contains(secret), "\(secret)")
+        }
+        #expect(text.contains("Recap · meeting A · "))
+    }
 }
