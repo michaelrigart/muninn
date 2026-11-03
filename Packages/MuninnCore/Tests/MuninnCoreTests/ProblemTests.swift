@@ -118,9 +118,92 @@ import Testing
     }
 
     @Test func detailsRedactEveryStringField() {
-        let details = ProblemDetails(request: RequestFacts(method: "POST", path: "/sk-ant-api03-abcdefgh/api/chat", host: "studio.local"), model: "sk-ant-api03-zzzzzzzz")
-        #expect(!details.text(includeHost: true).contains("sk-ant-api03"))
+        func key(_ suffix: String) -> String { "sk-ant-api03-\(suffix)" }
+        let details = ProblemDetails(
+            errorDomain: key("domainxx"),
+            request: RequestFacts(method: key("methodxx"), path: "/\(key("pathxxxx"))/api/chat", host: key("hostxxxx")),
+            model: key("modelxxx"),
+            graphCode: key("graphxxx"),
+            path: key("filexxxx"),
+            account: key("accountx"),
+            appVersion: key("appverxx"),
+            osVersion: key("osverxxx")
+        )
+        let suffixes = ["domainxx", "methodxx", "pathxxxx", "hostxxxx", "modelxxx", "graphxxx", "filexxxx", "accountx", "appverxx", "osverxxx"]
+        let redacted = "\(details.redacted())"
+        let text = details.text(includeHost: true)
+        for suffix in suffixes {
+            #expect(!redacted.contains(suffix))
+            #expect(!text.contains(suffix))
+        }
+        #expect(!text.contains("sk-ant-"))
         #expect(details.redacted().request?.path == "/[redacted]/api/chat")
+    }
+
+    @Test func redactionKeepsWordsThatMerelyEndInSk() {
+        #expect(Redaction.redact("2026-11-03-1400-task-force-weekly-sync") == "2026-11-03-1400-task-force-weekly-sync")
+        #expect(Redaction.redact("risk-assessment-review") == "risk-assessment-review")
+        #expect(Redaction.redact("key sk-ant-api03-abcdefghijklmnop") == "key [redacted]")
+        #expect(Redaction.redact("(sk-proj-abcdefghijklmnopqrstu)") == "([redacted])")
+    }
+
+    @Test func everyFactoryHasItsSeverityAndActions() {
+        let cases: [(Problem, ActivityLevel, [ProblemAction])] = [
+            (Problems.thisMacServerNotRunning(api: .ollama, claudeKeyPresent: true, waiting: false), .problem, [.writeWithClaude, .tryAgain, .engineSettings]),
+            (Problems.thisMacServerNotRunning(api: .openAICompatible, claudeKeyPresent: false, waiting: true), .problem, [.tryAgain, .engineSettings]),
+            (Problems.thisMacAddressInvalid(), .problem, [.engineSettings, .tryAgain]),
+            (Problems.networkMacUnreachable(), .problem, [.tryAgain, .engineSettings]),
+            (Problems.networkMacNotSetUp(), .problem, [.tryAgain, .engineSettings]),
+            (Problems.claudeUnreachable(), .problem, [.tryAgain, .writeOnThisMac]),
+            (Problems.modelNotInstalled(model: "m", engine: .macbook, api: .ollama), .problem, [.tryAgain]),
+            (Problems.claudeKeyRejected(), .problem, [.changeKey, .tryAgain]),
+            (Problems.claudeBusy(), .problem, [.tryAgain, .writeOnThisMac]),
+            (Problems.claudeKeyMissing(), .problem, [.engineSettings, .writeOnThisMac]),
+            (Problems.recapIncomplete(engine: .studio), .problem, [.tryAgain, .writeWithAnotherEngine]),
+            (Problems.recapRefused(engine: .claude), .problem, [.writeWithAnotherEngine]),
+            (Problems.transcriptTooLong(model: "m"), .problem, [.writeWithAnotherEngine]),
+            (Problems.signInExpired(account: "Work"), .problem, [.signInAgain]),
+            (Problems.signInFailed(account: "Work"), .problem, [.tryAgain]),
+            (Problems.microsoftUnreachable(), .problem, [.tryAgain]),
+            (Problems.outlookDraftFailed(), .problem, [.tryAgain]),
+            (Problems.calendarUnreadable(account: "Work"), .problem, [.tryAgain]),
+            (Problems.keychainUnreadable(), .problem, [.engineSettings]),
+            (Problems.keychainUnwritable(), .problem, [.tryAgain]),
+            (Problems.speechModelUnavailable(model: "m"), .problem, [.tryAgain]),
+            (Problems.couldNotSave(what: "x"), .problem, [.tryAgain]),
+            (Problems.hotkeyInUse(keys: "k"), .problem, [.recordingSettings]),
+            (Problems.hotkeyUnsupported(keys: "k"), .problem, [.recordingSettings]),
+            (Problems.somethingWentWrong(stage: .other), .problem, [.tryAgain]),
+            (Problems.legacyFailure(), .problem, [.tryAgain]),
+            (Problems.legacyEngineNotice(), .problem, [.tryAgain, .writeWithAnotherEngine]),
+            (Problems.recordingUnreadable(), .problem, []),
+            (Problems.recordingDidNotStart(), .problem, []),
+            (Problems.recordingPartlyUnsaved(tracks: "t"), .warning, []),
+            (Problems.recordingTrackStopped(track: "t"), .problem, []),
+            (Problems.noCallAudio(app: "a"), .warning, []),
+            (Problems.writtenOnThisMac(because: .studioUnreachable), .warning, []),
+            (Problems.regenerationFailed(Problems.claudeBusy()), .problem, [.tryAgain, .writeOnThisMac]),
+            (Problems.diarisationDegraded(mode: .micOnly), .warning, []),
+            (Problems.diarisationDegraded(mode: .call(appBundleID: "x")), .warning, []),
+            (Problems.eventNotChanged(), .info, []),
+            (Problems.vaultNotChosen(), .warning, []),
+            (Problems.notFiledAutomatically(unsourced: 2), .warning, []),
+            (Problems.draftWithoutLink(), .info, []),
+            (Problems.waiting(.studioUnreachable, api: .ollama, claudeKeyPresent: true), .warning, [.writeOnThisMac, .writeWithClaude]),
+            (Problems.waiting(.studioUnreachable, api: .ollama, claudeKeyPresent: false), .warning, [.writeOnThisMac]),
+            (Problems.waiting(.studioNotConfigured, api: .ollama, claudeKeyPresent: true), .warning, [.engineSettings, .writeOnThisMac, .writeWithClaude]),
+            (Problems.waiting(.studioNotConfigured, api: .ollama, claudeKeyPresent: false), .warning, [.engineSettings, .writeOnThisMac]),
+            (Problems.waiting(.memoryPressure, api: .ollama, claudeKeyPresent: true), .warning, [.writeOnThisMac, .writeWithClaude]),
+            (Problems.waiting(.memoryPressure, api: .ollama, claudeKeyPresent: false), .warning, [.writeOnThisMac]),
+            (Problems.waiting(.claudeKeyMissing, api: .ollama, claudeKeyPresent: true), .warning, [.engineSettings, .writeOnThisMac]),
+            (Problems.waiting(.claudeKeyMissing, api: .ollama, claudeKeyPresent: false), .warning, [.engineSettings, .writeOnThisMac]),
+            (Problems.waiting(.recording, api: .ollama, claudeKeyPresent: true), .warning, []),
+            (Problems.waiting(.recording, api: .ollama, claudeKeyPresent: false), .warning, []),
+        ] + allWaitReasons.map { (Problems.keptRecap($0, api: .ollama), ActivityLevel.problem, [ProblemAction.tryAgain, .writeWithAnotherEngine]) }
+        for (problem, severity, actions) in cases {
+            #expect(problem.severity == severity, "\(problem.title)")
+            #expect(problem.actions == actions, "\(problem.title)")
+        }
     }
 
     @Test func requestFactsDropQueryAndUserInfo() {
