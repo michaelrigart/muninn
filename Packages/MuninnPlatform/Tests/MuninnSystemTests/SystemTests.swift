@@ -266,6 +266,4 @@ func probeClaudeKeyPresence(secrets: Result<String?, Error>, present: Bool) asyn
     #expect(throws: EngineClientError.invalidBaseURL(.studio)) {
         try EngineClients.endpointClient(blank, engine: .studio)
     }
-    #expect(EngineClientError.invalidBaseURL(.studio).errorDescription == "Invalid Network Mac engine URL")
-    #expect(EngineClientError.missingClaudeKey.errorDescription == "No Claude API key saved")
 }

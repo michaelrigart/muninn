@@ -1,20 +1,6 @@
 import Foundation
 import MuninnCore
 
-public enum EngineClientError: LocalizedError, Equatable {
-    case invalidBaseURL(EngineKind)
-    case missingClaudeKey
-
-    public var errorDescription: String? {
-        switch self {
-        case .invalidBaseURL(.macbook): "Invalid This Mac engine URL"
-        case .invalidBaseURL(.studio): "Invalid Network Mac engine URL"
-        case .invalidBaseURL(.claude): "Invalid Claude engine URL"
-        case .missingClaudeKey: "No Claude API key saved"
-        }
-    }
-}
-
 public enum EngineClients {
     public static let macbookContextTokens = 32768
     public static let studioContextTokens = 65536
