@@ -75,6 +75,10 @@ are no installs, settings or Keychain items to migrate.
   replaces `be.netronix.muninn` everywhere, the Keychain service and log subsystem included.
 - **The full release setup now** (2026-11-03): changelog, release script, verifier, Homebrew
   cask and CI, as Hulder and Linger have.
+- **The designer's Muninn logo set, and a Dock icon while a window is open** (2026-11-03): the
+  logo set is the app icon and the menu bar mark, integrated as Hulder and Linger do it. Muninn
+  shows a Dock icon (and appears in Command-Tab) while one of its windows is open, and is
+  menu-bar-only again when the last one closes. Windows open in front of other apps' windows.
 
 ## How it works
 
@@ -279,7 +283,8 @@ for its reason:
 | Swift language mode | 5 | 6, strict concurrency | 6 |
 | Install location | anywhere (`/Applications` by default) | `/Applications` only (status item attribution) | anywhere |
 | Debug-only probe | no (the spike CLI is separate) | yes | yes |
-| Extra tool | `muninn-spike` | `design/render` | `design/render` |
+| Extra tool | `muninn-spike`, `design/render` | `design/render` | `design/render` |
+| Dock icon | while a window is open | never | never |
 
 ## Constraints
 

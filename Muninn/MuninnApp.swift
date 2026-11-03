@@ -5,6 +5,10 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var recorder: RecordingController?
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DockPresence.install()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let recorder = Self.recorder, recorder.needsShutdown else { return .terminateNow }
         Task {
@@ -53,7 +57,8 @@ struct MuninnApp: App {
                 if recorder.isActive {
                     Image(nsImage: MenuBarIcon.recording)
                 } else {
-                    Image(systemName: "waveform")
+                    Image("MuninnMenuBar")
+                        .accessibilityLabel("Muninn")
                 }
             }
             .modifier(MeetingsOpener(model: model))

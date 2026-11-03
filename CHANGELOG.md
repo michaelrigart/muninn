@@ -16,5 +16,8 @@ whether it is compatible with the one before. Each section says what changed.
 - Install with Homebrew: `brew install --cask michaelrigart/tap/muninn`.
 - Releases are signed with a stable certificate, so the permissions you give Muninn survive
   updates.
+- An app icon, and a Muninn raven in the menu bar in place of the waveform.
+- A Dock icon while one of Muninn's windows is open, and windows now open in front of other
+  apps' windows.
 
 [Unreleased]: https://github.com/michaelrigart/muninn/commits/main

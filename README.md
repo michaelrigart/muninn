@@ -80,7 +80,8 @@ so it runs on the maintainer's Mac, not in CI. It sets the version (the time it 
 builds, signs, runs `scripts/verify-app`, packages `Muninn-<version>.zip`, tags, publishes
 the GitHub release and updates the cask. `scripts/release --dry-run` does everything up to
 the package and prints the changelog section; `--version <version>` resumes a release that
-failed part way.
+failed part way. `design/render` regenerates the app icon and menu bar PNGs from `design/*.svg` and
+needs `rsvg-convert` (Homebrew `librsvg`).
 
 ## Limitations
 
