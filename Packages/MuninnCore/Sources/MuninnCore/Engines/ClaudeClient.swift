@@ -45,7 +45,7 @@ public struct ClaudeClient: LLMClient {
             "x-api-key": apiKey,
             "anthropic-version": "2026-10-21",
             "anthropic-beta": "server-side-fallback-2026-07-01",
-        ], body: body, session: session)
+        ], body: body, provider: .anthropic, session: session)
         let response = try LLMTransport.decode(Response.self, from: data)
         if response.stop_reason == "refusal" {
             throw LLMError.refused(response.stop_details?.category)

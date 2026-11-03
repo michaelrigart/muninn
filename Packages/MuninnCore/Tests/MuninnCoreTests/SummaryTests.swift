@@ -209,7 +209,7 @@ struct SummaryTests {
     }
 
     @Test func parserThrowsOnProse() {
-        #expect(throws: SummaryParseError.notJSON("No JSON object in the reply")) {
+        #expect(throws: SummaryParseError.notJSON) {
             try SummaryParser.parse("I could not summarise this.", transcript: Self.transcript, flags: [], engine: .claude, now: Self.now)
         }
         do {

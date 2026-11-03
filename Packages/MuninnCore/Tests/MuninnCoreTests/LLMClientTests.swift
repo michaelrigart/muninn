@@ -2,10 +2,13 @@ import Foundation
 import Testing
 @testable import MuninnCore
 
+let SEED = "We agreed to move the Henderson launch to March."
+
 final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Reply {
-        var status: Int
-        var body: String
+        var status = 0
+        var body = ""
+        var failure: URLError?
     }
 
     private static let lock = NSLock()
@@ -52,6 +55,10 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.captured.append(request)
         let reply = Self.replies.isEmpty ? Reply(status: 500, body: "no stubbed reply") : Self.replies.removeFirst()
         Self.lock.unlock()
+        if let failure = reply.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
@@ -189,29 +196,86 @@ struct LLMClientTests {
         await #expect(throws: LLMError.refused("cyber")) { try await Self.claude().complete(Self.request) }
     }
 
-    @Test func claudeHTTPError() async throws {
+    static let messagesRequest = RequestFacts(method: "POST", path: "/v1/messages", host: "api.anthropic.com")
+    static let chatRequest = RequestFacts(method: "POST", path: "/api/chat", host: "127.0.0.1")
+
+    static func localOllama() -> OllamaClient {
+        OllamaClient(baseURL: URL(string: "http://127.0.0.1:11434")!, model: "qwen3:8b", keepAlive: "0", session: StubURLProtocol.session())
+    }
+
+    @Test func claudeHTTPErrorWithoutAKnownTypeUsesTheStatus() async throws {
         StubURLProtocol.reset([.init(status: 401, body: #"{"error":"bad key"}"#)])
-        await #expect(throws: LLMError.http(401, #"{"error":"bad key"}"#)) { try await Self.claude().complete(Self.request) }
-    }
-
-    @Test func httpErrorBodyIsTruncated() async throws {
-        StubURLProtocol.reset([.init(status: 500, body: String(repeating: "x", count: 900))])
-        do {
-            _ = try await Self.claude().complete(Self.request)
-            Issue.record("Expected an error")
-        } catch let LLMError.http(status, body) {
-            #expect(status == 500)
-            #expect(body.count == 500)
+        await #expect(throws: LLMError.http(status: 401, category: .unauthorized, request: Self.messagesRequest)) {
+            try await Self.claude().complete(Self.request)
         }
     }
 
-    @Test func claudeDecodingError() async throws {
-        StubURLProtocol.reset([.init(status: 200, body: "not json")])
-        do {
-            _ = try await Self.claude().complete(Self.request)
-            Issue.record("Expected an error")
-        } catch LLMError.decoding {
-        }
+    @Test func httpErrorKeepsNoBodyText() async {
+        StubURLProtocol.reset([.init(status: 400, body: #"{"type":"error","error":{"type":"invalid_request_error","message":"\#(SEED)"}}"#)])
+        let error = await #expect(throws: LLMError.self) { try await Self.claude().complete(Self.request) }
+        #expect(error == .http(status: 400, category: .badRequest, request: Self.messagesRequest))
+        #expect(!String(reflecting: error!).contains("Henderson"))
+    }
+
+    @Test func ollamaModelNotFoundIsClassified() async {
+        StubURLProtocol.reset([.init(status: 404, body: #"{"error":"model 'qwen3:8b' not found, try pulling it first. \#(SEED)"}"#)])
+        let error = await #expect(throws: LLMError.self) { try await Self.localOllama().complete(Self.request) }
+        #expect(error == .http(status: 404, category: .modelNotFound, request: Self.chatRequest))
+        #expect(!String(reflecting: error!).contains("Henderson"))
+    }
+
+    @Test(arguments: [
+        (401, "authentication_error", ProviderErrorCategory.unauthorized), (403, "permission_error", .unauthorized),
+        (429, "rate_limit_error", .rateLimited), (529, "overloaded_error", .overloaded), (500, "api_error", .serverError),
+        (404, "not_found_error", .modelNotFound),
+    ])
+    func anthropicErrorTypesMapToCategories(status: Int, type: String, category: ProviderErrorCategory) {
+        let body = Data(#"{"type":"error","error":{"type":"\#(type)","message":"x"}}"#.utf8)
+        #expect(ProviderErrorClassifier.category(status: status, body: body, provider: .anthropic) == category)
+    }
+
+    @Test func promptTooLongIsContextTooLong() {
+        let body = Data(#"{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens"}}"#.utf8)
+        #expect(ProviderErrorClassifier.category(status: 400, body: body, provider: .anthropic) == .contextTooLong)
+    }
+
+    @Test(arguments: [
+        ("model_not_found", ProviderErrorCategory.modelNotFound), ("context_length_exceeded", .contextTooLong), ("invalid_api_key", .unauthorized),
+    ])
+    func openAICompatibleCodesMapToCategories(code: String, category: ProviderErrorCategory) {
+        let body = Data(#"{"error":{"code":"\#(code)","message":"x"}}"#.utf8)
+        #expect(ProviderErrorClassifier.category(status: 400, body: body, provider: .openAICompatible) == category)
+    }
+
+    @Test(arguments: [(401, ProviderErrorCategory.unauthorized), (429, .rateLimited), (503, .overloaded), (500, .serverError), (418, .unknown)])
+    func statusFallbacks(status: Int, category: ProviderErrorCategory) {
+        #expect(ProviderErrorClassifier.category(status: status, body: Data("<html>".utf8), provider: .anthropic) == category)
+    }
+
+    @Test func aMissingModelIs404OnlyForLocalEngines() {
+        let body = Data("<html>".utf8)
+        #expect(ProviderErrorClassifier.category(status: 404, body: body, provider: .ollama) == .modelNotFound)
+        #expect(ProviderErrorClassifier.category(status: 404, body: body, provider: .openAICompatible) == .modelNotFound)
+        #expect(ProviderErrorClassifier.category(status: 404, body: body, provider: .anthropic) == .unknown)
+    }
+
+    @Test func connectionFailureCarriesCodeAndRequest() async {
+        StubURLProtocol.reset([.init(failure: URLError(.cannotConnectToHost))])
+        let error = await #expect(throws: LLMError.self) { try await Self.localOllama().complete(Self.request) }
+        #expect(error == .connection(code: -1004, request: Self.chatRequest))
+    }
+
+    @Test func cancellationStaysACancellation() async {
+        StubURLProtocol.reset([.init(failure: URLError(.cancelled))])
+        let error = await #expect(throws: URLError.self) { try await Self.localOllama().complete(Self.request) }
+        #expect(error?.code == .cancelled)
+    }
+
+    @Test func decodingErrorKeepsNoText() async {
+        StubURLProtocol.reset([.init(status: 200, body: "not json \(SEED)")])
+        let error = await #expect(throws: LLMError.self) { try await Self.claude().complete(Self.request) }
+        #expect(error == .decoding)
+        #expect(!String(reflecting: error!).contains("Henderson"))
     }
 
     @Test func ollamaRequestShape() async throws {
@@ -369,7 +433,9 @@ struct LLMClientTests {
     @Test func openAIHTTPError() async throws {
         StubURLProtocol.reset([.init(status: 503, body: "down")])
         let client = OpenAICompatibleClient(baseURL: URL(string: "http://localhost:1234")!, model: "m", apiKey: nil, session: StubURLProtocol.session())
-        await #expect(throws: LLMError.http(503, "down")) { try await client.complete(Self.request) }
+        await #expect(throws: LLMError.http(
+            status: 503, category: .overloaded, request: RequestFacts(method: "POST", path: "/v1/chat/completions", host: "localhost")
+        )) { try await client.complete(Self.request) }
     }
 }
 
@@ -503,7 +569,7 @@ struct LLMSummarizerTests {
     }
 
     @Test func summarizerKeepsFirstWhenRetryFails() async throws {
-        let client = ScriptedClient([.success(Self.reply(sources: [1])), .failure(LLMError.http(529, ""))])
+        let client = ScriptedClient([.success(Self.reply(sources: [1])), .failure(LLMError.http(status: 529, category: .overloaded, request: RequestFacts(method: "POST", path: "/v1/messages")))])
         let summary = try await Self.summarizer(client).summarize(
             meeting: Self.flaggedMeeting, transcript: SummaryTests.transcript, clean: SummaryTests.clean, engine: .claude
         )
@@ -575,7 +641,7 @@ struct LLMTranscriptCleanerTests {
 
     @Test func llmCleanerBatchesAndFallsBackPerBatch() async throws {
         let transcript = Self.transcript(["one", "two", "three"])
-        let client = ScriptedClient([.success(#"{"segments":[{"id":1,"text":"One."},{"id":2,"text":"Two."}]}"#), .failure(LLMError.http(500, "boom"))])
+        let client = ScriptedClient([.success(#"{"segments":[{"id":1,"text":"One."},{"id":2,"text":"Two."}]}"#), .failure(LLMError.http(status: 500, category: .serverError, request: RequestFacts(method: "POST", path: "/api/chat")))])
         let clean = try await LLMTranscriptCleaner(client: client, batchSize: 2).clean(transcript)
         #expect(client.requests.count == 2)
         #expect(clean.segments.map(\.text) == ["One.", "Two.", RuleCleaner.clean("three")])
