@@ -40,7 +40,7 @@ Run all of these outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Appli
 2. **Outside text that looks harmless**: a Graph or OAuth code Muninn doesn't know (a sentence, or a plausible identifier), a request path with a long event id or a key in a configured base URL, a `DecodingError` describing a reply. None reaches a problem, the Activity file or a copy. Pinned in Task 1 (`detailsRedactEveryStringField`), Task 2 (`graphHTTPErrorKeepsOnlyAKnownCode`, `requestFactsHideLongIdentifiers`, `decodingErrorKeepsNoText`) and Task 7 (`recordRedactsBeforeWriting`).
 3. **A torn or oversized activity file** after a crash mid-write or a long-running Mac: unreadable lines are skipped, the file is trimmed, the window still opens. Pinned in Task 7 (`unreadableLinesAreSkipped`, `fileStaysUnderTheCap`).
 4. **Launch with old failed meetings, and announcements during a recording**: no burst of "Needs attention" notifications at launch, and a meeting that recovers while the owner records is never announced. Pinned in Task 8 (`meetingsAlreadyNeedingAttentionAtLaunchAreNotAnnounced`, `aMeetingThatRecoversDuringTheRecordingIsNotAnnounced`).
-5. **Try again on a failed meeting while another is processing**: it shows "Waiting its turn" with its position, not the old failure, and a meeting's wait reason still wins over its queue position. Pinned in Task 8 (`retriedFailureShowsAsQueued`, `waitWinsOverQueue`).
+5. **Try again on a failed meeting while another is processing**: it shows "Waiting its turn" with its position, not the old failure, a meeting's wait reason still wins over its queue position, and a wait that has cleared shows its position while another meeting runs. Pinned in Task 6 (`requeueingProbesWhileAnotherMeetingRuns`) and Task 8 (`retriedFailureShowsAsQueued`, `waitWinsOverQueue`, `aClearedWaitShowsItsQueuePosition`).
 
 ## Rulings made while planning
 
@@ -62,8 +62,8 @@ Decisions the spec leaves to the builder or does not settle. Record them under "
 14. Calendar fetch failures, server reachability and Keychain read failures are recorded when they change, not on every retry.
 15. "Getting the speech model ready" shows for the first load of a model in each session, whether it downloads or loads from disk.
 16. "Sign in again" opens the Accounts settings pane, where the sign-in sheet lives.
-17. The 15-second loop queues waiting meetings without waiting for them to run, so a long job never delays the next re-check; a queued meeting is never queued twice.
-18. Every channel uses the problem card; Settings, popovers and the recording surfaces use its compact layout, which keeps the actions, Copy details and Show in Activity. A field's validation message is a compact card with a title only.
+17. The 15-second loop probes the engines outside the processing queue and queues waiting meetings without waiting for them to run: a meeting whose wait has cleared shows "Waiting its turn" at once, even while another meeting is being processed, and runs as soon as its turn comes. The run's own decision stays authoritative. A queued meeting is never queued twice.
+18. Every channel uses the problem card; Settings, popovers and the recording surfaces use its compact layout, which keeps the actions, Copy details and Show in Activity. A field's validation message is a compact card with a title only. A channel whose context makes a catalogue action meaningless swaps the actions with `Problem.with(actions:)` and supplies a handler for each it shows.
 
 ## File map
 
@@ -138,7 +138,7 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
 
   - `struct ProblemDetails` — all optional, all defaulted in `init`: `errorDomain: String?`, `errorCode: Int?`, `request: RequestFacts?`, `httpStatus: Int?`, `engine: EngineKind?`, `provider: Provider?`, `model: String?`, `category: ProviderErrorCategory?`, `graphCode: String?`, `path: String?`, `stage: ProblemStage?`, `elapsedSeconds: Double?`, `appVersion: String?`, `osVersion: String?`, `fromEarlierVersion: Bool = false`. Methods `redacted() -> ProblemDetails` (every string field, `request`'s three included, through `Redaction.redact`), `lines(includeHost: Bool) -> [String]` (built from `redacted()`) and `text(includeHost: Bool) -> String` (lines joined by `\n`). Line formats, each only when its field is set, in this order: `Error: <domain> <code>`; `Request: <METHOD> <path>` plus ` on <host>` when `includeHost`; `HTTP status: <n>`; `Engine: <engine.displayName>`; `Provider: <provider.label>`; `Model: <model>`; `Category: <category.rawValue>`; `Microsoft Graph code: <code>`; `File: <path>`; `Stage: <stage.phrase>`; `Elapsed: <one decimal> s`; `From an earlier version of Muninn`; `Muninn <appVersion> · macOS <osVersion>` (when both set).
   - `public enum Redaction { static let marker = "[redacted]"; static func redact(_ text: String) -> String }` — replaces matches of `sk-ant-[A-Za-z0-9_\-]{8,}`, `sk-[A-Za-z0-9_\-]{16,}`, `(?i)bearer\s+[A-Za-z0-9._~+/=\-]{8,}`, `eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}` and `[A-Za-z0-9+/_]{40,}={0,2}` with the marker.
-  - `struct Problem { var severity: ActivityLevel; var title: String; var explanation: String; var actions: [ProblemAction]; var details: ProblemDetails; init(severity:title:explanation:actions:details: = ProblemDetails()) }`
+  - `struct Problem { var severity: ActivityLevel; var title: String; var explanation: String; var actions: [ProblemAction]; var details: ProblemDetails; init(severity:title:explanation:actions:details: = ProblemDetails()); func with(actions: [ProblemAction]) -> Problem }` — `with(actions:)` returns a copy with other actions, for a channel where the catalogue's actions don't apply (a card only shows actions it has a handler for).
   - `struct SystemInfo: Equatable, Sendable { var appVersion: String; var osVersion: String; static var current: SystemInfo }` — `appVersion` is `"<CFBundleShortVersionString> (<CFBundleVersion>)"` from `Bundle.main`, falling back to `MuninnVersion.current`; `osVersion` is `major.minor[.patch]` from `ProcessInfo`.
   - `struct ProblemContext: Sendable { var stage: ProblemStage; var engine: EngineKind?; var endpointAPI: EndpointAPI?; var model: String?; var claudeKeyPresent: Bool; var accountName: String?; var subject: String?; var elapsed: TimeInterval? }` with a memberwise `init` where everything but `stage` is defaulted (`claudeKeyPresent` to `false`), and `static func engine(_ engine: EngineKind, settings: Settings, stage: ProblemStage, claudeKeyPresent: Bool, elapsed: TimeInterval? = nil) -> ProblemContext` filling `endpointAPI` and `model` from `settings.macbook`/`settings.studio`, or `model` from `settings.claudeModel` for Claude.
   - `protocol ProblemConvertible: Error { func problem(in context: ProblemContext) -> Problem }`
@@ -254,6 +254,10 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
     let context = ProblemContext.engine(.studio, settings: .defaults, stage: .writingRecap, claudeKeyPresent: false)
     #expect(context.model == "gpt-oss:20b" && context.endpointAPI == .ollama)
     #expect(ProblemContext.engine(.claude, settings: .defaults, stage: .writingRecap, claudeKeyPresent: true).model == "claude-opus-5-5")
+}
+@Test func withActionsReplacesOnlyTheActions() {
+    let problem = Problems.keychainUnreadable().with(actions: [.tryAgain])
+    #expect(problem.actions == [.tryAgain] && problem.title == Problems.keychainUnreadable().title)
 }
 @Test func regenerationFailedKeepsTheCause() {
     let cause = Problems.claudeBusy()
@@ -434,7 +438,7 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
 - Produces:
   - `public enum PipelineStage: String, Codable, Hashable, Sendable, CaseIterable { case transcribing, identifyingSpeakers, cleaningUp, writingRecap }` with `step: Int` (1–4), `title: String` ("Transcribing", "Telling the speakers apart", "Cleaning up the transcript", "Writing the recap"), `stepLabel: String` ("Transcribed", "Speakers", "Cleaned up", "Recap"), `problemStage: ProblemStage` (the same-named case), `savedThing: String` ("the transcript", "the transcript", "the clean transcript", "the recap").
   - `public struct PipelineWork: Equatable, Sendable { var meetingID: MeetingID; var stage: PipelineStage; var engine: EngineKind?; var stageStartedAt: Date }`
-  - `public struct PipelineSnapshot: Equatable, Sendable { var current: PipelineWork?; var queued: [MeetingID]; static let idle }`
+  - `public struct PipelineSnapshot: Equatable, Sendable { var current: PipelineWork?; var queued: [MeetingID]; var clearedWaits: Set<MeetingID> = []; static let idle }` — `clearedWaits` is filled in Task 6; it is always a subset of `queued`.
   - `ProcessingPipeline.setOnSnapshot(_ handler: (@Sendable (PipelineSnapshot) -> Void)?)` and `ProcessingPipeline.snapshot() -> PipelineSnapshot`. The handler is called on every change of the snapshot, never with an unchanged one.
 - Behaviour: `Job` gets `let id: MeetingID`. `queued` is the ids of jobs in `turnOrder`, oldest first. A job leaves `queued` when it gets its turn. `current` is set where the pipeline writes `.transcribing` (engine nil), `.diarizing` (`identifyingSpeakers`, nil), `.cleaning` (`cleaningUp`; the decision's engine when `settings.useLLMCleanup` and the decision is `.run`, else nil) and `.summarizing` (`writingRecap`, the decision's engine), with `stageStartedAt = clock()`. `current` returns to nil when the job ends, however it ends.
 
@@ -546,7 +550,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 - Modify: `Packages/MuninnCore/Sources/MuninnCore/Pipeline/ProcessingPipeline.swift`
 - Create: `Packages/MuninnCore/Sources/MuninnCore/Pipeline/WaitRetry.swift`
 - Modify (compile only): `Muninn/Views/Formatting.swift` (`WaitReason.text`), `Muninn/Views/SummaryEditor.swift`
-- Test: `EngineSelectorTests.swift`, `PipelineTests.swift`, `ProblemTests.swift`
+- Test: `EngineSelectorTests.swift`, `PipelineTests.swift` (give `FakeProbe` a `calls` counter), `ProblemTests.swift`
 
 **Interfaces:**
 - Produces:
@@ -555,7 +559,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `EngineSelector` rules: any decision that would run `.macbook` (preferred, forced, or the fallback from the Network Mac) becomes `.wait(.thisMacUnreachable)` when `!thisMacReachable`, except that a preferred Network Mac that is down keeps its own wait (`studioUnreachable` / `studioNotConfigured`). Reachability is checked before memory pressure. Claude (preferred or forced) waits `.claudeKeyUnreadable` when `claudeKeyUnreadable`, before checking `claudeKeyPresent`. A running recording still turns a `.macbook` run into `.wait(.recording)`.
   - `Problems.waiting` covers the new reasons: `thisMacUnreachable` → `thisMacServerNotRunning(api:claudeKeyPresent:waiting: true)` with severity `warning`; `claudeKeyUnreadable` → `keychainUnreadable` copy, severity `warning`, actions `engineSettings, writeOnThisMac`. `Problems.keptRecap` sentences: `thisMacUnreachable` → "Ollama isn't running on This Mac" / "The model server on This Mac isn't running" by `api`; `claudeKeyUnreadable` → "Muninn couldn't read the Claude key".
   - `ProcessingPipeline.resumeWaiting(only reasons: Set<WaitReason>? = nil)` resubmits only meetings waiting for one of `reasons` (all waiting meetings when nil) and awaits them, as today.
-  - `ProcessingPipeline.requeueWaiting(only reasons: Set<WaitReason>? = nil)` queues the same meetings, oldest first, and returns without awaiting them; a meeting already queued is not queued again (the existing `enqueue` deduplication). The lifecycle loop uses it (Task 14).
+  - `ProcessingPipeline.requeueWaiting(only reasons: Set<WaitReason>? = nil)` probes the environment once (`probe.environment(settings:)` plus `isRecording()`), without taking a turn. For each meeting waiting for one of `reasons`, oldest first, it puts the meeting's id in the snapshot's `clearedWaits` when `EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment:)` is no longer `.wait(<its reason>)`, and queues it; a meeting already queued is not queued again (the existing `enqueue` deduplication). It returns without awaiting the jobs. A job leaving `queued` (its turn starting) also leaves `clearedWaits`, and a later probe that finds the reason back removes it. The lifecycle loop uses it (Task 14).
   - `public enum WaitRetry { static let interval: Duration = .seconds(15); static let quickReasons: Set<WaitReason> = [.thisMacUnreachable, .studioUnreachable]; static func reasons(forTick tick: Int) -> Set<WaitReason>? }` — nil (everything) when `tick % 4 == 0`, else `quickReasons`.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -578,13 +582,17 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
     await pipeline.resumeWaiting(only: [.thisMacUnreachable])
     // A is .ready, B still .waiting(.claudeKeyMissing)
 }
-@Test func requeueingDoesNotWaitForRunningWork() async throws {
-    // A blocked in the summariser; B .waiting(.thisMacUnreachable)
+@Test func requeueingProbesWhileAnotherMeetingRuns() async throws {
+    // A blocked in the summariser; B .waiting(.thisMacUnreachable); the probe now says This Mac is reachable
+    let probesBefore = probe.calls.get()
     await pipeline.requeueWaiting(only: WaitRetry.quickReasons)   // returns while A is still blocked
     await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+    #expect(probe.calls.get() >= probesBefore + 2)
     #expect(await pipeline.snapshot().queued == [b])
-    // release A → B runs and, with This Mac reachable, ends .ready
+    #expect(await pipeline.snapshot().clearedWaits == [b])
+    // release A → B runs, ends .ready, and leaves queued and clearedWaits
 }
+@Test func aWaitThatHasNotClearedIsQueuedButNotCleared() async throws { /* A blocked; This Mac still down → queued == [b], clearedWaits == [] */ }
 @Test func startingTheServerClearsTheWait() async throws {
     // probe thisMacReachable false → process → .waiting(.thisMacUnreachable)
     // probe thisMacReachable true → resumeWaiting(only: WaitRetry.reasons(forTick: 1)) → .ready
@@ -680,7 +688,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `public struct SpeechModelPreparation: Equatable, Sendable { var model: String; var fraction: Double? }` (nil fraction = indeterminate).
   - `public enum MeetingProgress: Equatable, Sendable { case none; case queued(ahead: Int); case working(PipelineWork); case preparingSpeechModel(SpeechModelPreparation); case waiting(WaitReason); case failed(Problem) }`
   - `public enum ProcessingDisplay`:
-    - `static func progress(for meeting: Meeting, snapshot: PipelineSnapshot, speechModel: SpeechModelPreparation?) -> MeetingProgress`. In order: `current?.meetingID == meeting.id` → `.preparingSpeechModel` when the stage is `.transcribing` and `speechModel` is set, else `.working(current)`; status `.waiting(r)` → `.waiting(r)`; id in `queued` → `.queued(ahead: index + (current == nil ? 0 : 1))`; status `.failed(p)` → `.failed(p)`; status `.transcribing`, `.diarizing`, `.cleaning` or `.summarizing` → `.queued(ahead: queued.count + (current == nil ? 0 : 1))`; otherwise `.none`.
+    - `static func progress(for meeting: Meeting, snapshot: PipelineSnapshot, speechModel: SpeechModelPreparation?) -> MeetingProgress`. In order: `current?.meetingID == meeting.id` → `.preparingSpeechModel` when the stage is `.transcribing` and `speechModel` is set, else `.working(current)`; status `.waiting(r)` → `.waiting(r)`, unless the id is in `clearedWaits`, which falls through to the next rule; id in `queued` → `.queued(ahead: index + (current == nil ? 0 : 1))`; status `.failed(p)` → `.failed(p)`; status `.transcribing`, `.diarizing`, `.cleaning` or `.summarizing` → `.queued(ahead: queued.count + (current == nil ? 0 : 1))`; otherwise `.none`.
     - `static func workLine(meetings: [Meeting], snapshot: PipelineSnapshot) -> String?` — "\(stage.title) · \(meeting title) · step \(step) of 4", nil when idle or the meeting is unknown.
     - `static func attentionLine(count: Int) -> String?` — nil for 0, "1 meeting needs attention", "\(n) meetings need attention".
     - `static func attentionReason(_ meeting: Meeting, api: EndpointAPI) -> String?` — the failure's title, the wait's `Problems.waiting(…).title`, or the problem notice's title; nil when the meeting doesn't need attention.
@@ -696,6 +704,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 }
 @Test func retriedFailureShowsAsQueued() { /* c .failed(p) in queued → .queued(ahead: 2); not queued → .failed(p) */ }
 @Test func waitWinsOverQueue() { /* c .waiting(.thisMacUnreachable) in queued → .waiting(.thisMacUnreachable) */ }
+@Test func aClearedWaitShowsItsQueuePosition() { /* c .waiting(.thisMacUnreachable) in queued and clearedWaits, a running → .queued(ahead: 2) */ }
 @Test func currentWorkShowsTheStage() { /* a, stage .writingRecap, engine .claude → .working(that work) */ }
 @Test func speechModelPreparationShowsWhileTranscribing() { /* a at .transcribing with SpeechModelPreparation(model: "Parakeet v3", fraction: 0.4) → .preparingSpeechModel; at .writingRecap → .working */ }
 @Test func processingStatusOutsideTheQueueReadsAsWaitingItsTurn() { /* .transcribing, snapshot .idle → .queued(ahead: 0) */ }
@@ -1020,8 +1029,9 @@ func darkRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette
   | `linkNotSaved(error)` | The draft was created, but Muninn couldn't save its link | Find the draft in Outlook's Drafts. (details translated from `error`) |
 
 - Notices: auto-file `.unsourced(n)` → `Problems.notFiledAutomatically(unsourced: n)`; `.vaultNotChosen` → `Problems.vaultNotChosen()`; a draft without a link → `Problems.draftWithoutLink()`; an event left unchanged → `Problems.eventNotChanged()`.
+- Retrying a meeting action: `perform` remembers the stage of a failed draft or export in `failedActions: [MeetingID: ProblemStage]`; `retryAction(_ id:)` runs `createDraft` or `exportToObsidian` again. The `actionErrors` card's handlers: `tryAgain` → `retryAction` (none for a failed event change: the popover is the retry), `signInAgain` → the Accounts pane, `engineSettings` → the Engines pane.
 - `MeetingDetail`: `saveError: Problem?` (summary and meeting edits translated at stage `.savingEdits`, subject "your changes"); the three banners become `ProblemCard`s (`actionErrors` and notices dismissible; the save error's `tryAgain` is the existing `saveRetry`).
-- Settings (every card compact, each problem with `showInActivity`): `saveSettings` sets `settingsProblem` (translated at `.savingSettings`), keeps the settings it failed to save in `failedSettings: MuninnCore.Settings?` and records the problem; `SettingsView` shows the card above the tabs with `tryAgain` → `saveSettings(failedSettings)` and a dismiss. `ClaudeSection`: key read → `Problems.keychainUnreadable(details:)` with `tryAgain` → read again; save and remove → `Problems.keychainUnwritable(details:)` with `tryAgain` → repeat the save or removal; each with the `KeychainError` status as `errorCode`. `AccountsTab`: token removal → `keychainUnwritable` with `tryAgain` → remove again; an unreadable account status `.unreadable(Problem)` with `tryAgain` → reload the statuses; missing client ID or tenant → `Problem.notice("Enter a client ID and tenant for \(name) first")`; removal refusals → `Problem.notice(AccountManagement.removalRefusal(…))`. `DebouncedText` shows its validation message as `Problem.notice`. `RecordingTab` shows `hotkeyError` (no actions: the explanation points at the field above it).
+- Settings (every card compact, each problem with `showInActivity`): `saveSettings` sets `settingsProblem` (translated at `.savingSettings`), keeps the settings it failed to save in `failedSettings: MuninnCore.Settings?` and records the problem; `SettingsView` shows the card above the tabs with `tryAgain` → `saveSettings(failedSettings)` and a dismiss. `ClaudeSection`: key read → `Problems.keychainUnreadable(details:).with(actions: [.tryAgain])` with `tryAgain` → read again; save and remove → `Problems.keychainUnwritable(details:)` with `tryAgain` → repeat the save or removal; each with the `KeychainError` status as `errorCode`. `AccountsTab`: token removal → `keychainUnwritable` with `tryAgain` → remove again; an unreadable account status `.unreadable(Problem)` (the translated `KeychainError`, `.with(actions: [.tryAgain])`) with `tryAgain` → reload the statuses; missing client ID or tenant → `Problem.notice("Enter a client ID and tenant for \(name) first")`; removal refusals → `Problem.notice(AccountManagement.removalRefusal(…))`. `DebouncedText` shows its validation message as `Problem.notice`. `RecordingTab` shows `hotkeyError` (no actions: the explanation points at the field above it).
 - Sign-in: `SignInFlow.Phase.failed(Problem)` — device-code and polling failures translated at `.signingIn` with the account's display name; storing the tokens → `Problems.keychainUnwritable(details:)`; the profile read → translated at `.signingIn`. The sheet shows a `ProblemCard` whose `tryAgain` is `retry()`. `SignInFlow.describe` and `keychainMessage` are removed.
 - Change-event popover: `eventsAround` returns `failures: [Problem]` (translated per account at `.readingCalendar`); each shows as a compact `ProblemCard` with `tryAgain` → reload the events, `signInAgain` → the Accounts settings pane, and `showInActivity`.
 - Recording: `RecordingNotice { var problems: [Problem]; var isError: Bool { problems.contains { $0.severity == .problem } } }`; `post(_ problem: Problem)` appends unless a problem with the same title is already there. Call sites: start failure → `Problems.recordingDidNotStart(details:)` with the translated details (stage `.recording`), stored both as the meeting's `.failed` status and in the notice; flag save → translated, subject "the flag"; saving the meeting end → translated, subject "the end of the recording"; removing an unused meeting → translated at `.deletingMeeting`; write errors at stop → `Problems.recordingPartlyUnsaved(tracks:)`; a `.writeFailed` interruption → `Problems.recordingTrackStopped(track:)` ("microphone" or "call audio"); no call audio → `Problems.noCallAudio(app:)`; hotkey → `Problems.hotkeyInUse(keys:)` for `HotkeyError.status`, `Problems.hotkeyUnsupported(keys:)` for `.unsupported`, with `HotkeyText.format`. The interruption reason strings stay in `os.Logger` only. The call prompt shows the first problem as a compact `ProblemCard` (with `recordingSettings` → the Recording settings pane, and `showInActivity`), "+\(n) more" when there are more, and "Dismiss"; the pill shows the titles; the menu shows each title as `Text`, then "Show in Activity" when any is a problem, and "Dismiss".
