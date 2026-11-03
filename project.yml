@@ -1,0 +1,52 @@
+name: Muninn
+options:
+  bundleIdPrefix: com.michaelrigart
+  deploymentTarget:
+    macOS: "26.0"
+packages:
+  MuninnCore:
+    path: Packages/MuninnCore
+  MuninnPlatform:
+    path: Packages/MuninnPlatform
+targets:
+  Muninn:
+    type: application
+    platform: macOS
+    sources: [Muninn]
+    dependencies:
+      - package: MuninnCore
+      - package: MuninnPlatform
+        products: [MuninnAudio, MuninnSpeech, MuninnSystem]
+    info:
+      path: Muninn/Info.plist
+      properties:
+        CFBundleDisplayName: Muninn
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMultipleInstancesProhibited: true
+        NSMicrophoneUsageDescription: Muninn records your microphone during calls you choose to record.
+        NSAudioCaptureUsageDescription: Muninn records the audio of calls you choose to record.
+        NSLocalNetworkUsageDescription: Muninn connects to your Network Mac's model server on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: Muninn/Muninn.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: com.michaelrigart.muninn
+        ARCHS: arm64
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Manual
+        CURRENT_PROJECT_VERSION: "0"
+        DEVELOPMENT_TEAM: CX4MWR5579
+        ENABLE_DEBUG_DYLIB: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        MARKETING_VERSION: dev
+        OTHER_CODE_SIGN_FLAGS: "--options=runtime"
+        SWIFT_VERSION: "5.0"
+      configs:
+        Release:
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO

@@ -1,8 +1,8 @@
 .DS_Store
 .build/
 .swiftpm/
-/build/
+build/
+Muninn.xcodeproj/
 .superpowers/
 docs/superpowers/runs/
 .claude/.cc-writes/
-Vendor/

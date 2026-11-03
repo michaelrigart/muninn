@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "storage")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "storage")
 
 /// Per-track transcription results kept when a job is held mid-transcription or before diarization. A track that has not been
 /// transcribed yet is nil, so a resume transcribes only what is missing.
