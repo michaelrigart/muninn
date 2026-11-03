@@ -33,12 +33,14 @@ public actor ProcessingPipeline {
     }
 
     private final class Job: @unchecked Sendable {
+        let id: MeetingID
         var request: Request
         var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
         var finished = false
         var turn: CheckedContinuation<Void, Never>?
 
-        init(_ request: Request) {
+        init(_ id: MeetingID, _ request: Request) {
+            self.id = id
             self.request = request
         }
     }
@@ -56,6 +58,9 @@ public actor ProcessingPipeline {
     private var activeJobs: [MeetingID: Int] = [:]
     private var busy = false
     private var turnOrder: [Job] = []
+    private var currentWork: PipelineWork?
+    private var published = PipelineSnapshot.idle
+    private var onSnapshot: (@Sendable (PipelineSnapshot) -> Void)?
 
     public private(set) var onChange: (@Sendable (Meeting) -> Void)?
 
@@ -93,6 +98,27 @@ public actor ProcessingPipeline {
 
     public func setOnChange(_ handler: (@Sendable (Meeting) -> Void)?) {
         onChange = handler
+    }
+
+    /// The handler runs inside the pipeline, once per change of the snapshot, so it must be cheap and must not call back in.
+    public func setOnSnapshot(_ handler: (@Sendable (PipelineSnapshot) -> Void)?) {
+        onSnapshot = handler
+    }
+
+    public func snapshot() -> PipelineSnapshot {
+        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id))
+    }
+
+    private func publishIfChanged() {
+        let latest = snapshot()
+        guard latest != published else { return }
+        published = latest
+        onSnapshot?(latest)
+    }
+
+    private func begin(_ id: MeetingID, _ stage: PipelineStage, engine: EngineKind?, at startedAt: Date) {
+        currentWork = PipelineWork(meetingID: id, stage: stage, engine: engine, stageStartedAt: startedAt)
+        publishIfChanged()
     }
 
     public func process(_ id: MeetingID) async {
@@ -136,10 +162,11 @@ public actor ProcessingPipeline {
             }
             return queued
         }
-        let job = Job(request)
+        let job = Job(id, request)
         queuedJobs[id] = job
         activeJobs[id, default: 0] += 1
         turnOrder.append(job)
+        publishIfChanged()
         Task(priority: .background) { await self.run(id, job) }
         return job
     }
@@ -148,6 +175,8 @@ public actor ProcessingPipeline {
         await acquireTurn(job)
         queuedJobs[id] = nil
         await execute(id, job.request)
+        currentWork = nil
+        publishIfChanged()
         if let remaining = activeJobs[id], remaining > 1 {
             activeJobs[id] = remaining - 1
         } else {
@@ -197,6 +226,7 @@ public actor ProcessingPipeline {
         while !busy, let next = turnOrder.first, let turn = next.turn {
             busy = true
             turnOrder.removeFirst()
+            publishIfChanged()
             next.turn = nil
             turn.resume()
         }
@@ -268,7 +298,9 @@ public actor ProcessingPipeline {
                         $0.status = .transcribing
                         $0.metrics = metrics
                     }
-                    began = clock()
+                    let startedAt = clock()
+                    began = startedAt
+                    begin(id, .transcribing, engine: nil, at: startedAt)
                 }
                 results[track] = try await transcriber.transcribe(audio: store.audioURL(id, track: track), track: track, vocabulary: settings.dictionary)
             }
@@ -282,6 +314,7 @@ public actor ProcessingPipeline {
                 $0.metrics = metrics
             }
             let started = clock()
+            begin(id, .identifyingSpeakers, engine: nil, at: started)
             var micTurns: [SpeakerTurn] = []
             var systemTurns: [SpeakerTurn] = []
             var degradedNotice: String?
@@ -328,7 +361,10 @@ public actor ProcessingPipeline {
                     $0.status = .cleaning
                     $0.metrics = metrics
                 }
+                var cleaningEngine: EngineKind?
+                if settings.useLLMCleanup, case .run(let engine, _, _) = decision { cleaningEngine = engine }
                 let started = clock()
+                begin(id, .cleaningUp, engine: cleaningEngine, at: started)
                 let result = try await cleaner(settings, decision).clean(transcript)
                 metrics.cleanSeconds = clock().timeIntervalSince(started)
                 try store.saveClean(result, transcript: transcript, for: id, speakerNames: meeting.speakerNames, userName: settings.userName)
@@ -358,6 +394,7 @@ public actor ProcessingPipeline {
                 $0.metrics = metrics
             }
             let started = clock()
+            begin(id, .writingRecap, engine: engine, at: started)
             let summary: Summary
             do {
                 summary = try await summarizer.summarize(meeting: meeting, transcript: transcript, clean: clean, engine: engine)

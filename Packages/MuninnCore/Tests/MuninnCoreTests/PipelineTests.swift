@@ -1277,4 +1277,124 @@ struct PipelineTests {
         #expect(duringSecond, "hasJob is false while the second job for the meeting is running")
         #expect(!(await h.pipeline.hasJob(for: h.id)))
     }
+
+    private func recordSnapshots(_ h: Harness) async -> Locked<[PipelineSnapshot]> {
+        let seen = Locked<[PipelineSnapshot]>([])
+        await h.pipeline.setOnSnapshot { snapshot in seen.update { $0.append(snapshot) } }
+        return seen
+    }
+
+    @Test(.timeLimit(.minutes(1))) func snapshotListsQueuedMeetingsInOrder() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        let c = MeetingID(rawValue: "m3")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x")))
+        try h.store.create(Harness.meeting("m3", mode: .call(appBundleID: "x")))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        let second = Task { await pipeline.process(b) }
+        await waitUntil { await pipeline.snapshot().queued == [b] }
+        let third = Task { await pipeline.process(c) }
+        await waitUntil { await pipeline.snapshot().queued == [b, c] }
+
+        let snapshot = await pipeline.snapshot()
+        #expect(snapshot.current?.meetingID == a)
+        #expect(snapshot.current?.stage == .writingRecap)
+        #expect(snapshot.queued == [b, c])
+
+        h.summarizer.released.reach()
+        await first.value
+        await second.value
+        await third.value
+        #expect(await pipeline.snapshot() == .idle)
+    }
+
+    @Test func snapshotFollowsTheStages() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_792_000_500)
+        let h = try await Harness(clock: { startedAt })
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+
+        let snapshots = seen.get()
+        var stages: [PipelineStage] = []
+        for stage in snapshots.compactMap(\.current?.stage) where stages.last != stage {
+            stages.append(stage)
+        }
+        #expect(stages == [.transcribing, .identifyingSpeakers, .cleaningUp, .writingRecap])
+        #expect(snapshots.compactMap(\.current).allSatisfy { $0.meetingID == h.id && $0.stageStartedAt == startedAt })
+        #expect(snapshots.compactMap(\.current).filter { $0.stage == .writingRecap }.allSatisfy { $0.engine == .macbook })
+        #expect(snapshots.compactMap(\.current).filter { $0.stage != .writingRecap && $0.stage != .cleaningUp }.allSatisfy { $0.engine == nil })
+        #expect(snapshots.last == .idle)
+        for (earlier, later) in zip(snapshots, snapshots.dropFirst()) {
+            #expect(earlier != later, "the handler was called with an unchanged snapshot")
+        }
+    }
+
+    @Test func ruleCleanupHasNoEngine() async throws {
+        let h = try await Harness(useLLMCleanup: false)
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        let cleaning = seen.get().compactMap(\.current).filter { $0.stage == .cleaningUp }
+        #expect(!cleaning.isEmpty)
+        #expect(cleaning.allSatisfy { $0.engine == nil })
+    }
+
+    @Test func languageModelCleanupNamesItsEngine() async throws {
+        let h = try await Harness(useLLMCleanup: true)
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        let cleaning = seen.get().compactMap(\.current).filter { $0.stage == .cleaningUp }
+        #expect(!cleaning.isEmpty)
+        #expect(cleaning.allSatisfy { $0.engine == .macbook })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aMeetingQueuedTwiceAppearsOnce() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x")))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        let second = Task { await pipeline.process(b) }
+        await waitForQueuedJob(pipeline, b, callers: 1, engine: nil)
+        let third = Task { await pipeline.process(b) }
+        await waitForQueuedJob(pipeline, b, callers: 2, engine: nil)
+        #expect(await pipeline.snapshot().queued == [b])
+
+        h.summarizer.released.reach()
+        await first.value
+        await second.value
+        await third.value
+    }
+
+    @Test func aFailedJobLeavesTheSnapshotIdle() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.summarizer.failure.set(SummarizerFailure())
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        #expect(seen.get().compactMap(\.current?.stage).last == .writingRecap)
+        #expect(seen.get().last == .idle)
+        #expect(await h.pipeline.snapshot() == .idle)
+    }
+
+    @Test func aJobHeldForARecordingLeavesTheSnapshotIdle() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.recording.set(true)
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        #expect(try h.meetingNow().status == .waiting(.recording))
+        #expect(seen.get().last == .idle)
+    }
 }
