@@ -1294,6 +1294,7 @@ struct PipelineTests {
         h.summarizer.holdFirstCall.set(true)
         let pipeline = h.pipeline
         let a = h.id
+        let seen = await recordSnapshots(h)
         let first = Task { await pipeline.process(a) }
         try await h.summarizer.entered.wait()
         let second = Task { await pipeline.process(b) }
@@ -1311,6 +1312,21 @@ struct PipelineTests {
         await second.value
         await third.value
         #expect(await pipeline.snapshot() == .idle)
+
+        var queues: [[MeetingID]] = []
+        for queue in seen.get().map(\.queued) where queues.last != queue {
+            queues.append(queue)
+        }
+        var expected: ArraySlice<[MeetingID]> = [[b], [b, c], [c], []][...]
+        for queue in queues where queue == expected.first {
+            expected.removeFirst()
+        }
+        #expect(expected.isEmpty, "the handler never saw these queues in order: \(expected); saw \(queues)")
+        // A meeting leaves the queue the moment it gets its turn, before its first stage starts.
+        let snapshots = seen.get()
+        let firstStageOfB = try #require(snapshots.firstIndex { $0.current?.meetingID == b })
+        #expect(snapshots[firstStageOfB - 1].current == nil)
+        #expect(snapshots[firstStageOfB - 1].queued == [c])
     }
 
     @Test func snapshotFollowsTheStages() async throws {
@@ -1391,10 +1407,15 @@ struct PipelineTests {
     @Test func aJobHeldForARecordingLeavesTheSnapshotIdle() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
-        h.recording.set(true)
+        let recording = h.recording
+        h.transcriber.afterTranscribe.set { track in
+            if track == .mic { recording.set(true) }
+        }
         let seen = await recordSnapshots(h)
         await h.pipeline.process(h.id)
         #expect(try h.meetingNow().status == .waiting(.recording))
+        #expect(seen.get().compactMap(\.current?.stage) == [.transcribing])
         #expect(seen.get().last == .idle)
+        #expect(await h.pipeline.snapshot() == .idle)
     }
 }
