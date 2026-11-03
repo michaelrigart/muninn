@@ -6,9 +6,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var recorder: RecordingController?
     static weak var model: AppModel?
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !Self.launchedAsLoginItem else { return }
+        DispatchQueue.main.async { Self.model?.openMeetingsRequest += 1 }
+    }
+
+    /// `hasVisibleWindows` is not trusted: a floating panel such as the recording pill may count as a window, so a Dock click would open nothing.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { Self.model?.openMeetingsRequest += 1 }
+        let hasWindow = sender.windows.contains { !($0 is NSPanel) && $0.styleMask.contains(.titled) && ($0.isVisible || $0.isMiniaturized) }
+        if !hasWindow { Self.model?.openMeetingsRequest += 1 }
         return true
+    }
+
+    private static var launchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return false }
+        return event.eventID == AEEventID(kAEOpenApplication)
+            && event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

@@ -52,7 +52,7 @@ else
   fi
 fi
 
-if [[ "$(plist_value LSUIElement)" == "true" ]]; then
+if /usr/libexec/PlistBuddy -c "Print :LSUIElement" "$plist" >/dev/null 2>&1; then
   fail "LSUIElement is set; Muninn is a regular app"
 fi
 
