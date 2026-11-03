@@ -29,7 +29,7 @@ points at Xcode.
   `scripts/tests/test-verify-app <Release Muninn.app>`
 - Verify a built app: `scripts/verify-app [--team <ID>] <Muninn.app> [<version>]`. It fails on a
   bad signature, entitlements other than exactly `com.apple.security.device.audio-input` (so on
-  every Debug build), `LSUIElement` set to true (Muninn is a regular app), a wrong bundle
+  every Debug build), any `LSUIElement` key (Muninn is a regular app), a wrong bundle
   identifier or version, a missing or empty Microphone or Audio Capture usage description, a
   `muninn-spike` inside the bundle, or (with `--team`) a different `TeamIdentifier`.
 - Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, on the maintainer's Mac only (it

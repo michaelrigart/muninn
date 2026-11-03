@@ -174,7 +174,7 @@ It fails unless:
 - the signature verifies (`codesign --verify --strict`);
 - the entitlements are exactly `com.apple.security.device.audio-input` = true, so a Debug build
   (which carries `get-task-allow`) fails, as Linger's does;
-- `LSUIElement` is not true (Muninn is a regular app) and the bundle identifier is
+- there is no `LSUIElement` key (Muninn is a regular app) and the bundle identifier is
   `com.michaelrigart.muninn`;
 - the Microphone and Audio Capture usage descriptions are present (without them macOS ends the
   app at the first recording);
