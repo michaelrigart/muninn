@@ -19,7 +19,8 @@ struct DiagnosticsTests {
         settings: Settings,
         entries: [ActivityEntry] = [],
         permissions: [PermissionReport] = [],
-        home: String = "/Users/tester"
+        home: String = "/Users/tester",
+        data: String = "/Users/tester/.local/share/muninn"
     ) -> DiagnosticsInput {
         DiagnosticsInput(
             system: SystemInfo(appVersion: "1.2 (3)", osVersion: "26.1"),
@@ -27,7 +28,8 @@ struct DiagnosticsTests {
             settings: settings,
             permissions: permissions,
             entries: entries,
-            homeDirectory: home
+            homeDirectory: home,
+            dataDirectory: data
         )
     }
 
@@ -167,5 +169,58 @@ struct DiagnosticsTests {
     @Test func aLongKeyLikeStringIsRedacted() {
         let text = Diagnostics.text(input(settings: settings(), entries: [entry("key sk-abcdefghijklmnopqrstuvwxyz0123456789")]))
         #expect(!text.contains("abcdefghijkl") && text.contains(Redaction.marker))
+    }
+
+    @Test func everyTitleAMeetingHadMapsToItsOneLabel() {
+        let id = MeetingID(rawValue: "2026-11-04-0900-weekly-sync")
+        let entries = [
+            entry("newer", meeting: ActivityMeeting(id: id, title: "Weekly sync"), at: Self.now),
+            entry("older", meeting: ActivityMeeting(id: id, title: "Henderson renewal"), at: Self.now.addingTimeInterval(-60)),
+        ]
+        let text = Diagnostics.text(input(settings: settings(), entries: entries))
+        #expect(!text.contains("Weekly sync") && !text.contains("Henderson") && !text.contains("weekly-sync"))
+        #expect(text.contains("meeting A · newer") && text.contains("meeting A · older"))
+        #expect(!text.contains("meeting B"))
+    }
+
+    @Test func aPathOutsideMuninnsFolderKeepsOnlyItsExtension() {
+        let outside = ProblemDetails(path: "/Users/tester/Vault/Meetings/Acme/2026-11-03 Henderson Q4 review.md")
+        let bare = ProblemDetails(path: "/Users/tester/Vault/Meetings/Acme/NOTES")
+        let entries = [entry("Could not write the note", details: outside), entry("Could not write the folder", details: bare)]
+        let text = Diagnostics.text(input(settings: settings(), entries: entries))
+        #expect(text.contains("File: [path outside Muninn's folder].md\n"))
+        #expect(text.contains("File: [path outside Muninn's folder]\n") || text.hasSuffix("File: [path outside Muninn's folder]"))
+        #expect(!text.contains("Henderson") && !text.contains("Acme") && !text.contains("Vault"))
+    }
+
+    @Test func aPathInsideMuninnsFolderKeepsItsStructure() {
+        let inside = ProblemDetails(path: "/Users/tester/.local/share/muninn/meetings/\(Self.meetingID)/summary.json")
+        let lookalike = ProblemDetails(path: "/Users/tester/.local/share/muninn-other/Henderson.md")
+        let entries = [entry("Could not read", meeting: quarterly, details: inside), entry("Could not read", details: lookalike)]
+        let text = Diagnostics.text(input(settings: settings(), entries: entries))
+        #expect(text.contains("File: ~/.local/share/muninn/meetings/meeting A/summary.json"))
+        #expect(text.contains("File: [path outside Muninn's folder].md") && !text.contains("Henderson"))
+    }
+
+    @Test func aMeetingIdOnNoShownEntryIsStillMasked() {
+        let details = ProblemDetails(path: "/Users/tester/.local/share/muninn/meetings/2026-11-03-1400-henderson-renewal/meeting.json")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Could not save the meeting", meeting: nil, details: details)]))
+        #expect(!text.contains("henderson"))
+        #expect(text.contains("File: ~/.local/share/muninn/meetings/another meeting/meeting.json"))
+    }
+
+    @Test func aTitleThatMatchesAPathWordCannotBreakOtherMasks() {
+        let users = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-users"), title: "Users")
+        let details = ProblemDetails(path: "/Users/tester/.local/share/muninn/meetings/x/meeting.json")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Looked in /Users/tester/notes", meeting: users, details: details)]))
+        #expect(text.contains("Looked in ~/notes"))
+        #expect(text.contains("File: ~/.local/share/muninn/meetings/x/meeting.json"))
+        #expect(text.contains("Recap · meeting A · Looked in"))
+    }
+
+    @Test func aTitleIsMatchedAsAWholeWordOnly() {
+        let short = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-e"), title: "e")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("the engine e failed", meeting: short)]))
+        #expect(text.contains("the engine meeting A failed"))
     }
 }

@@ -45,7 +45,8 @@ struct TranscriptLeakTests {
 
     private func diagnostics(_ entries: [ActivityEntry]) -> String {
         Diagnostics.text(DiagnosticsInput(
-            system: Self.system, macClass: "Mac15,6", settings: .defaults, permissions: [], entries: entries, homeDirectory: "/Users/tester"
+            system: Self.system, macClass: "Mac15,6", settings: .defaults, permissions: [], entries: entries,
+            homeDirectory: "/Users/tester", dataDirectory: "/Users/tester/.local/share/muninn"
         ))
     }
 

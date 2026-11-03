@@ -17,14 +17,17 @@ public struct DiagnosticsInput: Sendable {
     public var permissions: [PermissionReport]
     public var entries: [ActivityEntry]
     public var homeDirectory: String
+    /// Muninn's data folder; a file path keeps its structure only inside it.
+    public var dataDirectory: String
 
-    public init(system: SystemInfo, macClass: String, settings: Settings, permissions: [PermissionReport], entries: [ActivityEntry], homeDirectory: String) {
+    public init(system: SystemInfo, macClass: String, settings: Settings, permissions: [PermissionReport], entries: [ActivityEntry], homeDirectory: String, dataDirectory: String) {
         self.system = system
         self.macClass = macClass
         self.settings = settings
         self.permissions = permissions
         self.entries = entries
         self.homeDirectory = homeDirectory
+        self.dataDirectory = dataDirectory
     }
 }
 
@@ -42,7 +45,7 @@ public enum Diagnostics {
             masks.apply(to: engines(input.settings)),
             (["Permissions"] + input.permissions.map { "\($0.name): \($0.state)" }).joined(separator: "\n"),
         ]
-        sections.append(masks.apply(to: activity(Array(shown))))
+        sections.append(masks.apply(to: activity(Array(shown), dataDirectory: input.dataDirectory)))
         return sections.joined(separator: "\n\n")
     }
 
@@ -75,7 +78,7 @@ public enum Diagnostics {
         return line
     }
 
-    private static func activity(_ entries: [ActivityEntry]) -> String {
+    private static func activity(_ entries: [ActivityEntry], dataDirectory: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
@@ -86,7 +89,7 @@ public enum Diagnostics {
             if let meeting = entry.meeting { parts.append(meeting.title.isEmpty ? meeting.id.rawValue : meeting.title) }
             parts.append(entry.message)
             lines.append(parts.joined(separator: " · "))
-            for line in entry.details?.lines(includeHost: false) ?? [] {
+            for line in entry.details?.keepingPaths(under: dataDirectory).lines(includeHost: false) ?? [] {
                 lines.append("    " + line)
             }
         }
@@ -94,8 +97,27 @@ public enum Diagnostics {
     }
 }
 
+private extension ProblemDetails {
+    static let outsidePath = "[path outside Muninn's folder]"
+
+    /// A file path outside `directory` can hold a vault, client or meeting name; only its extension stays.
+    func keepingPaths(under directory: String) -> ProblemDetails {
+        guard let path else { return self }
+        var root = directory
+        while root.hasSuffix("/") { root.removeLast() }
+        if !root.isEmpty, path == root || path.hasPrefix(root + "/") { return self }
+        var copy = self
+        let ext = (path as NSString).pathExtension
+        let safe = !ext.isEmpty && ext.count <= 8 && ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        copy.path = safe ? "\(Self.outsidePath).\(ext)" : Self.outsidePath
+        return copy
+    }
+}
+
 private struct Masks {
     private static let email = #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#
+    /// The shape `MeetingID.make` builds, for ids whose meeting is on no shown entry.
+    private static let meetingID = #"\d{4}-\d{2}-\d{2}-\d{4}(?:-[a-z0-9]+)*"#
     private static let ipv4 = #"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d)"#
 
     /// Longest first, so a title that holds an id's words never leaves part of itself behind.
@@ -107,9 +129,9 @@ private struct Masks {
     init(settings: Settings, entries: [ActivityEntry], homeDirectory: String) {
         var meetingLabels: [(text: String, label: String)] = []
         var seen: [String] = []
-        for meeting in entries.compactMap(\.meeting) where !seen.contains(meeting.id.rawValue) {
-            seen.append(meeting.id.rawValue)
-            let label = "meeting \(Self.letters(seen.count - 1))"
+        for meeting in entries.compactMap(\.meeting) {
+            if !seen.contains(meeting.id.rawValue) { seen.append(meeting.id.rawValue) }
+            let label = "meeting \(Self.letters(seen.firstIndex(of: meeting.id.rawValue)!))"
             meetingLabels += [(meeting.id.rawValue, label), (meeting.title, label)]
         }
         meetings = Self.longestFirst(meetingLabels)
@@ -132,19 +154,20 @@ private struct Masks {
 
     func apply(to text: String) -> String {
         var result = text
-        for (string, label) in meetings {
-            result = result.replacingOccurrences(of: string, with: label)
+        if !home.isEmpty {
+            result = Self.replace(NSRegularExpression.escapedPattern(for: home) + #"(?![\w\-])"#, in: result, with: "~")
         }
         result = Self.replace(Self.email, in: result, with: "<email>")
-        for (name, label) in accounts {
-            result = Self.replace(#"(?<!\w)"# + NSRegularExpression.escapedPattern(for: name) + #"(?!\w)"#, in: result, with: label)
-        }
         for host in hosts {
             result = Self.replace(#"(?<![\w\-])"# + NSRegularExpression.escapedPattern(for: host) + #"(?![\w\-])"#, in: result, with: "<host>", options: .caseInsensitive)
         }
         result = Self.replace(Self.ipv4, in: result, with: "<host>")
-        if !home.isEmpty {
-            result = Self.replace(NSRegularExpression.escapedPattern(for: home) + #"(?![\w\-])"#, in: result, with: "~")
+        for (string, label) in meetings {
+            result = Self.replaceWord(string, in: result, with: label)
+        }
+        result = Self.replace(Self.meetingID, in: result, with: "another meeting")
+        for (name, label) in accounts {
+            result = Self.replaceWord(name, in: result, with: label)
         }
         return Redaction.redact(result)
     }
@@ -155,6 +178,10 @@ private struct Masks {
             distinct.append((text, label))
         }
         return distinct.sorted { $0.text.count > $1.text.count }
+    }
+
+    private static func replaceWord(_ word: String, in text: String, with label: String) -> String {
+        replace(#"(?<!\w)"# + NSRegularExpression.escapedPattern(for: word) + #"(?!\w)"#, in: text, with: label)
     }
 
     private static func replace(_ pattern: String, in text: String, with replacement: String, options: NSRegularExpression.Options = []) -> String {
