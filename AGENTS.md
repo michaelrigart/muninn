@@ -35,8 +35,8 @@ points at Xcode.
 - Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, on the maintainer's Mac only (it
   needs the signing certificate and pushes). Use `--dry-run` to check it; never run it for real
   unless the maintainer asks. `--version` resumes a failed release.
-- Regenerate the app icon and menu bar PNGs from `design/*.svg`: `design/render` (needs
-  `rsvg-convert`, Homebrew `librsvg`)
+- Regenerate the app icon and menu bar PNGs from `design/app-icon.svg` and
+  `design/menubar.svg`: `design/render` (needs `rsvg-convert`, Homebrew `librsvg`)
 - Spike CLI (`docs/spike.md`): `swift build -c release --product muninn-spike --package-path Packages/MuninnPlatform`,
   then run `Packages/MuninnPlatform/.build/release/muninn-spike`.
 
