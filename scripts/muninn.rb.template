@@ -1,0 +1,37 @@
+cask "muninn" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/michaelrigart/muninn/releases/download/#{version}/Muninn-#{version}.zip"
+  name "Muninn"
+  desc "Records, transcribes and summarises meetings"
+  homepage "https://github.com/michaelrigart/muninn"
+
+  livecheck do
+    url :url
+    regex(/^(\d{8}-\d{4})$/i)
+    strategy :github_latest
+  end
+
+  depends_on arch: :arm64
+  depends_on macos: :tahoe
+
+  app "Muninn.app"
+
+  uninstall quit: "com.michaelrigart.muninn"
+
+  zap trash: "~/.config/muninn"
+
+  caveats <<~EOS
+    Muninn is signed but not notarized, so macOS blocks its first launch.
+    After the first install, open System Settings > Privacy & Security and
+    choose "Open Anyway" for Muninn. Upgrades should not need this again.
+
+    macOS asks for the Microphone at your first recording, and for System
+    Audio Recording the first time you record a call. The speech models
+    download from Hugging Face the first time they are used.
+
+    Engines, Microsoft accounts and Obsidian are set up in Settings; see
+    https://github.com/michaelrigart/muninn/blob/main/docs/setup.md
+  EOS
+end
