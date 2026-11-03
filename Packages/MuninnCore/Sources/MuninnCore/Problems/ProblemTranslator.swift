@@ -132,8 +132,10 @@ public enum ProblemTranslator {
     private static func complete(_ details: ProblemDetails, for error: Error, in context: ProblemContext, system: SystemInfo) -> ProblemDetails {
         var details = details
         let facts = facts(of: error)
-        details.errorDomain = details.errorDomain ?? facts.domain
-        details.errorCode = details.errorCode ?? facts.code
+        if !(error is ProblemConvertible) {
+            details.errorDomain = details.errorDomain ?? facts.domain
+            details.errorCode = details.errorCode ?? facts.code
+        }
         details.request = details.request ?? facts.request
         details.httpStatus = details.httpStatus ?? facts.httpStatus
         details.category = details.category ?? facts.category

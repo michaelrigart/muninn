@@ -256,6 +256,21 @@ import Testing
         #expect(problem.details.appVersion == "test (1)" && problem.details.osVersion == "26.1")
     }
 
+    private struct Coded: ProblemConvertible {
+        var code: Int?
+
+        func problem(in context: ProblemContext) -> Problem {
+            Problems.keychainUnreadable(details: ProblemDetails(errorDomain: "Own", errorCode: code))
+        }
+    }
+
+    @Test func aConvertibleErrorKeepsItsOwnDomainAndCodeNilIncluded() {
+        let none = translate(Coded(code: nil), ProblemContext(stage: .savingSettings))
+        #expect(none.details.errorDomain == "Own" && none.details.errorCode == nil)
+        let set = translate(Coded(code: 5), ProblemContext(stage: .savingSettings))
+        #expect(set.details.errorDomain == "Own" && set.details.errorCode == 5)
+    }
+
     @Test func fieldsARuleAlreadySetSurvive() {
         let problem = translate(GraphError.notSignedIn, ProblemContext(stage: .readingCalendar, accountName: "Other"))
         #expect(problem.details.account == "Other")

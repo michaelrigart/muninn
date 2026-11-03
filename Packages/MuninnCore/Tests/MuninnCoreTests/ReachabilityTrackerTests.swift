@@ -7,7 +7,7 @@ struct ReachabilityTrackerTests {
 
     private func entries(
         _ tracker: inout ReachabilityTracker,
-        thisMac: Bool = true,
+        thisMac: Bool? = true,
         networkMac: Bool? = nil,
         keyReadable: Bool = true,
         api: EndpointAPI = .ollama
@@ -75,5 +75,20 @@ struct ReachabilityTrackerTests {
         let second = entries(&tracker, thisMac: false, networkMac: false, keyReadable: false)
         #expect(first.count == 1)
         #expect(second.map(\.message) == ["The Network Mac isn't answering", "Muninn couldn't read its saved key"])
+    }
+
+    @Test func anUntrackedThisMacRecordsNothingAndKeepsNoState() {
+        var tracker = ReachabilityTracker()
+        #expect(entries(&tracker, thisMac: nil).isEmpty)
+        #expect(entries(&tracker, thisMac: nil).isEmpty)
+        #expect(entries(&tracker, thisMac: true).isEmpty)
+        #expect(entries(&tracker, thisMac: false).count == 1)
+    }
+
+    @Test func goingUntrackedAndBackDoesNotInventAChange() {
+        var tracker = ReachabilityTracker()
+        _ = entries(&tracker, thisMac: false)
+        _ = entries(&tracker, thisMac: nil)
+        #expect(entries(&tracker, thisMac: false).isEmpty)
     }
 }

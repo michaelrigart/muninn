@@ -9,9 +9,15 @@ public enum KeychainError: Error, Equatable {
 
 extension KeychainError: ProblemConvertible {
     public func problem(in context: ProblemContext) -> Problem {
-        switch self {
-        case .status(let status): Problems.keychainUnreadable(details: ProblemDetails(errorDomain: "Keychain", errorCode: Int(status)))
-        case .invalidData: Problems.keychainUnreadable(details: ProblemDetails(errorDomain: "Keychain"))
+        var details = ProblemDetails(errorDomain: "Keychain")
+        if case .status(let status) = self { details.errorCode = Int(status) }
+        switch context.stage {
+        case .savingSettings:
+            return Problems.keychainUnwritable(details: details)
+        case .signingIn, .creatingDraft, .readingCalendar, .searchingPeople, .changingEvent:
+            return Problems.keychainUnreadable(details: details).with(actions: [.signInAgain])
+        default:
+            return Problems.keychainUnreadable(details: details)
         }
     }
 }

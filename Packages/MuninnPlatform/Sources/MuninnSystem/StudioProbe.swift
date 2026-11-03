@@ -33,6 +33,7 @@ public struct LiveEnvironmentProbe: EnvironmentProbing {
     }
 
     public func environment(settings: Settings) async -> EngineEnvironment {
+        let sequence = tracker.begin()
         let studio = Self.endpointURL(settings.studio)
         let thisMac = Self.endpointURL(settings.macbook)
         async let studioAnswer = reachable(studio)
@@ -49,14 +50,16 @@ public struct LiveEnvironmentProbe: EnvironmentProbing {
         let studioConfigured = EndpointURL.parseBase(settings.studio.baseURL) != nil
         let studioReachable = await studioAnswer
         let thisMacReachable = await thisMacAnswer
-        let entries = tracker.entries(
-            thisMac: thisMacReachable,
+        let thisMacTracked = thisMac != nil && settings.defaultEngine != .claude
+        tracker.apply(
+            sequence,
+            thisMac: thisMacTracked ? thisMacReachable : nil,
             networkMac: studioConfigured ? studioReachable : nil,
             keyReadable: !keyUnreadable,
             api: settings.macbook.api,
-            time: Date()
+            time: Date(),
+            record: activity.record
         )
-        for entry in entries { activity.record(entry) }
         return EngineEnvironment(
             studioConfigured: studioConfigured,
             studioReachable: studioReachable,
@@ -91,14 +94,30 @@ public struct LiveEnvironmentProbe: EnvironmentProbing {
         return (200..<300).contains(http.statusCode)
     }
 
+    /// Overlapping probes can finish out of order; a result older than the last one applied is dropped.
     private final class Tracker: @unchecked Sendable {
         private let lock = NSLock()
         private var tracker = ReachabilityTracker()
+        private var issued = 0
+        private var applied = 0
 
-        func entries(thisMac: Bool, networkMac: Bool?, keyReadable: Bool, api: EndpointAPI, time: Date) -> [ActivityEntry] {
+        func begin() -> Int {
             lock.lock()
             defer { lock.unlock() }
-            return tracker.entries(thisMac: thisMac, networkMac: networkMac, keyReadable: keyReadable, api: api, time: time)
+            issued += 1
+            return issued
+        }
+
+        func apply(
+            _ sequence: Int, thisMac: Bool?, networkMac: Bool?, keyReadable: Bool, api: EndpointAPI, time: Date,
+            record: (ActivityEntry) -> Void
+        ) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard sequence > applied else { return }
+            applied = sequence
+            let entries = tracker.entries(thisMac: thisMac, networkMac: networkMac, keyReadable: keyReadable, api: api, time: time)
+            for entry in entries { record(entry) }
         }
     }
 }

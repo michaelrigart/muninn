@@ -8,8 +8,9 @@ public struct ReachabilityTracker: Sendable {
 
     public init() {}
 
-    /// `networkMac` is nil when the Network Mac isn't configured. A signal's first answer records nothing unless it is down.
-    public mutating func entries(thisMac: Bool, networkMac: Bool?, keyReadable: Bool, api: EndpointAPI, time: Date) -> [ActivityEntry] {
+    /// `thisMac` is nil when This Mac isn't used or has no usable address, and `networkMac` when the Network Mac isn't configured: neither is tracked.
+    /// A signal's first answer records nothing unless it is down.
+    public mutating func entries(thisMac: Bool?, networkMac: Bool?, keyReadable: Bool, api: EndpointAPI, time: Date) -> [ActivityEntry] {
         var entries: [ActivityEntry] = []
         func record(_ previous: inout Bool?, _ now: Bool, down: String, up: String) {
             defer { previous = now }
@@ -20,11 +21,13 @@ public struct ReachabilityTracker: Sendable {
             }
         }
         let ollama = api == .ollama
-        record(
-            &self.thisMac, thisMac,
-            down: Problems.thisMacServerNotRunning(api: api, claudeKeyPresent: false, waiting: true).title,
-            up: ollama ? "Ollama on This Mac is answering again" : "The model server on This Mac is answering again"
-        )
+        if let thisMac {
+            record(
+                &self.thisMac, thisMac,
+                down: Problems.thisMacServerNotRunning(api: api, claudeKeyPresent: false, waiting: true).title,
+                up: ollama ? "Ollama on This Mac is answering again" : "The model server on This Mac is answering again"
+            )
+        }
         if let networkMac {
             record(&self.networkMac, networkMac, down: "The Network Mac isn't answering", up: "The Network Mac is answering again")
         }
