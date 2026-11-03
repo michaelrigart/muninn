@@ -145,6 +145,7 @@ private struct SummarizerFailure: Error {}
 private final class FakeSummarizer: Summarizing, @unchecked Sendable {
     let engines = Locked<[EngineKind]>([])
     let meetings = Locked<[String]>([])
+    let scopes = Locked<[ActivityMeeting?]>([])
     let failure = Locked<Error?>(nil)
     let onSummarize = Locked<(@Sendable () -> Void)?>(nil)
     let gate = Locked<Milestone?>(nil)
@@ -157,6 +158,7 @@ private final class FakeSummarizer: Summarizing, @unchecked Sendable {
         let isFirst = engines.get().isEmpty
         engines.update { $0.append(engine) }
         meetings.update { $0.append(meeting.id.rawValue) }
+        scopes.update { $0.append(ActivityScope.meeting) }
         let hook = onSummarize.get()
         let held = gate.get()
         entered.reach()
@@ -687,6 +689,13 @@ struct PipelineTests {
         let previous = try #require(try h.store.loadPreviousSummary(h.id))
         #expect(previous.edited)
         #expect(previous.engine == .macbook)
+    }
+
+    @Test func workRunsInTheMeetingsActivityScope() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        #expect(h.summarizer.scopes.get() == [ActivityMeeting(id: h.id, title: "Acme sync")])
     }
 
     @Test func meetingLanguageFollowsTheSummary() async throws {

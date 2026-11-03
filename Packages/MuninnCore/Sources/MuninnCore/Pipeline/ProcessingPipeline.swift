@@ -191,7 +191,10 @@ public actor ProcessingPipeline {
     private func run(_ id: MeetingID, _ job: Job) async {
         await acquireTurn(job)
         queuedJobs[id] = nil
-        await execute(id, job.request)
+        let scope = (try? store.load(id)).map { ActivityMeeting(id: $0.id, title: $0.title) }
+        await ActivityScope.$meeting.withValue(scope) {
+            await execute(id, job.request)
+        }
         currentWork = nil
         publishIfChanged()
         if let remaining = activeJobs[id], remaining > 1 {
