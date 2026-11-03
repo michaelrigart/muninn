@@ -7,16 +7,13 @@ where the spec sets no number, this runbook says so and the result goes to the o
 
 ## Before the first run
 
-1. **Vendor FluidAudio, then build.** `Vendor/` is generated and gitignored, so a fresh
-   checkout needs `scripts/vendor-fluidaudio.sh` first (it skips when already present).
-   Timings are only meaningful from a release build.
+1. **Build.** Timings are only meaningful from a release build.
 
    ```sh
-   scripts/vendor-fluidaudio.sh
-   scripts/swiftpm.sh build -c release --product muninn-spike
+   swift build -c release --product muninn-spike --package-path Packages/MuninnPlatform
    ```
 
-   The commands below use `S=.build/release/muninn-spike`.
+   The commands below use `S=Packages/MuninnPlatform/.build/release/muninn-spike`.
 2. **Permissions for the terminal that runs the spike.** macOS grants them to the terminal app
    (for example Terminal), not to the binary.
    - Microphone: the first `record` prompts for it. If it was refused, enable it under System
@@ -37,9 +34,9 @@ where the spec sets no number, this runbook says so and the result goes to the o
    ```json
    { "studio": { "api": "ollama", "baseURL": "http://<network-mac-host>:11434", "model": "gpt-oss:20b", "keepAlive": "10m" } }
    ```
-6. **The Claude key** must be in the Keychain under service `be.netronix.muninn`, account
+6. **The Claude key** must be in the Keychain under service `com.michaelrigart.muninn`, account
    `claude.apiKey`. Save it in the app's Settings window, or run
-   `security add-generic-password -s be.netronix.muninn -a claude.apiKey -w` and type the key at
+   `security add-generic-password -s com.michaelrigart.muninn -a claude.apiKey -w` and type the key at
    the prompt (never on the command line). The `claude` engine sends the transcript off this Mac,
    so it only runs when you pass `--engine claude` yourself.
 7. **Working folder and the background workload.** Keep all output together:
