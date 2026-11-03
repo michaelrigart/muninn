@@ -1680,6 +1680,16 @@ struct PipelineTests {
         #expect(await !h.pipeline.hasJob(for: h.id))
     }
 
+    @Test(.timeLimit(.minutes(1))) func aRecordingHoldIsReleasedWhenNoRecordingRuns() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.recording))
+        h.recording.set(false)
+        await h.pipeline.requeueWaiting(only: nil)
+        await waitUntil { await !h.pipeline.hasJob(for: h.id) }
+        #expect(try status(h, h.id) == .ready)
+    }
+
     @Test(.timeLimit(.minutes(1))) func aQueuedWaitRunsAfterARelaunch() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
