@@ -4,18 +4,17 @@ import PackageDescription
 let swift5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
 let package = Package(
-    name: "Muninn",
+    name: "MuninnPlatform",
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "MuninnAudio", targets: ["MuninnAudio"]),
         .library(name: "MuninnSpeech", targets: ["MuninnSpeech"]),
         .library(name: "MuninnSystem", targets: ["MuninnSystem"]),
-        .executable(name: "Muninn", targets: ["MuninnApp"]),
         .executable(name: "muninn-spike", targets: ["MuninnSpike"]),
     ],
     dependencies: [
-        .package(path: "Packages/MuninnCore"),
-        .package(path: "Vendor/FluidAudio"),
+        .package(path: "../MuninnCore"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7"),
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", exact: "1.1.1"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
     ],
@@ -37,11 +36,6 @@ let package = Package(
         .target(
             name: "MuninnSystem",
             dependencies: ["MuninnCore"],
-            swiftSettings: swift5
-        ),
-        .executableTarget(
-            name: "MuninnApp",
-            dependencies: ["MuninnCore", "MuninnAudio", "MuninnSpeech", "MuninnSystem"],
             swiftSettings: swift5
         ),
         .executableTarget(
