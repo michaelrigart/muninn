@@ -16,19 +16,18 @@ The owner has three macOS menu bar apps and wants them built, installed and rele
 same way, without extra steps.
 
 Hulder and Linger already share a recipe: XcodeGen, `xcodebuild`, install into `/Applications`,
-Personal Team signing, a release script, a Homebrew cask and CI. Muninn was built on 2026-10-23,
-before Xcode was installed, so it uses Command Line Tools workarounds instead:
+Personal Team signing, a release script, a Homebrew cask and CI. Muninn's first build relied on
+Command Line Tools workarounds instead:
 
 - a hand-rolled bundling script;
 - a `swift` wrapper that adds the Swift Testing macro plugin path;
-- FluidAudio vendored without its binary target, because the agent sandbox blocked the
-  download;
+- FluidAudio vendored without its binary target, because the binary download failed in the
+  build environment;
 - an `@ViewState` typealias in place of `@State`;
 - a self-signed "Muninn Local" certificate made by hand in Keychain Access.
 
-Xcode 27.2 is now installed, so none of these workarounds is needed any more. Muninn has never
-been installed or run on this Mac: there are no settings, no data and no Keychain items to
-migrate.
+With the full Xcode, none of these workarounds is needed. Muninn has had no release, so there
+are no installs, settings or Keychain items to migrate.
 
 ## Goals
 
@@ -100,8 +99,8 @@ Muninn takes Hulder's shape:
 - `scripts/bundle-app.sh`, `scripts/swiftpm.sh`, `scripts/Info.plist` and
   `scripts/Muninn.entitlements` go; their content moves into `project.yml` and `Muninn/`.
 - `Sources/MuninnApp/Views/ViewState.swift` goes, and every `@ViewState` becomes `@State`.
-- **First check for the builder:** the upstream FluidAudio package resolves and builds outside
-  the sandbox, including its binary `NemoTextProcessing` target, with the maintainer's Xcode 27.2 and
+- **First check for the builder:** the upstream FluidAudio package resolves and builds,
+  including its binary `NemoTextProcessing` target, with Xcode 27.2 and
   with the Xcode CI selects. If it doesn't, stop and bring it to the owner rather than keeping
   the vendoring.
 
@@ -141,7 +140,7 @@ As Hulder and Linger:
 ### Commands
 
 The same list as Hulder and Linger, in this order, in `AGENTS.md` and (the user-facing ones) in
-the README. All run outside any agent sandbox, prefixed with
+the README. All are prefixed with
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` unless `xcode-select -p` already
 points at Xcode:
 
@@ -284,7 +283,6 @@ for its reason:
 
 ## Constraints
 
-- Builds run outside the agent sandbox, as for the other two.
 - Pushes from the maintainer's Mac use the maintainer's existing git and `gh` credentials.
 - The Personal Team certificate and Apple's WWDR G3 intermediate are already in the maintainer's login
   keychain for Linger and Hulder.

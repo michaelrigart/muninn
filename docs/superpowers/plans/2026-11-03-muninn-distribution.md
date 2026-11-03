@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Every `swift`, `xcodebuild` and script command runs **outside the agent sandbox**, prefixed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (written `$X` below). `xcode-select -p` points at the Command Line Tools on this Mac.
+- Every `swift`, `xcodebuild` and script command is prefixed with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` (written `$X` below), for a machine whose `xcode-select -p` points at the Command Line Tools.
 - Muninn's bundle identifier: `com.michaelrigart.muninn`. Personal Team: `CX4MWR5579`. Identity `Apple Development`, manual signing, no provisioning profile.
 - Deployment target macOS `26.0`; Apple silicon only; Swift 5 language mode in the app target and both packages.
 - Muninn's entitlements: exactly `com.apple.security.device.audio-input` = true. No App Sandbox. Hardened Runtime on.
@@ -365,7 +365,7 @@ end
 - [ ] **Step 5: Run the script tests**
 
 Run: `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'` and `scripts/tests/test-release-dry-run`
-Expected: all pass. Report passed/total. The release test builds and signs, so it needs the certificate and `brew`; run it outside the sandbox.
+Expected: all pass. Report passed/total. The release test builds and signs, so it needs the certificate and `brew`.
 
 - [ ] **Step 6: Commit** — `Add the changelog, release script and Homebrew cask`
 
@@ -457,7 +457,7 @@ Expected: the only hits are `Packages/MuninnPlatform/.build/release/muninn-spike
 
 Run the README's "Build and install" commands exactly as written. `pgrep -x Muninn` finds Muninn within 5 s. Then:
 - `pkill -x Muninn`;
-- `rm -rf /Applications/Muninn.app build` (this removes the README block's ad hoc Release build, any `build/adhoc`, and the old ad hoc `build/Muninn.app` from 2026-10-23);
+- `rm -rf /Applications/Muninn.app build` (this removes the README block's ad hoc Release build, any `build/adhoc`, and the old ad hoc `build/Muninn.app` left by the previous build script);
 - the team-signed Debug build, the Install and the Run commands from `AGENTS.md`;
 - `pkill -x Muninn`.
 
