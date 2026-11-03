@@ -266,4 +266,16 @@ struct DiagnosticsTests {
         #expect(text.contains("File: ~/.local/share/muninn/meetings/another meeting/meeting.json"))
         #expect(!text.contains("meeting A-2") && !text.contains("planning"))
     }
+
+    @Test func anAddressOnAConfiguredHostIsMaskedAsAnEmailWhole() {
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio.lan:11434"), entries: [entry("Mail to ann.henderson@studio.lan bounced")]))
+        #expect(text.contains("Mail to <email> bounced"))
+        #expect(!text.contains("henderson"))
+    }
+
+    @Test func aHostStaysMaskedInEveryCaseWhenAMeetingTitleHasTheSameText() {
+        let studio = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-studio"), title: "studio")
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("Reached STUDIO and Studio and studio", meeting: studio)]))
+        #expect(!text.lowercased().contains("studio"), "\(text)")
+    }
 }

@@ -140,6 +140,7 @@ private struct Masks {
     init(settings: Settings, entries: [ActivityEntry], homeDirectory: String) {
         var found: [Literal] = []
         func word(_ text: String) -> String { #"(?<!\w)"# + NSRegularExpression.escapedPattern(for: text) + #"(?!\w)"# }
+        func hostToken(_ text: String) -> String { #"(?<![\w\-@])"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-])"# }
         func token(_ text: String) -> String { #"(?<![\w\-])"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-])"# }
 
         var seen: [String] = []
@@ -164,14 +165,14 @@ private struct Masks {
         var hostLabels: [String: String] = [:]
         for host in entryHosts + settingsHosts where !host.isEmpty {
             hostLabels[host.lowercased()] = "<host>"
-            found.append(Literal(text: host, label: "<host>", pattern: "(?i:" + token(host) + ")"))
+            found.append(Literal(text: host, label: "<host>", pattern: "(?i:" + hostToken(host) + ")"))
         }
         self.hostLabels = hostLabels
 
         var labels: [String: String] = [:]
         var distinct: [Literal] = []
-        for literal in found where !literal.text.isEmpty && labels[literal.text] == nil {
-            labels[literal.text] = literal.label
+        for literal in found where !literal.text.isEmpty && !distinct.contains(where: { $0.pattern == literal.pattern }) {
+            if labels[literal.text] == nil { labels[literal.text] = literal.label }
             distinct.append(literal)
         }
         self.labels = labels
