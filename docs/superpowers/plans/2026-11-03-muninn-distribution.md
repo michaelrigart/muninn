@@ -27,6 +27,7 @@
   ```
 - The meeting-capture spec and plan are completed records: never edit them. Nothing under `Vendor/` is edited.
 - Implementers do not commit. The controller commits each task with the message given.
+- **No ad hoc copy outlives the step that made it** (Review Focus 2). Every ad hoc build (`CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=`) goes to `-derivedDataPath build/adhoc` and is deleted (`rm -rf build/adhoc`) at the end of that step, in all three repositories. The README block in Task 6 is the one exception, and Task 6 removes it.
 - The repositories are public: no machine paths, no personal data beyond the Team ID, no secrets.
 
 ### The shared recipe (used by Tasks 6, 7 and 8)
@@ -115,7 +116,7 @@ bringing the old one forward.
 - Move: `Sources/MuninnApp` → `Muninn` (the whole folder, `Views/` included); `scripts/Info.plist` → `Muninn/Info.plist`; `scripts/Muninn.entitlements` → `Muninn/Muninn.entitlements`
 - Create: `project.yml`, `mise.toml`
 - Modify: `Packages/MuninnPlatform/Package.swift`, `.gitignore`
-- Delete: `scripts/bundle-app.sh`, `scripts/swiftpm.sh`, `scripts/vendor-fluidaudio.sh`
+- Delete: `scripts/bundle-app.sh`, `scripts/swiftpm.sh`, `scripts/vendor-fluidaudio.sh`, and the generated `Vendor/` directory (untracked; the spec removes it, and once `.gitignore` stops ignoring it, the release script's clean-tree check would refuse)
 
 **Interfaces:**
 - Produces: `Muninn.xcodeproj` (generated), scheme `Muninn`, products `build/Build/Products/{Debug,Release}/Muninn.app`; package `Packages/MuninnPlatform` with library products `MuninnAudio`, `MuninnSpeech`, `MuninnSystem` and executable product `muninn-spike`.
@@ -186,7 +187,7 @@ Review Focus 1: build Debug ad hoc into `-derivedDataPath build/adhoc`, then run
 Run: `$X swift build -c release --product muninn-spike --package-path Packages/MuninnPlatform && Packages/MuninnPlatform/.build/release/muninn-spike --help`
 Expected: usage text.
 
-- [ ] **Step 9: Delete the three scripts**, then repeat Steps 4 and 6 (Debug only). Expected: unchanged.
+- [ ] **Step 9: Delete the three scripts and `Vendor/`**, then repeat Steps 4 and 6 (Debug only). Expected: unchanged, and `git status --porcelain --ignored Vendor` prints nothing.
 
 - [ ] **Step 10: Commit** — `Build Muninn with XcodeGen and team signing`
 
@@ -282,7 +283,7 @@ Expected: fails, because `scripts/verify-app` doesn't exist yet.
 
 Run:
 - `scripts/tests/test-verify-app build/Build/Products/Release/Muninn.app`: every case passes, and n runs its team-signed branch.
-- the same on an ad hoc Release build: every case passes, with n's team case skipped.
+- the same on an ad hoc Release build in `build/adhoc`: every case passes, with n's team case skipped. Then `rm -rf build/adhoc`.
 - `scripts/verify-app --team CX4MWR5579 build/Build/Products/Release/Muninn.app`: exit 0.
 - `scripts/verify-app build/Build/Products/Debug/Muninn.app`: exit 1 with "entitlements are not exactly" (`get-task-allow`).
 
@@ -358,8 +359,10 @@ end
 - [ ] **Step 3: Port `changelog.py`, its test, `release` and `test-release-dry-run`** from Hulder, renamed. In `test-release-dry-run`, replace the check that the release section omits Hulder's own changelog text (`lacks "$output" "Hulder v1: hide other apps"`) with the first words of Muninn's first entry.
 
 - [ ] **Step 4: Add the zap assertion** (Review Focus 3) to `test-release-dry-run` case a, after the cask is written:
-  - `a: the cask zaps only the settings`: the rendered cask contains `zap trash: "~/.config/muninn"`;
-  - `a: the cask never zaps the meetings`: the rendered cask doesn't contain `.local/share/muninn`.
+  - Add a helper `zap_is_settings_only <cask>`. It passes only when the cask has exactly one line matching `^[[:space:]]*zap[[:space:]]`, that line is exactly `  zap trash: "~/.config/muninn"`, and no other line mentions `trash:`, `rmdir:` or `delete:`.
+  - `a: the cask zaps only the settings`: passes on the rendered cask.
+  - `a: an extra zap target fails`: a copy with a second stanza `  zap trash: "~/.local/share/muninn"` appended fails.
+  - `a: a zap list fails`: a copy whose zap line is `  zap trash: ["~/.config/muninn", "~/Library/Application Support/FluidAudio"]` fails.
 
 - [ ] **Step 5: Run the script tests**
 
@@ -387,7 +390,7 @@ Hulder's `ci.yml`, with Muninn's names. It follows the "CI steps" in the shared 
 
 - [ ] **Step 1: Write the workflow.**
 - [ ] **Step 2: Lint it.** Run `mise exec -- actionlint .github/workflows/ci.yml`. Expected: no output.
-- [ ] **Step 3: Run each `run:` step locally, in order,** from a clean `build/`, with `$X` in place of the `xcode-select` step. Expected: each passes.
+- [ ] **Step 3: Run each `run:` step locally, in order,** with `$X` in place of the `xcode-select` step, and `-derivedDataPath build/adhoc` with its paths in place of `build`. Expected: each passes. Then `rm -rf build/adhoc`.
 - [ ] **Step 4: Commit** — `Add CI`
 
 ---
@@ -456,11 +459,16 @@ Expected: the only hits are `Packages/MuninnPlatform/.build/release/muninn-spike
 
 Run the README's "Build and install" commands exactly as written. `pgrep -x Muninn` finds Muninn within 5 s. Then:
 - `pkill -x Muninn`;
-- `rm -rf /Applications/Muninn.app build/Muninn.app` (the latter is the old ad hoc bundle from 2026-10-23);
+- `rm -rf /Applications/Muninn.app build` (this removes the README block's ad hoc Release build, any `build/adhoc`, and the old ad hoc `build/Muninn.app` from 2026-10-23);
 - the team-signed Debug build, the Install and the Run commands from `AGENTS.md`;
 - `pkill -x Muninn`.
 
-Check: `mdfind "kMDItemCFBundleIdentifier == 'com.michaelrigart.muninn'"` lists only `/Applications/Muninn.app` and `build/Build/Products/Debug/Muninn.app`, and both show `TeamIdentifier=CX4MWR5579`. `mdfind "kMDItemCFBundleIdentifier == 'be.netronix.muninn'"` lists nothing. Leave Muninn quit: Michael grants the permissions himself.
+Check the copies directly:
+- `find /Applications build -name Muninn.app -prune` prints exactly `/Applications/Muninn.app` and `build/Build/Products/Debug/Muninn.app`.
+- `codesign -dvv` on each shows `TeamIdentifier=CX4MWR5579`.
+- `mdfind "kMDItemCFBundleIdentifier == 'com.michaelrigart.muninn'"` and the same query for `'be.netronix.muninn'` list nothing else.
+
+Leave Muninn quit: Michael grants the permissions himself.
 
 - [ ] **Step 7: Commit** — `Document the new build, install and release steps`
 
@@ -485,11 +493,11 @@ Check: `mdfind "kMDItemCFBundleIdentifier == 'com.michaelrigart.muninn'"` lists 
 
 Run:
 - `mise exec -- actionlint .github/workflows/ci.yml`: no output.
-- `$X mise exec -- xcodegen generate`, the ad hoc Release and Debug builds: both succeed, and `lipo -archs` on the Release executable prints `arm64`.
+- `$X mise exec -- xcodegen generate`, the ad hoc Release and Debug builds into `build/adhoc`: both succeed, and `lipo -archs` on the Release executable prints `arm64`.
 - `scripts/verify-app` on the Release build, and `scripts/tests/test-verify-app <Release> <Debug>`.
 - `scripts/tests/test-release-dry-run` and the changelog tests.
 
-Expected: all pass. Report the totals.
+Expected: all pass. Report the totals. Then `rm -rf build/adhoc`.
 
 - [ ] **Step 3: Commit** in Hulder — `Keep the build steps equal to Muninn's and Linger's`
 
@@ -514,12 +522,12 @@ Expected: all pass. Report the totals.
 
 Run:
 - `mise exec -- actionlint .github/workflows/ci.yml`: no output.
-- `$X mise exec -- xcodegen generate`, the ad hoc Release build: succeeds, and `lipo -archs` prints `arm64`.
+- `$X mise exec -- xcodegen generate`, the ad hoc Release build into `build/adhoc`: succeeds, and `lipo -archs` prints `arm64`.
 - `scripts/verify-app` and `scripts/tests/test-verify-app` on it.
 - `scripts/tests/test-release-dry-run` and the changelog tests.
-- An ad hoc Debug build that launches with `open`. Then quit it and delete it, so no ad hoc copy is left (Linger's AGENTS.md).
+- An ad hoc Debug build into `build/adhoc` that launches with `open`.
 
-Expected: all pass. Report the totals.
+Expected: all pass. Report the totals. Then quit it and run `rm -rf build/adhoc`, so no ad hoc copy is left (Linger's AGENTS.md).
 
 - [ ] **Step 3: Commit** in Linger — `Keep the build steps equal to Muninn's and Hulder's`
 
@@ -533,4 +541,4 @@ Expected: all pass. Report the totals.
 4. In Muninn, commit the spec's and this plan's Status as `Implemented`, citing the pull request. Run another full-range pre-merge round on that commit, then push.
 5. CI on all three is acceptance 1 and 8. If any repository fails to build or test with Xcode 27.1, the CI rule moves all three to the 27.2 release candidate, in each branch.
 6. Hand Michael acceptance 2 and 3, against the installed team-signed Debug build. Acceptance 6 and 7 follow the first and second releases.
-7. List in the final report, for Michael to run: `rm -rf Vendor .build` in Muninn (generated leftovers of the old build).
+7. List in the final report, for Michael to run: `rm -rf .build` in Muninn (the old Command Line Tools build output, still ignored).
