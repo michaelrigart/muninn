@@ -53,11 +53,16 @@ points at Xcode.
 - In the app target, refer to the settings type as `MuninnCore.Settings`, because
   `SwiftUI.Settings` is a scene type.
 - Swift 5 language mode in every target.
-- Every identifier derives from `AppIdentity.bundleIdentifier` (`com.michaelrigart.muninn`): the
-  Keychain service, the log subsystem and the queue labels.
+- Swift code uses `AppIdentity.bundleIdentifier` (`com.michaelrigart.muninn`) for the Keychain
+  service, the log subsystem and the call detector's queue label, never the literal.
+  `project.yml`, `scripts/verify-app` and the cask template carry the literal too;
+  `AppIdentityTests` and the verifier fail if they drift.
 - Builds are signed with the maintainer's Personal Team. Ad hoc builds (`CODE_SIGN_IDENTITY=-
   DEVELOPMENT_TEAM=`, which CI and contributors use) are a new app to macOS after every rebuild,
   so the Microphone and System Audio Recording permissions are asked again.
+- When a permission is granted, macOS may record the signature of any copy of Muninn that Launch
+  Services knows, not the one running. Before granting, delete every ad hoc copy, including
+  `build/adhoc` and any ad hoc build under `build/`.
 - Start the app with `open`: launched from a terminal, macOS gives the Microphone permission to
   the terminal.
 - A bare `log` is a zsh builtin. Use `/usr/bin/log`; the subsystem is

@@ -4,17 +4,20 @@ First-run steps, in order.
 
 Requires macOS 26 or later.
 
-Names, defaults and labels below were checked against the code. Two things are marked as not
-verified: the Hugging Face and Ollama download CDN host names (step 2) and anything that needs
-real hardware (the last section).
+Names, defaults and labels below were checked against the code. Three things are marked as not
+verified: the GitHub release-download hosts a build uses (step 1), the Hugging Face and Ollama
+download CDN host names (step 2) and anything that needs real hardware (the last section).
 
 ## 1. Install or build
 
 Install Muninn with Homebrew, or build it yourself: the README's
 [Install](../README.md#install) and [Build and install](../README.md#build-and-install)
 sections have the commands. Both leave the app at `/Applications/Muninn.app`. A build fetches
-FluidAudio, WhisperKit and swift-argument-parser from GitHub; if you run an outbound firewall
-such as Little Snitch, allow `github.com` for the build tools.
+FluidAudio, WhisperKit and swift-argument-parser from GitHub, and FluidAudio's
+`NemoTextProcessing` binary target downloads from a GitHub release, which redirects to GitHub's
+release-asset host. If you run an outbound firewall such as Little Snitch, allow `github.com` for
+the build tools. The release-asset host is not verified, and observed hosts may differ, so allow
+what your firewall shows if a build still prompts.
 
 A build signed with the maintainer's certificate keeps a stable identity across rebuilds,
 which keeps:

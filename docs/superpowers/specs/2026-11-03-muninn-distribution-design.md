@@ -1,8 +1,7 @@
 # Muninn build and distribution — design
 
 **Date:** 2026-11-03
-**Owner:** Michael Rigart
-**Status:** Approved (signed off by Michael on 2026-11-03, after Codex's spec review)
+**Status:** Approved (2026-11-03)
 **Template:** Hulder's distribution design (`michaelrigart/hulder`,
 `docs/superpowers/specs/2026-11-03-hulder-distribution-design.md`), which follows Linger's
 (`michaelrigart/linger`, `docs/superpowers/specs/2026-11-01-linger-distribution-design.md`).
@@ -13,7 +12,7 @@ changes under "Companion changes" reference this document.
 
 ## Why
 
-Michael has three macOS menu bar apps, and he wants them built, installed and released the
+The owner has three macOS menu bar apps and wants them built, installed and released the
 same way, without extra steps.
 
 Hulder and Linger already share a recipe: XcodeGen, `xcodebuild`, install into `/Applications`,
@@ -36,7 +35,7 @@ migrate.
 - Muninn builds, installs and runs with the same commands as Hulder and Linger, with only the
   name changed.
 - `brew install --cask michaelrigart/tap/muninn` installs Muninn, and `brew upgrade` upgrades it.
-- One command on Michael's Mac cuts a release, as for Hulder and Linger.
+- One command on the maintainer's Mac cuts a release, as for Hulder and Linger.
 - The Microphone, System Audio Recording and Local Network permissions, the Keychain items and
   Little Snitch rules survive rebuilds and upgrades.
 - CI tests and builds every pull request and every push to `main`.
@@ -49,10 +48,10 @@ migrate.
 - Developer ID signing and notarization (paid Developer Program, declined for Linger).
 - Mac App Store submission, automatic updates inside the app, signing in CI, Intel Macs.
 - Changing how Muninn records, transcribes or summarises. Phase 1 behaviour stays as built. A
-  phase 1 defect found while checking this work goes to Michael as its own change; it is not
+  phase 1 defect found while checking this work goes to the owner as its own change; it is not
   fixed on this branch.
 - Bringing Linger's release script, verifier and their tests up to Hulder's newer versions.
-  Release tooling is not a build step, and Linger's works *(the controller's call: Michael asked
+  Release tooling is not a build step, and Linger's works *(a design call: the owner asked
   for equal build steps without extra complication)*. Muninn copies Hulder's, the newest.
 - Other files that differ between Hulder and Linger but aren't build steps, such as the README's
   section order or Hulder's missing LICENSE.
@@ -65,12 +64,12 @@ migrate.
 - The cask must not strip the quarantine attribute or otherwise bypass Gatekeeper.
 - No certificate, private key or token in the repository or in CI.
 - No machine-specific paths or settings in the repository. It is public.
-- The release script pushes to `main` only its own release commit, plus the tag. Only Michael
+- The release script pushes to `main` only its own release commit, plus the tag. Only the maintainer
   runs it.
 - No release contains `muninn-spike`. It stays a developer tool built from source.
 - Uninstalling never deletes the user's meetings (see the cask).
 
-## Decisions (Michael's)
+## Decisions (the owner's)
 
 - **Same recipe as Hulder and Linger** (2026-11-03), and not more complicated than theirs.
 - **Bundle identifier `com.michaelrigart.muninn`** (2026-11-03), matching the other two. It
@@ -102,8 +101,8 @@ Muninn takes Hulder's shape:
   `scripts/Muninn.entitlements` go; their content moves into `project.yml` and `Muninn/`.
 - `Sources/MuninnApp/Views/ViewState.swift` goes, and every `@ViewState` becomes `@State`.
 - **First check for the builder:** the upstream FluidAudio package resolves and builds outside
-  the sandbox, including its binary `NemoTextProcessing` target, with Michael's Xcode 27.2 and
-  with the Xcode CI selects. If it doesn't, stop and bring it to Michael rather than keeping
+  the sandbox, including its binary `NemoTextProcessing` target, with the maintainer's Xcode 27.2 and
+  with the Xcode CI selects. If it doesn't, stop and bring it to the owner rather than keeping
   the vendoring.
 
 ### The app target
@@ -125,7 +124,7 @@ Muninn takes Hulder's shape:
 
 As Hulder and Linger:
 
-- `DEVELOPMENT_TEAM` is Michael's Personal Team, `CODE_SIGN_STYLE: Manual`,
+- `DEVELOPMENT_TEAM` is the maintainer's Personal Team, `CODE_SIGN_STYLE: Manual`,
   `CODE_SIGN_IDENTITY: Apple Development`, for Debug and Release, with no provisioning profile.
   The Team ID is public: it is embedded in every signed build.
 - Release builds carry no `get-task-allow` (`CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO`).
@@ -135,7 +134,7 @@ As Hulder and Linger:
 - macOS ties the privacy permissions, Keychain item access and (in Little Snitch) firewall rules
   to the designated requirement. With the team certificate it names the certificate, not one
   build, so they are expected to survive rebuilds. Acceptance measures it for Muninn.
-- The certificate's subject, the Apple ID's email, is embedded in every public release. Michael
+- The certificate's subject, the Apple ID's email, is embedded in every public release. The owner
   accepted this for Linger (2026-11-01); the same certificate signs Muninn.
 - The "Muninn Local" certificate is never made. `docs/setup.md` loses its section.
 
@@ -190,7 +189,7 @@ rejects tampered copies, as the others' do.
 - on pull requests and pushes to `main`, `permissions: contents: read`, a concurrency group
   that cancels superseded runs, actions pinned to full commit SHAs;
 - `runs-on: xcode-27`, selecting the same Xcode as Hulder's CI: the newest released Xcode 27 on
-  the image, 27.1 today *(the controller's call: the three CIs stay equal, and Michael builds
+  the image, 27.1 today *(a design call: the three CIs stay equal, and the maintainer builds
   all three with Xcode 27)*. Hulder's rule applies to all three together: if one of them doesn't
   build or pass its tests with 27.1, all three CIs select the 27.2 release candidate, and the
   workflow says why;
@@ -222,7 +221,7 @@ Exactly as Hulder's design, with the name changed:
 - `depends_on arch: :arm64` and `depends_on macos: :tahoe`;
 - `app "Muninn.app"`;
 - `uninstall quit: "com.michaelrigart.muninn"`;
-- `zap` removes `~/.config/muninn` (settings) only *(the controller's call)*. It never removes
+- `zap` removes `~/.config/muninn` (settings) only *(a design call)*. It never removes
   `~/.local/share/muninn` (the user's recordings, transcripts and summaries), and it leaves the
   shared model caches (`~/Library/Application Support/FluidAudio`, `~/Documents/huggingface`)
   alone, since other apps can use them;
@@ -265,7 +264,7 @@ They make the build steps identical where nothing justifies a difference:
 - **`mise.toml`:** the same tools and versions in all three (Linger pins `actionlint`, Hulder
   doesn't).
 - **CI:** Linger moves from `macos-26` with Xcode 26.6 to `xcode-27` with the same Xcode as
-  Hulder, under the rule in Muninn's CI section *(the controller's call, as for Muninn's CI)*.
+  Hulder, under the rule in Muninn's CI section *(a design call, as for Muninn's CI)*.
   If that rule moves the three to the 27.2 release candidate, Hulder's workflow changes too.
 
 ## Allowed differences
@@ -286,8 +285,8 @@ for its reason:
 ## Constraints
 
 - Builds run outside the agent sandbox, as for the other two.
-- Pushes from Michael's Mac use his existing git and `gh` credentials.
-- The Personal Team certificate and Apple's WWDR G3 intermediate are already in Michael's login
+- Pushes from the maintainer's Mac use the maintainer's existing git and `gh` credentials.
+- The Personal Team certificate and Apple's WWDR G3 intermediate are already in the maintainer's login
   keychain for Linger and Hulder.
 
 ## Delivery
@@ -300,16 +299,16 @@ for its reason:
 ## Acceptance
 
 1. CI passes on Muninn's pull request: both suites, the Release build and the verifier.
-2. **Michael checks, on a team-signed Debug build installed into `/Applications`:** "Record a
+2. **The owner checks, on a team-signed Debug build installed into `/Applications`:** "Record a
    conversation…" triggers the Microphone prompt, the Claude key saves, and a Claude summary
-   gets Little Snitch's prompt for `api.anthropic.com`, which he allows. After quitting, a rebuild
+   gets Little Snitch's prompt for `api.anthropic.com`, which the owner allows. After quitting, a rebuild
    and reinstall, and relaunching with `open`, a new recording doesn't ask for the Microphone
    again, the key is read without a Keychain prompt, and a Claude summary raises no new Little
    Snitch prompt. This checks the signing, not phase 1: if the recording itself fails, that is
    a phase 1 defect (see Non-goals).
 3. **Checked when first used, the same way** (grant, then quit, rebuild, reinstall, relaunch):
    System Audio Recording at the first call recording, and Local Network at the first contact
-   with the Network Mac. Michael tests the Network Mac later, so these may land after the merge.
+   with the Network Mac. The owner tests the Network Mac later, so these may land after the merge.
 4. `scripts/release --dry-run` builds, verifies and packages an Apple silicon zip, and prints
    the changelog section it would commit.
 5. The README's build-from-source block, run as written with the ad hoc override, produces an
@@ -324,7 +323,7 @@ for its reason:
 8. Hulder's and Linger's CI pass on their companion pull requests.
 
 **A failed persistence check** (in 2, 3 or 7, a permission, the Keychain item or a Little Snitch
-rule asked for again) fails acceptance and goes to Michael, because it means a goal can't be met
+rule asked for again) fails acceptance and goes to the owner, because it means a goal can't be met
 as designed. Documentation never stands in for it. Only the "Open Anyway" outcome may be
 documented instead.
 

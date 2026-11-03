@@ -68,7 +68,7 @@ from a terminal, macOS gives the Microphone permission to the terminal.
 swift test --package-path Packages/MuninnCore
 swift test --package-path Packages/MuninnPlatform
 /usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'
-scripts/tests/test-release-dry-run
+scripts/tests/test-release-dry-run   # (needs the maintainer's signing certificate and brew)
 scripts/tests/test-verify-app <Release Muninn.app>
 ```
 
@@ -92,7 +92,8 @@ Not yet tested on real hardware, so expect surprises in:
 - AirPods and Bluetooth hands-free (HFP) sample-rate switches mid-call,
 - the first model download: each model downloads from Hugging Face the first time it is used,
   so the first transcription after install depends on the network and on any outbound firewall;
-  run `muninn-spike transcribe` on a short file first to get it over with.
+  run `muninn-spike transcribe` on a short file first to get it over with. That is the spike CLI,
+  built from source: see [`docs/spike.md`](docs/spike.md).
 
 The full list of what the spike must settle is in [`docs/spike.md`](docs/spike.md).
 

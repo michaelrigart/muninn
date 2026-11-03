@@ -1,14 +1,12 @@
 # Muninn build and distribution Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Muninn builds, installs, verifies and releases with the same recipe as Hulder and Linger, and the three repositories' build steps become identical apart from the name.
 
 **Architecture:** Muninn moves from a Command Line Tools SwiftPM build to XcodeGen + `xcodebuild` with Personal Team signing. The app target moves to `Muninn/`, the libraries to `Packages/MuninnPlatform`. The release tooling (verifier, changelog, release script, cask, CI) is ported from Hulder, renamed. Hulder and Linger get small alignment changes on their own branches.
 
 **Tech Stack:** Swift (5 language mode), SwiftPM, XcodeGen 2.46.0 via mise, Xcode 27.2, bash, Python 3 (`/usr/bin/python3`), GitHub Actions, Homebrew casks.
 
-**Spec:** `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md` (Approved). Templates it copies: `/Users/michael/Code/hulder` (`scripts/`, `.github/workflows/ci.yml`, `project.yml`, `README.md`, `AGENTS.md`) and `/Users/michael/Code/linger`.
+**Spec:** `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md` (Approved). Templates it copies: a Hulder checkout (`michaelrigart/hulder`: `scripts/`, `.github/workflows/ci.yml`, `project.yml`, `README.md`, `AGENTS.md`) and a Linger checkout (`michaelrigart/linger`).
 
 ## Global Constraints
 
@@ -26,7 +24,7 @@
   xcodegen = "2.46.0"
   ```
 - The meeting-capture spec and plan are completed records: never edit them. Nothing under `Vendor/` is edited.
-- Implementers do not commit. The controller commits each task with the message given.
+- Each task ends in one commit with the message given.
 - **No ad hoc copy outlives the step that made it** (Review Focus 2). Every ad hoc build (`CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=`) goes to `-derivedDataPath build/adhoc` and is deleted (`rm -rf build/adhoc`) at the end of that step, in all three repositories. The README block in Task 6 is the one exception, and Task 6 removes it.
 - The repositories are public: no machine paths, no personal data beyond the Team ID, no secrets.
 
@@ -66,7 +64,7 @@ App-specific settings (Swift version, concurrency, app icon) follow the spec's "
 9. Run: `open /Applications/<X>.app`
 10. Script tests: `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`, `scripts/tests/test-release-dry-run`, `scripts/tests/test-verify-app <args>`
 11. Verify a built app: `scripts/verify-app [--team <ID>] <X.app> [<version>]` and what it fails on.
-12. Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, Michael's Mac only, never run for real by an agent unless Michael asks.
+12. Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, the maintainer's Mac only, never run for real by an agent unless the maintainer asks.
 13. App-specific tools after that (Hulder and Linger: `design/render`, the probe; Muninn: the spike CLI).
 
 **README "Build and install" block**, identical in all three apart from the name, with app-specific paragraphs only after it:
@@ -100,7 +98,7 @@ bringing the old one forward.
 ## Review Focus
 
 1. **A contributor's ad hoc Debug build must launch.** Hardened Runtime with Xcode's debug dylib stops an ad hoc Debug app from launching (Hulder `5e8856d`). `ENABLE_DEBUG_DYLIB: NO` prevents it. Pinned in Task 1, Step 7.
-2. **A leftover ad hoc copy can take Michael's permission grants.** macOS may record the signature of any copy Launch Services knows (Linger's AGENTS.md). The README-block install and the old `build/Muninn.app` are ad hoc. Pinned in Task 6, Step 6: every ad hoc copy is gone before Michael grants anything.
+2. **A leftover ad hoc copy can take the maintainer's permission grants.** macOS may record the signature of any copy Launch Services knows (Linger's AGENTS.md). The README-block install and the old `build/Muninn.app` are ad hoc. Pinned in Task 6, Step 6: every ad hoc copy is gone before the maintainer grants anything.
 3. **`brew uninstall --zap` must never delete the user's meetings.** Pinned in Task 4, Step 4: the release test asserts the rendered cask's `zap` list.
 4. **A release without a usage description dies at the first recording.** Pinned in Task 3, Step 1: verifier cases for both descriptions.
 5. **The old identifier left anywhere makes logs, Keychain items or call detection disagree with the bundle.** Pinned in Task 2, Step 6 and Task 6, Step 5: no `be.netronix` outside the completed records.
@@ -395,7 +393,7 @@ Hulder's `ci.yml`, with Muninn's names. It follows the "CI steps" in the shared 
 
 ---
 
-### Task 6: Documentation, and a clean install for Michael's checks
+### Task 6: Documentation, and a clean install for the owner's checks
 
 **Depends on:** Task 5
 
@@ -468,7 +466,7 @@ Check the copies directly:
 - `codesign -dvv` on each shows `TeamIdentifier=CX4MWR5579`.
 - `mdfind "kMDItemCFBundleIdentifier == 'com.michaelrigart.muninn'"` and the same query for `'be.netronix.muninn'` list nothing else.
 
-Leave Muninn quit: Michael grants the permissions himself.
+Leave Muninn quit: the owner grants the permissions.
 
 - [ ] **Step 7: Commit** — `Document the new build, install and release steps`
 
@@ -478,7 +476,7 @@ Leave Muninn quit: Michael grants the permissions himself.
 
 **Depends on:** none (separate repository). Can run beside Tasks 1–6.
 
-**Repository:** `/Users/michael/Code/hulder`, new branch `chore/equal-build-steps` from `main`.
+**Repository:** a Hulder checkout (`michaelrigart/hulder`), new branch `chore/equal-build-steps` from `main`.
 
 **Files:** `project.yml`, `mise.toml`, `README.md`, `AGENTS.md`, `.github/workflows/ci.yml`, `scripts/release`
 
@@ -507,7 +505,7 @@ Expected: all pass. Report the totals. Then `rm -rf build/adhoc`.
 
 **Depends on:** none (separate repository). Can run beside Tasks 1–7.
 
-**Repository:** `/Users/michael/Code/linger`, new branch `chore/equal-build-steps` from `main`.
+**Repository:** a Linger checkout (`michaelrigart/linger`), new branch `chore/equal-build-steps` from `main`.
 
 **Files:** `project.yml`, `README.md`, `AGENTS.md`, `.github/workflows/ci.yml`, `scripts/release`
 
@@ -533,12 +531,12 @@ Expected: all pass. Report the totals. Then quit it and run `rm -rf build/adhoc`
 
 ---
 
-## After the tasks (controller)
+## After the tasks
 
 1. Run the full checks once on each final commit: both Muninn suites, the script tests, `actionlint`, and the Release build plus verifier. Do the same for Hulder and Linger. In Muninn, on the clean committed tree, run `scripts/release --dry-run` (acceptance 4).
-2. Run a whole-branch review across the three repositories. Then run Codex's pre-merge review with `--diff main...feat/distribution`, `--diff /Users/michael/Code/hulder:main...chore/equal-build-steps` and `--diff /Users/michael/Code/linger:main...chore/equal-build-steps`.
+2. Run a whole-branch review across the three repositories. Then run the pre-merge review with `--diff main...feat/distribution`, `--diff <hulder checkout>:main...chore/equal-build-steps` and `--diff <linger checkout>:main...chore/equal-build-steps`.
 3. Push the three branches and open draft pull requests, Muninn's first. The companions reference the spec by forge link.
 4. In Muninn, commit the spec's and this plan's Status as `Implemented`, citing the pull request. Run another full-range pre-merge round on that commit, then push.
 5. CI on all three is acceptance 1 and 8. If any repository fails to build or test with Xcode 27.1, the CI rule moves all three to the 27.2 release candidate, in each branch.
-6. Hand Michael acceptance 2 and 3, against the installed team-signed Debug build. Acceptance 6 and 7 follow the first and second releases.
-7. List in the final report, for Michael to run: `rm -rf .build` in Muninn (the old Command Line Tools build output, still ignored).
+6. Hand the owner acceptance 2 and 3, against the installed team-signed Debug build. Acceptance 6 and 7 follow the first and second releases.
+7. List in the final report, for the maintainer to run: `rm -rf .build` in Muninn (the old Command Line Tools build output, still ignored).
