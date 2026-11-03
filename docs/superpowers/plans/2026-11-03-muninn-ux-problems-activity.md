@@ -40,7 +40,7 @@ Run all of these outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Appli
 2. **Outside text that looks harmless**: a Graph or OAuth code Muninn doesn't know (a sentence, or a plausible identifier), a request path with a long event id or a key in a configured base URL, a `DecodingError` describing a reply. None reaches a problem, the Activity file or a copy. Pinned in Task 1 (`detailsRedactEveryStringField`), Task 2 (`graphHTTPErrorKeepsOnlyAKnownCode`, `requestFactsHideLongIdentifiers`, `decodingErrorKeepsNoText`) and Task 7 (`recordRedactsBeforeWriting`).
 3. **A torn or oversized activity file** after a crash mid-write or a long-running Mac: unreadable lines are skipped, the file is trimmed, the window still opens. Pinned in Task 7 (`unreadableLinesAreSkipped`, `fileStaysUnderTheCap`).
 4. **Launch with old failed meetings, and announcements during a recording**: no burst of "Needs attention" notifications at launch, and a meeting that recovers while the owner records is never announced. Pinned in Task 8 (`meetingsAlreadyNeedingAttentionAtLaunchAreNotAnnounced`, `aMeetingThatRecoversDuringTheRecordingIsNotAnnounced`).
-5. **Try again on a failed meeting while another is processing**: it shows "Waiting its turn" with its position, not the old failure, a meeting's wait reason still wins over its queue position, and a wait that has cleared shows its position while another meeting runs. Pinned in Task 6 (`requeueingProbesWhileAnotherMeetingRuns`) and Task 8 (`retriedFailureShowsAsQueued`, `waitWinsOverQueue`, `aClearedWaitShowsItsQueuePosition`).
+5. **Try again on a failed meeting while another is processing**: it shows "Waiting its turn" with its position, not the old failure, a meeting's wait reason still wins over its queue position, and a wait that has cleared or changed reason is stored as such while another meeting runs, so the card, Needs attention and notifications agree. Pinned in Task 6 (`requeueingProbesWhileAnotherMeetingRuns`, `aWaitThatChangesReasonStoresTheNewReason`, `aStartedJobIsNotOverwritten`) and Task 8 (`retriedFailureShowsAsQueued`, `waitWinsOverQueue`, `aClearedWaitShowsItsQueuePosition`).
 
 ## Rulings made while planning
 
@@ -62,7 +62,7 @@ Decisions the spec leaves to the builder or does not settle. Record them under "
 14. Calendar fetch failures, server reachability and Keychain read failures are recorded when they change, not on every retry.
 15. "Getting the speech model ready" shows for the first load of a model in each session, whether it downloads or loads from disk.
 16. "Sign in again" opens the Accounts settings pane, where the sign-in sheet lives.
-17. The 15-second loop probes the engines outside the processing queue and queues waiting meetings without waiting for them to run: a meeting whose wait has cleared shows "Waiting its turn" at once, even while another meeting is being processed, and runs as soon as its turn comes. The run's own decision stays authoritative. A queued meeting is never queued twice.
+17. The 15-second loop probes the engines outside the processing queue, writes the result into each waiting meeting's stored status, and queues the meetings without waiting for them to run. A wait whose reason changed stores the new reason; a wait that cleared stores `waiting(.queued)`, shown as "Waiting its turn". The stored status stays the one truth for the card, Needs attention, notifications and Activity. The run's own decision stays authoritative, and a queued meeting is never queued twice.
 18. Every channel uses the problem card; Settings, popovers and the recording surfaces use its compact layout, which keeps the actions, Copy details and Show in Activity. A field's validation message is a compact card with a title only. A channel whose context makes a catalogue action meaningless swaps the actions with `Problem.with(actions:)` and supplies a handler for each it shows.
 
 ## File map
@@ -439,7 +439,7 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
 - Produces:
   - `public enum PipelineStage: String, Codable, Hashable, Sendable, CaseIterable { case transcribing, identifyingSpeakers, cleaningUp, writingRecap }` with `step: Int` (1–4), `title: String` ("Transcribing", "Telling the speakers apart", "Cleaning up the transcript", "Writing the recap"), `stepLabel: String` ("Transcribed", "Speakers", "Cleaned up", "Recap"), `problemStage: ProblemStage` (the same-named case), `savedThing: String` ("the transcript", "the transcript", "the clean transcript", "the recap").
   - `public struct PipelineWork: Equatable, Sendable { var meetingID: MeetingID; var stage: PipelineStage; var engine: EngineKind?; var stageStartedAt: Date }`
-  - `public struct PipelineSnapshot: Equatable, Sendable { var current: PipelineWork?; var queued: [MeetingID]; var clearedWaits: Set<MeetingID> = []; var changedWaits: [MeetingID: WaitReason] = [:]; static let idle }` — both are filled in Task 6 and only ever hold ids in `queued`.
+  - `public struct PipelineSnapshot: Equatable, Sendable { var current: PipelineWork?; var queued: [MeetingID]; static let idle }`
   - `ProcessingPipeline.setOnSnapshot(_ handler: (@Sendable (PipelineSnapshot) -> Void)?)` and `ProcessingPipeline.snapshot() -> PipelineSnapshot`. The handler is called on every change of the snapshot, never with an unchanged one.
 - Behaviour: `Job` gets `let id: MeetingID`. `queued` is the ids of jobs in `turnOrder`, oldest first. A job leaves `queued` when it gets its turn. `current` is set where the pipeline writes `.transcribing` (engine nil), `.diarizing` (`identifyingSpeakers`, nil), `.cleaning` (`cleaningUp`; the decision's engine when `settings.useLLMCleanup` and the decision is `.run`, else nil) and `.summarizing` (`writingRecap`, the decision's engine), with `stageStartedAt = clock()`. `current` returns to nil when the job ends, however it ends.
 
@@ -555,13 +555,13 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 
 **Interfaces:**
 - Produces:
-  - `WaitReason` gains `thisMacUnreachable` and `claudeKeyUnreadable`; both `needsYou`.
+  - `WaitReason` gains `thisMacUnreachable` and `claudeKeyUnreadable`, both `needsYou`, and `queued` (not `needsYou`): the meeting's wait has cleared and it is waiting its turn. `EngineSelector` never returns `.queued`.
   - `EngineEnvironment` gains `thisMacReachable: Bool` and `claudeKeyUnreadable: Bool`, as `init` parameters defaulted to `true` and `false`.
   - `EngineSelector` rules: any decision that would run `.macbook` (preferred, forced, or the fallback from the Network Mac) becomes `.wait(.thisMacUnreachable)` when `!thisMacReachable`, except that a preferred Network Mac that is down keeps its own wait (`studioUnreachable` / `studioNotConfigured`). Reachability is checked before memory pressure. Claude (preferred or forced) waits `.claudeKeyUnreadable` when `claudeKeyUnreadable`, before checking `claudeKeyPresent`. A running recording still turns a `.macbook` run into `.wait(.recording)`.
-  - `Problems.waiting` covers the new reasons: `thisMacUnreachable` → `thisMacServerNotRunning(api:claudeKeyPresent:waiting: true)` with severity `warning`; `claudeKeyUnreadable` → `keychainUnreadable` copy, severity `warning`, actions `engineSettings, writeOnThisMac`. `Problems.keptRecap` sentences: `thisMacUnreachable` → "Ollama isn't running on This Mac" / "The model server on This Mac isn't running" by `api`; `claudeKeyUnreadable` → "Muninn couldn't read the Claude key".
+  - `Problems.waiting` covers the new reasons: `thisMacUnreachable` → `thisMacServerNotRunning(api:claudeKeyPresent:waiting: true)` with severity `warning`; `claudeKeyUnreadable` → `keychainUnreadable` copy, severity `warning`, actions `engineSettings, writeOnThisMac`; `queued` → "Waiting its turn" / "Muninn carries on once the meetings ahead are done.", severity `info`, no actions. `Problems.keptRecap` sentences: `thisMacUnreachable` → "Ollama isn't running on This Mac" / "The model server on This Mac isn't running" by `api`; `claudeKeyUnreadable` → "Muninn couldn't read the Claude key"; `queued` → "Another meeting was being processed".
   - `ProcessingPipeline.resumeWaiting(only reasons: Set<WaitReason>? = nil)` resubmits only meetings waiting for one of `reasons` (all waiting meetings when nil) and awaits them, as today.
-  - `ProcessingPipeline.requeueWaiting(only reasons: Set<WaitReason>? = nil)` probes the environment once (`probe.environment(settings:)` plus `isRecording()`), without taking a turn. For each meeting waiting for one of `reasons`, oldest first, it decides with `EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment:)`: `.run` puts the id in the snapshot's `clearedWaits`; `.wait(r)` with `r` other than its stored reason puts `changedWaits[id] = r`; the same reason puts it in neither. It then queues the meeting; a meeting already queued is not queued again (the existing `enqueue` deduplication). It returns without awaiting the jobs. A job leaving `queued` (its turn starting) also leaves `clearedWaits` and `changedWaits`, and each probe replaces a meeting's previous entry. The lifecycle loop uses it (Task 14).
-  - `public enum WaitRetry { static let interval: Duration = .seconds(15); static let quickReasons: Set<WaitReason> = [.thisMacUnreachable, .studioUnreachable]; static func reasons(forTick tick: Int) -> Set<WaitReason>? }` — nil (everything) when `tick % 4 == 0`, else `quickReasons`.
+  - `ProcessingPipeline.requeueWaiting(only reasons: Set<WaitReason>? = nil)` probes the environment once (`probe.environment(settings:)` plus `isRecording()`), without taking a turn. For each meeting waiting for one of `reasons`, oldest first, it decides with `EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment:)` and computes the reason to store: `.queued` for `.run`, `r` for `.wait(r)`. When that differs from the stored reason it writes it through `update` (so `onChange` fires), but only if, after the probe's suspension, the meeting is not the pipeline's current work and its stored status is still the `.waiting` it read (checked inside the store's update closure); a meeting whose job has started is left alone. It then queues the meeting; a meeting already queued is not queued again (the existing `enqueue` deduplication). It returns without awaiting the jobs. The lifecycle loop uses it (Task 14).
+  - `public enum WaitRetry { static let interval: Duration = .seconds(15); static let quickReasons: Set<WaitReason> = [.thisMacUnreachable, .studioUnreachable, .queued]; static func reasons(forTick tick: Int) -> Set<WaitReason>? }` — nil (everything) when `tick % 4 == 0`, else `quickReasons`.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -590,18 +590,25 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
     await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
     #expect(probe.calls.get() >= probesBefore + 2)
     #expect(await pipeline.snapshot().queued == [b])
-    #expect(await pipeline.snapshot().clearedWaits == [b])
-    // release A → B runs, ends .ready, and leaves queued and clearedWaits
+    #expect(try h.meeting(b).status == .waiting(.queued))
+    #expect(!(try h.meeting(b).needsAttention))
+    // release A → B runs and ends .ready
 }
-@Test func aWaitThatHasNotClearedIsQueuedButNotCleared() async throws { /* A blocked; This Mac still down → queued == [b], clearedWaits == [], changedWaits == [:] */ }
-@Test func aWaitThatChangesReasonIsNotCleared() async throws { /* A blocked; B .waiting(.thisMacUnreachable); This Mac now reachable but memory pressure .critical → clearedWaits == [], changedWaits == [b: .memoryPressure] */ }
+@Test func aWaitThatHasNotClearedKeepsItsReason() async throws { /* A blocked; This Mac still down → queued == [b], B still .waiting(.thisMacUnreachable), no onChange for B */ }
+@Test func aWaitThatChangesReasonStoresTheNewReason() async throws {
+    // A blocked; B .waiting(.memoryPressure) (not needsYou); This Mac now down → B .waiting(.thisMacUnreachable), needsAttention, one onChange
+    // then This Mac up and pressure normal → B .waiting(.queued), not needsAttention
+}
+@Test func aStartedJobIsNotOverwritten() async throws { /* the probe suspends (FakeProbe gate) while B's job takes its turn and writes .summarizing → B is not set to .waiting(.queued) */ }
+@Test func aQueuedWaitRunsAfterARelaunch() async throws { /* a stored .waiting(.queued) meeting and a fresh pipeline → requeueWaiting(only: WaitRetry.reasons(forTick: 1)) → .ready */ }
 @Test func startingTheServerClearsTheWait() async throws {
     // probe thisMacReachable false → process → .waiting(.thisMacUnreachable)
     // probe thisMacReachable true → resumeWaiting(only: WaitRetry.reasons(forTick: 1)) → .ready
 }
 @Test func waitRetryCadence() {
     #expect(WaitRetry.reasons(forTick: 0) == nil && WaitRetry.reasons(forTick: 4) == nil)
-    #expect(WaitRetry.reasons(forTick: 1) == [.thisMacUnreachable, .studioUnreachable])
+    #expect(WaitRetry.reasons(forTick: 1) == [.thisMacUnreachable, .studioUnreachable, .queued])
+    #expect(!WaitReason.queued.needsYou)
     #expect(WaitRetry.interval == .seconds(15))
 }
 ```
@@ -634,7 +641,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `ActivityEntry.redacted() -> ActivityEntry` — `Redaction.redact` over `message` and `meeting?.title`, and `details?.redacted()`.
   - `public final class ActivityLog: ActivityRecording, @unchecked Sendable { static let retention: TimeInterval = 14 * 24 * 3600; static let maxBytes = 5_000_000; static let trimmedBytes = 4_000_000; let file: URL; init(file: URL, clock: @escaping @Sendable () -> Date = { Date() }); func record(_ entry: ActivityEntry); func entries() -> [ActivityEntry]; func prune(); func setObserver(_ handler: (@Sendable (ActivityEntry) -> Void)?) }` — guarded by a lock; `record` redacts, creates the folder, appends one JSON line (ISO 8601 dates), trims to the newest `trimmedBytes` of whole lines when the file passes `maxBytes`, then calls the observer with the redacted entry; `entries()` is newest first and skips lines that don't decode; `prune()` drops entries older than `retention` and applies the cap. Failures to write are logged with `os.Logger` and otherwise ignored.
   - `public enum DurationText { static func short(_ seconds: TimeInterval) -> String }` — under a minute "12 s"; under an hour "3 min 10 s" (seconds dropped when 0: "42 min"); else "1 h 5 min".
-  - `public enum MeetingActivity { static func entries(from old: Meeting?, to new: Meeting, settings: Settings, time: Date) -> [ActivityEntry] }` — every entry carries `ActivityMeeting(id: new.id, title: new.title)`. Nil `old` → `[]`. When the status changed: to `.failed(p)` → `.problem(p, area: p.details.stage?.area ?? .app, …)`; to `.waiting(r)` → warning, area `.engines` (`.recording` for `r == .recording`), message `Problems.waiting(r, api: settings.macbook.api, claudeKeyPresent: false).title`; `.transcribing` → `.diarizing` → info, `.transcription`, "Transcribed \(DurationText.short(meeting length)) of audio in \(DurationText.short(metrics.transcribeSeconds))" (only when both are known); `.summarizing` → `.ready` → info, `.recap`, "Recap written by \(engine.displayName) · \(model) · \(DurationText.short(metrics.summarizeSeconds))" with the engine from `summaryEngine` and the model from `settings`. When `engineNotice` changed to a non-nil value → `.problem(notice, area: .recap, …)`; when `transcriptNotice` changed to a non-nil value → `.problem(notice, area: .transcription, …)`.
+  - `public enum MeetingActivity { static func entries(from old: Meeting?, to new: Meeting, settings: Settings, time: Date) -> [ActivityEntry] }` — every entry carries `ActivityMeeting(id: new.id, title: new.title)`. Nil `old` → `[]`. When the status changed: to `.failed(p)` → `.problem(p, area: p.details.stage?.area ?? .app, …)`; to `.waiting(r)` with `r != .queued` → warning, area `.engines` (`.recording` for `r == .recording`), message `Problems.waiting(r, api: settings.macbook.api, claudeKeyPresent: false).title`; `.transcribing` → `.diarizing` → info, `.transcription`, "Transcribed \(DurationText.short(meeting length)) of audio in \(DurationText.short(metrics.transcribeSeconds))" (only when both are known); `.summarizing` → `.ready` → info, `.recap`, "Recap written by \(engine.displayName) · \(model) · \(DurationText.short(metrics.summarizeSeconds))" with the engine from `summaryEngine` and the model from `settings`. When `engineNotice` changed to a non-nil value → `.problem(notice, area: .recap, …)`; when `transcriptNotice` changed to a non-nil value → `.problem(notice, area: .transcription, …)`.
   - `LLMSummarizer.init(…, activity: ActivityRecording = NoActivity())` records, with `ActivityScope.meeting`: before the retry, info, `.recap`, "Asked \(engine.displayName) again: the first recap missed flagged moments or sources"; when the retry throws, warning, `.recap`, "The second attempt failed; Muninn kept the first recap", details from `ProblemTranslator.problem(for:in: .engine(engine, settings:, stage: .writingRecap, claudeKeyPresent: false)).details`.
   - `LLMTranscriptCleaner.init(client:batchSize:budget:clock:activity: ActivityRecording = NoActivity())` records, with `ActivityScope.meeting`: when the engine fails, warning, `.transcription`, "Cleanup fell back to the rule cleaner", details translated at stage `.cleaningUp`; when the budget runs out, info, `.transcription`, "Cleanup took too long; the rest used the rule cleaner". Each at most once per `clean(_:)` call.
 
@@ -657,7 +664,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 @Test func failureBecomesAProblemEntry() { /* .summarizing → .failed(Problems.claudeBusy(details: stage .writingRecap)) → one entry, level .problem, area .recap, message "Claude is busy right now", meeting id/title */ }
 @Test func enteringAWaitIsRecordedOnce() {
     // .summarizing → .waiting(.thisMacUnreachable): one warning, message "Ollama isn't running on This Mac"
-    // .waiting(.thisMacUnreachable) → .waiting(.thisMacUnreachable): []
+    // .waiting(.thisMacUnreachable) → .waiting(.thisMacUnreachable): []; → .waiting(.queued): []
 }
 @Test func recapWrittenNamesEngineModelAndTime() { /* .summarizing → .ready, summaryEngine .claude, summarizeSeconds 42 → "Recap written by Claude · claude-opus-5-5 · 42 s" */ }
 @Test func transcriptionDoneNamesTheDuration() { /* 42-minute meeting, transcribeSeconds 190, .transcribing → .diarizing → "Transcribed 42 min of audio in 3 min 10 s" */ }
@@ -690,7 +697,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `public struct SpeechModelPreparation: Equatable, Sendable { var model: String; var fraction: Double? }` (nil fraction = indeterminate).
   - `public enum MeetingProgress: Equatable, Sendable { case none; case queued(ahead: Int); case working(PipelineWork); case preparingSpeechModel(SpeechModelPreparation); case waiting(WaitReason); case failed(Problem) }`
   - `public enum ProcessingDisplay`:
-    - `static func progress(for meeting: Meeting, snapshot: PipelineSnapshot, speechModel: SpeechModelPreparation?) -> MeetingProgress`. In order: `current?.meetingID == meeting.id` → `.preparingSpeechModel` when the stage is `.transcribing` and `speechModel` is set, else `.working(current)`; status `.waiting(r)` → `.waiting(changedWaits[id] ?? r)`, unless the id is in `clearedWaits`, which falls through to the next rule; id in `queued` → `.queued(ahead: index + (current == nil ? 0 : 1))`; status `.failed(p)` → `.failed(p)`; status `.transcribing`, `.diarizing`, `.cleaning` or `.summarizing` → `.queued(ahead: queued.count + (current == nil ? 0 : 1))`; otherwise `.none`.
+    - `static func progress(for meeting: Meeting, snapshot: PipelineSnapshot, speechModel: SpeechModelPreparation?) -> MeetingProgress`. In order: `current?.meetingID == meeting.id` → `.preparingSpeechModel` when the stage is `.transcribing` and `speechModel` is set, else `.working(current)`; status `.waiting(r)` with `r != .queued` → `.waiting(r)` (`.waiting(.queued)` falls through to the next rules); id in `queued` → `.queued(ahead: index + (current == nil ? 0 : 1))`; status `.failed(p)` → `.failed(p)`; status `.transcribing`, `.diarizing`, `.cleaning` or `.summarizing` → `.queued(ahead: queued.count + (current == nil ? 0 : 1))`; otherwise `.none`.
     - `static func workLine(meetings: [Meeting], snapshot: PipelineSnapshot) -> String?` — "\(stage.title) · \(meeting title) · step \(step) of 4", nil when idle or the meeting is unknown.
     - `static func attentionLine(count: Int) -> String?` — nil for 0, "1 meeting needs attention", "\(n) meetings need attention".
     - `static func attentionReason(_ meeting: Meeting, api: EndpointAPI) -> String?` — the failure's title, the wait's `Problems.waiting(…).title`, or the problem notice's title; nil when the meeting doesn't need attention.
@@ -706,8 +713,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 }
 @Test func retriedFailureShowsAsQueued() { /* c .failed(p) in queued → .queued(ahead: 2); not queued → .failed(p) */ }
 @Test func waitWinsOverQueue() { /* c .waiting(.thisMacUnreachable) in queued → .waiting(.thisMacUnreachable) */ }
-@Test func aClearedWaitShowsItsQueuePosition() { /* c .waiting(.thisMacUnreachable) in queued and clearedWaits, a running → .queued(ahead: 2) */ }
-@Test func aChangedWaitShowsItsNewReason() { /* c .waiting(.thisMacUnreachable), changedWaits [c: .memoryPressure] → .waiting(.memoryPressure) */ }
+@Test func aClearedWaitShowsItsQueuePosition() { /* c .waiting(.queued) in queued, a running → .queued(ahead: 2); not in queued → .queued(ahead: queued.count + 1) */ }
 @Test func currentWorkShowsTheStage() { /* a, stage .writingRecap, engine .claude → .working(that work) */ }
 @Test func speechModelPreparationShowsWhileTranscribing() { /* a at .transcribing with SpeechModelPreparation(model: "Parakeet v3", fraction: 0.4) → .preparingSpeechModel; at .writingRecap → .working */ }
 @Test func processingStatusOutsideTheQueueReadsAsWaitingItsTurn() { /* .transcribing, snapshot .idle → .queued(ahead: 0) */ }
