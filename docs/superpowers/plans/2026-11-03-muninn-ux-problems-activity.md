@@ -37,7 +37,7 @@ Run all of these outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Appli
 ## Review Focus
 
 1. **A wait rewritten every 15 seconds** (This Mac's server off for an hour, or a Network Mac asleep) must not add an Activity entry or a notification on each retry; only entering the state counts. Pinned in Task 7 (`enteringAWaitIsRecordedOnce`) and Task 8 (`aWaitRewrittenEvery15SecondsIsNotRepeated`).
-2. **Outside text that looks harmless**: a Graph error code or OAuth code with spaces or a sentence in it, a request path with a long event id, a `DecodingError` describing a reply. None reaches a problem. Pinned in Task 2 (`graphHTTPErrorKeepsOnlyAnIdentifierCode`, `requestFactsHideLongIdentifiers`, `decodingErrorKeepsNoText`).
+2. **Outside text that looks harmless**: a Graph or OAuth code Muninn doesn't know (a sentence, or a plausible identifier), a request path with a long event id or a key in a configured base URL, a `DecodingError` describing a reply. None reaches a problem, the Activity file or a copy. Pinned in Task 1 (`detailsRedactEveryStringField`), Task 2 (`graphHTTPErrorKeepsOnlyAKnownCode`, `requestFactsHideLongIdentifiers`, `decodingErrorKeepsNoText`) and Task 7 (`recordRedactsBeforeWriting`).
 3. **A torn or oversized activity file** after a crash mid-write or a long-running Mac: unreadable lines are skipped, the file is trimmed, the window still opens. Pinned in Task 7 (`unreadableLinesAreSkipped`, `fileStaysUnderTheCap`).
 4. **Launch with old failed meetings, and announcements during a recording**: no burst of "Needs attention" notifications at launch, and a meeting that recovers while the owner records is never announced. Pinned in Task 8 (`meetingsAlreadyNeedingAttentionAtLaunchAreNotAnnounced`, `aMeetingThatRecoversDuringTheRecordingIsNotAnnounced`).
 5. **Try again on a failed meeting while another is processing**: it shows "Waiting its turn" with its position, not the old failure, and a meeting's wait reason still wins over its queue position. Pinned in Task 8 (`retriedFailureShowsAsQueued`, `waitWinsOverQueue`).
@@ -47,21 +47,23 @@ Run all of these outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Appli
 Decisions the spec leaves to the builder or does not settle. Record them under "Rulings" in the pull request.
 
 1. A problem's severity reuses the Activity levels (info, warning, problem). Fallback notices ("Written on This Mac") and the diarisation notice are warnings; a regeneration that failed or could not run and kept the recap is a problem, so it counts for Needs attention.
-2. `engineNotice` keeps the engine's notice; a new `transcriptNotice` holds the diarisation warning, so the two never overwrite each other. An old notice string that is one of the two diarisation sentences becomes the transcript notice; any other old string becomes a generic warning with no text from the original.
+2. `engineNotice` keeps the engine's notice; a new `transcriptNotice` holds the diarisation warning, so the two never overwrite each other. An old notice string is matched only against Muninn's own former sentences: a diarisation sentence becomes the transcript notice, an old "summarized on This Mac" fallback becomes the "Written on This Mac" warning, and anything else (an old failed or held regeneration) becomes a generic problem with Try again, so it stays in Needs attention. No text from the original is kept.
 3. "Show in Activity" is always the problem card's second pair button, so it is not in a problem's action list.
-4. Provider errors are classified at the transport. `LLMError` and `GraphError` hold a status, a category, a request (method, path, host) and, for Graph and OAuth, a code only when it is identifier-shaped (`^[A-Za-z][A-Za-z0-9_.]{0,63}$`). Request path segments longer than 32 characters become `{id}`; the OAuth tenant becomes `{tenant}`.
+4. Provider errors are classified at the transport. `LLMError` and `GraphError` hold a status, a category, a request (method, path, host) and, for Graph and OAuth, a code only when it is on a fixed list of known codes (others read `other` for Graph, `unrecognised` for OAuth). Request path segments longer than 32 characters become `{id}`; the query and any user info are dropped; the OAuth tenant becomes `{tenant}`. Every string field of a problem's details is redacted when it is shown, copied or written.
 5. A This Mac address that does not parse counts as reachable, so the run reports "This Mac's model server address isn't valid" rather than "isn't running".
 6. When the preferred Network Mac and This Mac's server are both down, the meeting waits for the Network Mac (the preferred engine).
 7. The elapsed time on a progress card is the current step's.
 8. "Waiting its turn" counts the running meeting as ahead. A meeting's wait reason wins over its queue position.
 9. Meetings that already need attention at launch are not announced; a notification held during a recording is dropped if the meeting no longer needs attention when the recording stops.
-10. The contrast test covers Muninn's own palette: each role colour as text on the content background (`#FFFFFF` / `#1E1E1E`), and label text on each soft fill. Role colours are used as text only on the plain content background; card text uses the label colours. Apple's secondary and tertiary label colours are outside the test.
+10. The spec asks for the system label colours and for every text colour to meet 4.5:1; Apple's secondary and tertiary label colours fall below 4.5:1 on white, so Muninn uses its own secondary (`#5C5C5C` / `#A6A6A6`) and tertiary (`#6E6E6E` / `#8C8C8C`) text colours, close to Apple's, and the system primary label colour. The contrast test checks every text colour on every background it is used on: role text and tertiary text on the content background (`#FFFFFF` / `#1E1E1E`) only, primary and secondary text on the content background and on every soft fill. Role colours appear as text only on the plain content background.
 11. Diagnostics mask account names and ids as whole words, show the home directory as `~`, and treat IPv4 addresses as hostnames.
 12. The activity file is trimmed to its newest 4 MB whenever an append takes it over 5 MB.
 13. A meeting's engine and transcript notices can be dismissed; dismissing a problem notice takes the meeting out of Needs attention.
 14. Calendar fetch failures, server reachability and Keychain read failures are recorded when they change, not on every retry.
 15. "Getting the speech model ready" shows for the first load of a model in each session, whether it downloads or loads from disk.
 16. "Sign in again" opens the Accounts settings pane, where the sign-in sheet lives.
+17. The 15-second loop queues waiting meetings without waiting for them to run, so a long job never delays the next re-check; a queued meeting is never queued twice.
+18. Every channel uses the problem card; Settings, popovers and the recording surfaces use its compact layout, which keeps the actions, Copy details and Show in Activity. A field's validation message is a compact card with a title only.
 
 ## File map
 
@@ -71,13 +73,13 @@ MuninnCore (`Packages/MuninnCore/Sources/MuninnCore/`):
 |---|---|---|
 | `Problems/Problem.swift` | `Problem`, `ProblemAction`, `ProblemDetails`, `RequestFacts`, `Provider`, `ProviderErrorCategory`, `ProblemStage`, `ProblemContext`, `SystemInfo`, `ProblemConvertible`, `ActivityLevel`, `ActivityArea` | 1 |
 | `Problems/Problems.swift` | The catalogue: every problem's copy and actions | 1 (+6, 15) |
-| `Problems/ProviderErrorClassifier.swift` | Category from status and body; identifier sanitiser | 2 |
+| `Problems/Redaction.swift` | Key and token redaction | 1 |
+| `Problems/ProviderErrorClassifier.swift` | Category from status and body; known Graph and OAuth codes | 2 |
 | `Problems/ProblemTranslator.swift` | Error + context → problem | 3 |
 | `Engines/EngineClientError.swift` | Moved from MuninnSystem | 3 |
 | `Pipeline/PipelineSnapshot.swift` | `PipelineStage`, `PipelineWork`, `PipelineSnapshot` | 4 |
 | `Pipeline/WaitRetry.swift` | 15-second re-check cadence | 6 |
 | `Activity/ActivityEntry.swift` | `ActivityEntry`, `ActivityMeeting`, `ActivityRecording`, `NoActivity`, `ActivityScope` | 7 |
-| `Activity/ActivityRedaction.swift` | Key and token redaction | 7 |
 | `Activity/ActivityLog.swift` | JSON-lines store, retention, cap, observer | 7 |
 | `Activity/MeetingActivity.swift` | Entries from a meeting's state change; `DurationText` | 7 |
 | `Pipeline/ProcessingDisplay.swift` | `MeetingProgress`, `SpeechModelPreparation`, menu lines, attention reason | 8 |
@@ -99,6 +101,7 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
 **Files:**
 - Create: `Packages/MuninnCore/Sources/MuninnCore/Problems/Problem.swift`
 - Create: `Packages/MuninnCore/Sources/MuninnCore/Problems/Problems.swift`
+- Create: `Packages/MuninnCore/Sources/MuninnCore/Problems/Redaction.swift`
 - Test: `Packages/MuninnCore/Tests/MuninnCoreTests/ProblemTests.swift`
 
 **Interfaces:**
@@ -109,7 +112,7 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
   - `enum ProblemAction: String, CaseIterable { case tryAgain, writeWithClaude, writeOnThisMac, writeWithAnotherEngine, engineSettings, changeKey, signInAgain, recordingSettings; var label: String }` — labels "Try again", "Write with Claude", "Write on This Mac", "Write with another engine", "Engine settings", "Change key…", "Sign in again", "Recording settings".
   - `enum ProviderErrorCategory: String, CaseIterable { case modelNotFound, unauthorized, rateLimited, overloaded, contextTooLong, badRequest, serverError, expiredSignIn, refused, incomplete, unknown }`
   - `enum Provider: String { case ollama, openAICompatible, anthropic, microsoftGraph, microsoftSignIn; var label: String; static func endpoint(_ api: EndpointAPI) -> Provider }` — labels "Ollama", "OpenAI-compatible server", "Anthropic", "Microsoft Graph", "Microsoft sign-in".
-  - `struct RequestFacts { var method: String; var path: String; var host: String?; init(method:path:host:); init(method: String, url: URL) }` — the URL initialiser replaces every path segment longer than 32 characters with `{id}`.
+  - `struct RequestFacts { var method: String; var path: String; var host: String?; init(method:path:host:); init(method: String, url: URL) }` — the URL initialiser keeps only `url.path` and `url.host` (no query, no user info) and replaces every path segment longer than 32 characters with `{id}`.
   - `enum ProblemStage: String, CaseIterable` with `phrase: String` and `area: ActivityArea`, exactly:
 
     | case | phrase | area |
@@ -133,7 +136,8 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
     | `deletingMeeting` | deleting the meeting | app |
     | `other` | working | app |
 
-  - `struct ProblemDetails` — all optional, all defaulted in `init`: `errorDomain: String?`, `errorCode: Int?`, `request: RequestFacts?`, `httpStatus: Int?`, `engine: EngineKind?`, `provider: Provider?`, `model: String?`, `category: ProviderErrorCategory?`, `graphCode: String?`, `path: String?`, `stage: ProblemStage?`, `elapsedSeconds: Double?`, `appVersion: String?`, `osVersion: String?`, `fromEarlierVersion: Bool = false`. Methods `lines(includeHost: Bool) -> [String]` and `text(includeHost: Bool) -> String` (lines joined by `\n`). Line formats, each only when its field is set, in this order: `Error: <domain> <code>`; `Request: <METHOD> <path>` plus ` on <host>` when `includeHost`; `HTTP status: <n>`; `Engine: <engine.displayName>`; `Provider: <provider.label>`; `Model: <model>`; `Category: <category.rawValue>`; `Microsoft Graph code: <code>`; `File: <path>`; `Stage: <stage.phrase>`; `Elapsed: <one decimal> s`; `From an earlier version of Muninn`; `Muninn <appVersion> · macOS <osVersion>` (when both set).
+  - `struct ProblemDetails` — all optional, all defaulted in `init`: `errorDomain: String?`, `errorCode: Int?`, `request: RequestFacts?`, `httpStatus: Int?`, `engine: EngineKind?`, `provider: Provider?`, `model: String?`, `category: ProviderErrorCategory?`, `graphCode: String?`, `path: String?`, `stage: ProblemStage?`, `elapsedSeconds: Double?`, `appVersion: String?`, `osVersion: String?`, `fromEarlierVersion: Bool = false`. Methods `redacted() -> ProblemDetails` (every string field, `request`'s three included, through `Redaction.redact`), `lines(includeHost: Bool) -> [String]` (built from `redacted()`) and `text(includeHost: Bool) -> String` (lines joined by `\n`). Line formats, each only when its field is set, in this order: `Error: <domain> <code>`; `Request: <METHOD> <path>` plus ` on <host>` when `includeHost`; `HTTP status: <n>`; `Engine: <engine.displayName>`; `Provider: <provider.label>`; `Model: <model>`; `Category: <category.rawValue>`; `Microsoft Graph code: <code>`; `File: <path>`; `Stage: <stage.phrase>`; `Elapsed: <one decimal> s`; `From an earlier version of Muninn`; `Muninn <appVersion> · macOS <osVersion>` (when both set).
+  - `public enum Redaction { static let marker = "[redacted]"; static func redact(_ text: String) -> String }` — replaces matches of `sk-ant-[A-Za-z0-9_\-]{8,}`, `sk-[A-Za-z0-9_\-]{16,}`, `(?i)bearer\s+[A-Za-z0-9._~+/=\-]{8,}`, `eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}` and `[A-Za-z0-9+/_]{40,}={0,2}` with the marker.
   - `struct Problem { var severity: ActivityLevel; var title: String; var explanation: String; var actions: [ProblemAction]; var details: ProblemDetails; init(severity:title:explanation:actions:details: = ProblemDetails()) }`
   - `struct SystemInfo: Equatable, Sendable { var appVersion: String; var osVersion: String; static var current: SystemInfo }` — `appVersion` is `"<CFBundleShortVersionString> (<CFBundleVersion>)"` from `Bundle.main`, falling back to `MuninnVersion.current`; `osVersion` is `major.minor[.patch]` from `ProcessInfo`.
   - `struct ProblemContext: Sendable { var stage: ProblemStage; var engine: EngineKind?; var endpointAPI: EndpointAPI?; var model: String?; var claudeKeyPresent: Bool; var accountName: String?; var subject: String?; var elapsed: TimeInterval? }` with a memberwise `init` where everything but `stage` is defaulted (`claudeKeyPresent` to `false`), and `static func engine(_ engine: EngineKind, settings: Settings, stage: ProblemStage, claudeKeyPresent: Bool, elapsed: TimeInterval? = nil) -> ProblemContext` filling `endpointAPI` and `model` from `settings.macbook`/`settings.studio`, or `model` from `settings.claudeModel` for Claude.
@@ -170,7 +174,7 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
 | `hotkeyUnsupported(keys:)` | problem | "The shortcut \(keys) can't be used" | "Choose another shortcut in Recording settings." | `recordingSettings` |
 | `somethingWentWrong(stage:)` | problem | "Something went wrong while \(stage.phrase)" | "Try again. If it keeps happening, copy the details and include them when you report it." | `tryAgain` |
 | `legacyFailure()` | problem | "This meeting couldn't be finished" | "An earlier version of Muninn stopped before it was done. Try again to finish it." | `tryAgain`; `details.fromEarlierVersion = true` |
-| `legacyEngineNotice()` | warning | "An earlier recap attempt didn't finish" | "An earlier version of Muninn kept this recap when a newer attempt didn't finish." | none; `fromEarlierVersion = true` |
+| `legacyEngineNotice()` | problem | "An earlier recap attempt didn't finish" | "An earlier version of Muninn kept this recap when a newer attempt didn't finish. Try again to rewrite it." | `tryAgain, writeWithAnotherEngine`; `fromEarlierVersion = true` |
 | `recordingUnreadable()` | problem | "The recording couldn't be read" | "Muninn quit while recording, and the audio files can't be opened." | none |
 | `recordingDidNotStart()` | problem | "The recording didn't start" | "Check that Muninn may use the microphone and record system audio in System Settings, then try again." | none |
 | `recordingPartlyUnsaved(tracks:)` | warning | "Part of the recording couldn't be saved" | "The \(tracks) recording couldn't be fully written. Muninn kept the meeting; its transcript may be incomplete." | none |
@@ -222,6 +226,21 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
     #expect(RequestFacts(method: "GET", url: url) == RequestFacts(method: "GET", path: "/v1.0/me/events/{id}", host: "graph.microsoft.com"))
 }
 @Test func problemsRoundTripThroughJSON() throws { /* encode/decode a problem with every details field set; expect equality */ }
+@Test func redactionRemovesKeysAndTokens() {
+    #expect(Redaction.redact("key sk-ant-api03-abcdefghijklmnop") == "key [redacted]")
+    #expect(!Redaction.redact("Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl").contains("eyJ"))
+    #expect(Redaction.redact(String(repeating: "aB3", count: 16)) == "[redacted]")
+    #expect(Redaction.redact("2026-11-03-1400-supplier-call-about-the-quarterly-numbers") == "2026-11-03-1400-supplier-call-about-the-quarterly-numbers")
+    #expect(Redaction.redact("qwen3:8b") == "qwen3:8b")
+}
+@Test func detailsRedactEveryStringField() {
+    let details = ProblemDetails(request: RequestFacts(method: "POST", path: "/sk-ant-api03-abcdefgh/api/chat", host: "studio.local"), model: "sk-ant-api03-zzzzzzzz")
+    #expect(!details.text(includeHost: true).contains("sk-ant-api03"))
+    #expect(details.redacted().request?.path == "/[redacted]/api/chat")
+}
+@Test func requestFactsDropQueryAndUserInfo() {
+    #expect(RequestFacts(method: "GET", url: URL(string: "http://me:secret@studio.local:11434/api/tags?key=abc")!) == RequestFacts(method: "GET", path: "/api/tags", host: "studio.local"))
+}
 @Test func stagePhrasesAndAreas() {
     #expect(ProblemStage.writingRecap.phrase == "writing the recap")
     #expect(ProblemStage.writingRecap.area == .recap)
@@ -268,13 +287,15 @@ App (`Muninn/`): `Design/Theme.swift`, `Design/StatusCard.swift`, `Design/Proble
 - Produces:
   - `enum LLMError: Error, Equatable { case http(status: Int, category: ProviderErrorCategory, request: RequestFacts); case connection(code: Int, request: RequestFacts); case refused(String?); case emptyResponse; case truncated; case decoding; case promptTruncated(model: String, contextTokens: Int) }` — keep the existing `LocalizedError` conformance for `promptTruncated` until Task 5 removes it.
   - `LLMTransport.post(_ url: URL, headers: [String: String], body: JSONValue, provider: Provider, session: URLSession) async throws -> Data` — a `URLError` other than `.cancelled` becomes `.connection(code: error.code.rawValue, request: RequestFacts(method: "POST", url: url))`; `.cancelled` is rethrown unchanged; a non-2xx reply becomes `.http(status:category: ProviderErrorClassifier.category(status:body:provider:), request:)`; the body is not kept.
-  - `enum ProviderErrorClassifier { static func category(status: Int, body: Data, provider: Provider) -> ProviderErrorCategory; static func identifier(_ text: String?) -> String?; static func graphCode(in body: Data) -> String? }` — `identifier` returns the text only when it matches `^[A-Za-z][A-Za-z0-9_.]{0,63}$`; `graphCode` reads `error.code` and passes it through `identifier`.
+  - `enum ProviderErrorClassifier { static func category(status: Int, body: Data, provider: Provider) -> ProviderErrorCategory; static let knownGraphCodes: Set<String>; static let knownOAuthCodes: Set<String>; static func graphCode(in body: Data) -> String?; static func oauthCode(_ code: String?) -> String }` — `graphCode` reads `error.code`: nil when there is none, the code when it is in `knownGraphCodes`, otherwise `"other"`; `oauthCode` returns the code when it is in `knownOAuthCodes`, otherwise `"unrecognised"`.
+    - `knownGraphCodes`: `ErrorAccessDenied`, `ErrorItemNotFound`, `ErrorInvalidRequest`, `ErrorInvalidIdMalformed`, `ErrorInvalidRecipients`, `ErrorQuotaExceeded`, `ErrorSendAsDenied`, `ErrorMessageSizeExceeded`, `ErrorExceededMessageLimit`, `ErrorMailboxNotEnabledForRESTAPI`, `MailboxNotEnabledForRESTAPI`, `ErrorNonExistentMailbox`, `ErrorInternalServerError`, `ErrorServerBusy`, `ErrorTimeoutExpired`, `InvalidAuthenticationToken`, `AuthenticationError`, `Authorization_RequestDenied`, `Request_ResourceNotFound`, `Request_BadRequest`, `Forbidden`, `Unauthorized`, `BadRequest`, `TooManyRequests`, `ApplicationThrottled`, `ServiceUnavailable`, `generalException`, `itemNotFound`, `accessDenied`, `invalidRequest`, `activityLimitReached`, `serviceNotAvailable`, `unauthenticated`, `quotaLimitReached`.
+    - `knownOAuthCodes`: `invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`, `authorization_pending`, `slow_down`, `access_denied`, `expired_token`, `authorization_declined`, `bad_verification_code`, `interaction_required`, `consent_required`, `login_required`, `temporarily_unavailable`, `server_error`.
   - Classification, first match wins:
     - Ollama: 404 with an `error` string containing "not found" (case-insensitive) → `modelNotFound`.
     - Anthropic `error.type`: `authentication_error`, `permission_error` → `unauthorized`; `rate_limit_error` → `rateLimited`; `overloaded_error` → `overloaded`; `not_found_error` → `modelNotFound`; `invalid_request_error` whose message contains "prompt is too long" → `contextTooLong`, otherwise → `badRequest`; `api_error` → `serverError`.
     - OpenAI-compatible `error.code`: `model_not_found` → `modelNotFound`; `context_length_exceeded` → `contextTooLong`; `invalid_api_key` → `unauthorized`.
     - Status fallback for every provider: 401, 403 → `unauthorized`; 404 → `modelNotFound` for Ollama and OpenAI-compatible, `unknown` otherwise; 429 → `rateLimited`; 503, 529 → `overloaded`; 400, 413, 422 → `badRequest`; other 5xx → `serverError`; anything else → `unknown`.
-  - `enum GraphError: Error, Equatable { case notSignedIn; case auth(String); case http(status: Int, code: String?, request: RequestFacts); case connection(code: Int, request: RequestFacts); case decoding }` — `auth` holds the OAuth `error` passed through `identifier`, or `"unrecognised"`; `isExpiredSignIn` is true for `auth`, `notSignedIn` and `http(status: 401, …)`; `errorDescription` keeps no body: `http` → "Microsoft Graph returned HTTP \(status).", `decoding` → "Unexpected response from Microsoft.", `connection` → "Microsoft can't be reached." (the app stops using these in Task 15).
+  - `enum GraphError: Error, Equatable { case notSignedIn; case auth(String); case http(status: Int, code: String?, request: RequestFacts); case connection(code: Int, request: RequestFacts); case decoding }` — `auth` holds `ProviderErrorClassifier.oauthCode` of the OAuth `error` (the device-code poll still reads `authorization_pending` and `slow_down` from the body as today); `isExpiredSignIn` is true for `auth`, `notSignedIn` and `http(status: 401, …)`; `errorDescription` keeps no body: `http` → "Microsoft Graph returned HTTP \(status).", `decoding` → "Unexpected response from Microsoft.", `connection` → "Microsoft can't be reached." (the app stops using these in Task 15).
   - `GraphClient.send` and the authenticator's `post` turn a `URLError` other than `.cancelled` into `.connection(code:request:)`. Graph requests use `RequestFacts(method:url:)`; OAuth requests use `RequestFacts(method: "POST", path: "/{tenant}/oauth2/v2.0/\(name)", host: "login.microsoftonline.com")`. `parseUTC` throws `.decoding` without the date text.
   - `enum SummaryParseError: Error, Equatable { case notJSON; case schemaMismatch }` (payloads dropped).
 - Add to `StubURLProtocol.Reply` an optional `failure: URLError?`; when set, `startLoading` calls `client?.urlProtocol(self, didFailWithError:)` instead of replying.
@@ -312,12 +333,12 @@ func statusFallbacks(status: Int, category: ProviderErrorCategory) {
 @Test func decodingErrorKeepsNoText() async { /* 200 with body "not json \(SEED)" → LLMError.decoding */ }
 
 // GraphTests
-@Test func graphHTTPErrorKeepsOnlyAnIdentifierCode() async {
+@Test func graphHTTPErrorKeepsOnlyAKnownCode() async {
     // createDraft against a stub: 403 {"error":{"code":"ErrorAccessDenied","message":"\(SEED)"}}
     // → .http(status: 403, code: "ErrorAccessDenied", request: RequestFacts(method: "POST", path: "/v1.0/me/messages", host: "graph.microsoft.com"))
-    // then code "Access denied \(SEED)" → .http(status: 403, code: nil, …)
+    // code "ConfidentialAcquisition" → code "other"; code "Access denied \(SEED)" → code "other"; no error object → code nil
 }
-@Test func authFailureKeepsOnlyTheOAuthCode() async { /* {"error":"not an identifier \(SEED)"} on refresh → .auth("unrecognised") */ }
+@Test func authFailureKeepsOnlyAKnownOAuthCode() async { /* {"error":"weird_code"} and {"error":"\(SEED)"} on refresh → .auth("unrecognised"); {"error":"invalid_grant"} → .auth("invalid_grant") */ }
 @Test func requestFactsHideLongIdentifiers() async { /* event(id: 60-char id) failing with 404 → request.path == "/v1.0/me/events/{id}" */ }
 ```
 
@@ -351,7 +372,7 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
   6. `EngineClientError.invalidBaseURL(.studio)` → `networkMacNotSetUp`; `.invalidBaseURL(.macbook)` → `thisMacAddressInvalid`; `.missingClaudeKey` → `claudeKeyMissing`.
   7. `NSError` in `NSCocoaErrorDomain` with code 512–642, or `NSPOSIXErrorDomain` with `ENOSPC`, `EACCES`, `EROFS`, `EDQUOT` → `couldNotSave(what: context.subject ?? "the meeting")`, `details.path` from `NSFilePathErrorKey` or `NSURLErrorKey`.
   8. Anything else → `somethingWentWrong(stage: context.stage)`.
-- Every result's details are completed, keeping a field the rule already set: `errorDomain` and `errorCode` from `error as NSError` (the domain only, never the description); `request`, `httpStatus`, `category`, `graphCode` from the error; `engine` and `model` from the context; `provider` from the engine (`Provider.endpoint(api)` for This Mac and the Network Mac, `.anthropic` for Claude) or `.microsoftGraph` / `.microsoftSignIn` for Graph and OAuth; `stage`, `elapsedSeconds` from the context; `appVersion`, `osVersion` from `system`.
+- Every result's details are completed, keeping a field the rule already set, then `redacted()`: `errorDomain` and `errorCode` — for `LLMError.connection` and `GraphError.connection` `NSURLErrorDomain` and the associated code; for the other cases of Muninn's own error enums (`LLMError`, `GraphError`, `SummaryParseError`, `EngineClientError`) the type name and no code; for any other error the domain and code of `error as NSError` (never its description); `request`, `httpStatus`, `category`, `graphCode` from the error; `engine` and `model` from the context; `provider` from the engine (`Provider.endpoint(api)` for This Mac and the Network Mac, `.anthropic` for Claude) or `.microsoftGraph` / `.microsoftSignIn` for Graph and OAuth; `stage`, `elapsedSeconds` from the context; `appVersion`, `osVersion` from `system`.
 
 - [ ] **Step 1: Write the failing tests**, one per rule, with `let system = SystemInfo(appVersion: "test (1)", osVersion: "26.1")`:
 
@@ -366,7 +387,8 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
     #expect(problem.details.appVersion == "test (1)" && problem.details.osVersion == "26.1")
 }
 @Test func timeoutOnAnOpenAICompatibleThisMacWithoutAKey() { /* URLError(.timedOut) code -1001, api .openAICompatible → "The model server on This Mac isn't running", [.tryAgain, .engineSettings] */ }
-@Test func networkMacUnreachable() { /* .connection on .studio → "The Network Mac can't be reached" */ }
+@Test func networkMacUnreachable() { /* .connection on .studio → "The Network Mac can't be reached", errorDomain NSURLErrorDomain, errorCode -1004 */ }
+@Test func muninnErrorsDontReportBridgedCodes() { /* LLMError.http(429, …) on .claude → errorDomain "LLMError", errorCode nil, httpStatus 429 */ }
 @Test func modelNotFoundOnTheNetworkMac() { /* .http(404, .modelNotFound) on .studio → "The model gpt-oss:20b isn't installed", explanation contains "ollama pull gpt-oss:20b", [.tryAgain] */ }
 @Test(arguments: [401, 403]) func claudeRejectsTheKey(status: Int) { /* → "Claude didn't accept the API key", [.changeKey, .tryAgain] */ }
 @Test(arguments: [ProviderErrorCategory.rateLimited, .overloaded]) func claudeIsBusy(category: ProviderErrorCategory) { /* → "Claude is busy right now", [.tryAgain, .writeOnThisMac] */ }
@@ -456,7 +478,7 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
 - Consumes: Tasks 1, 3, 4.
 - Produces:
   - `ProcessingStatus.failed(Problem)`, encoded `{"type":"failed","problem":{…}}`. Decoding `{"type":"failed","message":<any string>}` gives `.failed(Problems.legacyFailure())`; the string is discarded.
-  - `Meeting.engineNotice: Problem?` and a new `Meeting.transcriptNotice: Problem?` (key `transcriptNotice`; `Meeting.init` takes `transcriptNotice: Problem? = nil` as its last parameter). Decoding `engineNotice` tries `Problem`, then `String`: a string containing "Couldn't tell the other speakers apart; the call side is one speaker." or "Couldn't tell the speakers apart; the conversation is one speaker." sets `transcriptNotice` (when that key is absent) to `Problems.diarisationDegraded(mode: captureMode)`; a string with any other text sets `engineNotice` to `Problems.legacyEngineNotice()`; a string that is only a diarisation sentence leaves `engineNotice` nil.
+  - `Meeting.engineNotice: Problem?` and a new `Meeting.transcriptNotice: Problem?` (key `transcriptNotice`; `Meeting.init` takes `transcriptNotice: Problem? = nil` as its last parameter). Decoding `engineNotice` tries `Problem`, then `String`: a string containing "Couldn't tell the other speakers apart; the call side is one speaker." or "Couldn't tell the speakers apart; the conversation is one speaker." sets `transcriptNotice` (when that key is absent) to `Problems.diarisationDegraded(mode: captureMode)`; the rest of the string, with the diarisation sentence removed and trimmed, sets `engineNotice`: empty → nil; containing "summarized on This Mac" → `Problems.writtenOnThisMac(because: <contains "not set up" ? .studioNotConfigured : .studioUnreachable>)`; anything else → `Problems.legacyEngineNotice()`.
   - `extension Meeting { public var needsAttention: Bool }` — `.failed` → true; `.waiting(r)` → `r.needsYou`; otherwise `engineNotice?.severity == .problem`.
   - Pipeline: `fail(_:fallback:problem:metrics:)` stores `.failed(problem)`. `execute` builds the problem with `ProblemTranslator.problem(for:in:)` and a context from the current `PipelineWork` (stage, engine, elapsed since `stageStartedAt`, `subject` = `stage.savedThing`), `settings` (via `ProblemContext.engine` when there is an engine) and the last `EngineEnvironment` the job probed (`claudeKeyPresent`); with no current work, `ProblemContext(stage: .other)`.
   - Notices: a run that fell back from the Network Mac sets `engineNotice = Problems.writtenOnThisMac(because:)`; a regeneration held by a wait sets `Problems.keptRecap(reason, api: settings.macbook.api)`; a regeneration whose summariser throws sets `Problems.regenerationFailed(translated)`; any other successful run clears `engineNotice`. A diarisation failure sets `transcriptNotice = Problems.diarisationDegraded(mode:details:)` with `errorDomain` and `errorCode` of the diarizer's error; a successful diarisation clears it. `notice(_:keeping:)`, the notice string constants, `keptSummaryNotice` and `message(_:)` are removed.
@@ -476,8 +498,14 @@ Update the existing tests that construct `GraphError.http(Int, String)`, `.decod
 }
 @Test func legacyEngineNoticeLoadsWithoutItsText() throws {
     // "engineNotice":"Claude failed: \(SEED) — kept the existing summary"
-    #expect(meeting.engineNotice?.title == "An earlier recap attempt didn't finish" && meeting.engineNotice?.severity == .warning)
+    #expect(meeting.engineNotice?.title == "An earlier recap attempt didn't finish" && meeting.engineNotice?.severity == .problem)
+    #expect(meeting.engineNotice?.actions == [.tryAgain, .writeWithAnotherEngine] && meeting.needsAttention)
     // re-encoded JSON has no "Henderson"
+}
+@Test func legacyFallbackNoticeStaysAWarning() throws {
+    // "engineNotice":"Network Mac unreachable — summarized on This Mac" on a ready meeting
+    #expect(meeting.engineNotice == Problems.writtenOnThisMac(because: .studioUnreachable) && !meeting.needsAttention)
+    // "Network Mac not set up — summarized on This Mac" → (because: .studioNotConfigured)
 }
 @Test func legacyDiarisationNoticeBecomesATranscriptNotice() throws {
     // "engineNotice":"Couldn't tell the other speakers apart; the call side is one speaker." on a call meeting
@@ -526,7 +554,8 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `EngineEnvironment` gains `thisMacReachable: Bool` and `claudeKeyUnreadable: Bool`, as `init` parameters defaulted to `true` and `false`.
   - `EngineSelector` rules: any decision that would run `.macbook` (preferred, forced, or the fallback from the Network Mac) becomes `.wait(.thisMacUnreachable)` when `!thisMacReachable`, except that a preferred Network Mac that is down keeps its own wait (`studioUnreachable` / `studioNotConfigured`). Reachability is checked before memory pressure. Claude (preferred or forced) waits `.claudeKeyUnreadable` when `claudeKeyUnreadable`, before checking `claudeKeyPresent`. A running recording still turns a `.macbook` run into `.wait(.recording)`.
   - `Problems.waiting` covers the new reasons: `thisMacUnreachable` → `thisMacServerNotRunning(api:claudeKeyPresent:waiting: true)` with severity `warning`; `claudeKeyUnreadable` → `keychainUnreadable` copy, severity `warning`, actions `engineSettings, writeOnThisMac`. `Problems.keptRecap` sentences: `thisMacUnreachable` → "Ollama isn't running on This Mac" / "The model server on This Mac isn't running" by `api`; `claudeKeyUnreadable` → "Muninn couldn't read the Claude key".
-  - `ProcessingPipeline.resumeWaiting(only reasons: Set<WaitReason>? = nil)` resubmits only meetings waiting for one of `reasons` (all waiting meetings when nil).
+  - `ProcessingPipeline.resumeWaiting(only reasons: Set<WaitReason>? = nil)` resubmits only meetings waiting for one of `reasons` (all waiting meetings when nil) and awaits them, as today.
+  - `ProcessingPipeline.requeueWaiting(only reasons: Set<WaitReason>? = nil)` queues the same meetings, oldest first, and returns without awaiting them; a meeting already queued is not queued again (the existing `enqueue` deduplication). The lifecycle loop uses it (Task 14).
   - `public enum WaitRetry { static let interval: Duration = .seconds(15); static let quickReasons: Set<WaitReason> = [.thisMacUnreachable, .studioUnreachable]; static func reasons(forTick tick: Int) -> Set<WaitReason>? }` — nil (everything) when `tick % 4 == 0`, else `quickReasons`.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -548,6 +577,13 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
     // A waiting(.thisMacUnreachable), B waiting(.claudeKeyMissing); environment now lets both run
     await pipeline.resumeWaiting(only: [.thisMacUnreachable])
     // A is .ready, B still .waiting(.claudeKeyMissing)
+}
+@Test func requeueingDoesNotWaitForRunningWork() async throws {
+    // A blocked in the summariser; B .waiting(.thisMacUnreachable)
+    await pipeline.requeueWaiting(only: WaitRetry.quickReasons)   // returns while A is still blocked
+    await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+    #expect(await pipeline.snapshot().queued == [b])
+    // release A → B runs and, with This Mac reachable, ends .ready
 }
 @Test func startingTheServerClearsTheWait() async throws {
     // probe thisMacReachable false → process → .waiting(.thisMacUnreachable)
@@ -572,7 +608,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
 **Depends on:** Task 6
 
 **Files:**
-- Create: `Packages/MuninnCore/Sources/MuninnCore/Activity/ActivityEntry.swift`, `ActivityRedaction.swift`, `ActivityLog.swift`, `MeetingActivity.swift`
+- Create: `Packages/MuninnCore/Sources/MuninnCore/Activity/ActivityEntry.swift`, `ActivityLog.swift`, `MeetingActivity.swift`
 - Modify: `Packages/MuninnCore/Sources/MuninnCore/Storage/MuninnPaths.swift`
 - Modify: `Packages/MuninnCore/Sources/MuninnCore/Engines/LLMSummarizer.swift`, `LLMTranscriptCleaner.swift`
 - Modify: `Packages/MuninnCore/Sources/MuninnCore/Pipeline/ProcessingPipeline.swift` (scope)
@@ -585,7 +621,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
   - `public struct ActivityEntry: Codable, Hashable, Sendable, Identifiable { var id: UUID; var time: Date; var level: ActivityLevel; var area: ActivityArea; var meeting: ActivityMeeting?; var message: String; var details: ProblemDetails?; init(id: UUID = UUID(), time:level:area:meeting: = nil, message:details: = nil); static func problem(_ problem: Problem, area: ActivityArea, meeting: ActivityMeeting?, time: Date) -> ActivityEntry }` — `problem` uses `problem.severity`, `problem.title`, `problem.details`.
   - `public protocol ActivityRecording: Sendable { func record(_ entry: ActivityEntry) }`; `public struct NoActivity: ActivityRecording`.
   - `public enum ActivityScope { @TaskLocal public static var meeting: ActivityMeeting? }` — `ProcessingPipeline.run` wraps `execute` in `ActivityScope.$meeting.withValue(ActivityMeeting(id:title:))` using the stored title.
-  - `public enum ActivityRedaction { static let marker = "[redacted]"; static func redact(_ text: String) -> String; static func redact(_ entry: ActivityEntry) -> ActivityEntry }` — patterns: `sk-ant-[A-Za-z0-9_\-]{8,}`, `sk-[A-Za-z0-9_\-]{16,}`, `(?i)bearer\s+[A-Za-z0-9._~+/=\-]{8,}`, `eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}`, and `[A-Za-z0-9+/_]{40,}={0,2}`. The entry form redacts `message`, `meeting?.title`, `details?.model`, `details?.path`, `details?.graphCode`.
+  - `ActivityEntry.redacted() -> ActivityEntry` — `Redaction.redact` over `message` and `meeting?.title`, and `details?.redacted()`.
   - `public final class ActivityLog: ActivityRecording, @unchecked Sendable { static let retention: TimeInterval = 14 * 24 * 3600; static let maxBytes = 5_000_000; static let trimmedBytes = 4_000_000; let file: URL; init(file: URL, clock: @escaping @Sendable () -> Date = { Date() }); func record(_ entry: ActivityEntry); func entries() -> [ActivityEntry]; func prune(); func setObserver(_ handler: (@Sendable (ActivityEntry) -> Void)?) }` — guarded by a lock; `record` redacts, creates the folder, appends one JSON line (ISO 8601 dates), trims to the newest `trimmedBytes` of whole lines when the file passes `maxBytes`, then calls the observer with the redacted entry; `entries()` is newest first and skips lines that don't decode; `prune()` drops entries older than `retention` and applies the cap. Failures to write are logged with `os.Logger` and otherwise ignored.
   - `public enum DurationText { static func short(_ seconds: TimeInterval) -> String }` — under a minute "12 s"; under an hour "3 min 10 s" (seconds dropped when 0: "42 min"); else "1 h 5 min".
   - `public enum MeetingActivity { static func entries(from old: Meeting?, to new: Meeting, settings: Settings, time: Date) -> [ActivityEntry] }` — every entry carries `ActivityMeeting(id: new.id, title: new.title)`. Nil `old` → `[]`. When the status changed: to `.failed(p)` → `.problem(p, area: p.details.stage?.area ?? .app, …)`; to `.waiting(r)` → warning, area `.engines` (`.recording` for `r == .recording`), message `Problems.waiting(r, api: settings.macbook.api, claudeKeyPresent: false).title`; `.transcribing` → `.diarizing` → info, `.transcription`, "Transcribed \(DurationText.short(meeting length)) of audio in \(DurationText.short(metrics.transcribeSeconds))" (only when both are known); `.summarizing` → `.ready` → info, `.recap`, "Recap written by \(engine.displayName) · \(model) · \(DurationText.short(metrics.summarizeSeconds))" with the engine from `summaryEngine` and the model from `settings`. When `engineNotice` changed to a non-nil value → `.problem(notice, area: .recap, …)`; when `transcriptNotice` changed to a non-nil value → `.problem(notice, area: .transcription, …)`.
@@ -605,14 +641,7 @@ Rewrite the existing notice expectations to the new values: `fallbackNoticeSet` 
     #expect(!log.entries().contains { $0.message == oldestMessage })
 }
 @Test func unreadableLinesAreSkipped() { /* file "garbage\n{partial" + one valid line → entries().count == 1 */ }
-@Test func redactionRemovesKeysAndTokens() {
-    #expect(ActivityRedaction.redact("key sk-ant-api03-abcdefghijklmnop") == "key [redacted]")
-    #expect(!ActivityRedaction.redact("Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl").contains("eyJ"))
-    #expect(ActivityRedaction.redact(String(repeating: "aB3", count: 16)) == "[redacted]")
-    #expect(ActivityRedaction.redact("2026-11-03-1400-supplier-call-about-the-quarterly-numbers") == "2026-11-03-1400-supplier-call-about-the-quarterly-numbers")
-    #expect(ActivityRedaction.redact("qwen3:8b") == "qwen3:8b")
-}
-@Test func recordRedactsBeforeWriting() { /* message with "sk-ant-api03-SECRETSECRET" → file text lacks "SECRETSECRET" */ }
+@Test func recordRedactsBeforeWriting() { /* message "sk-ant-api03-SECRETSECRET" and details.request.path "/sk-ant-api03-PATHSECRET/api" → file text lacks "SECRETSECRET" and "PATHSECRET" */ }
 @Test func observerSeesRecordedEntries() {}
 @Test func noEntriesWithoutAnEarlierState() { /* MeetingActivity.entries(from: nil, …) == [] */ }
 @Test func failureBecomesAProblemEntry() { /* .summarizing → .failed(Problems.claudeBusy(details: stage .writingRecap)) → one entry, level .problem, area .recap, message "Claude is busy right now", meeting id/title */ }
@@ -726,7 +755,7 @@ Activity (last <n> entries, newest first)
     <each details line, includeHost: false>
 ```
 
-- Masking, applied to the Engines and Activity sections after they are built, longest strings first: each distinct meeting (by id, in order of first appearance among the entries) → "meeting A", "meeting B", … replacing both its id and its title anywhere; email addresses (`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`) → `<email>`; each account's `displayName` and `id`, whole words, case-sensitive → "account 1", "account 2", … in settings order; every host from the settings' base URLs and from entries' `details.request.host`, plus IPv4 addresses → `<host>`; `homeDirectory` prefix → `~`; finally `ActivityRedaction.redact`.
+- Masking, applied to the Engines and Activity sections after they are built, longest strings first: each distinct meeting (by id, in order of first appearance among the entries) → "meeting A", "meeting B", … replacing both its id and its title anywhere; email addresses (`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`) → `<email>`; each account's `displayName` and `id`, whole words, case-sensitive → "account 1", "account 2", … in settings order; every host from the settings' base URLs and from entries' `details.request.host`, plus IPv4 addresses → `<host>`; `homeDirectory` prefix → `~`; finally `Redaction.redact`.
 
 - [ ] **Step 1: Write the failing tests.** `SEED` as in Task 2.
 
@@ -857,14 +886,14 @@ Activity (last <n> entries, newest first)
 **Interfaces:**
 - Produces (Core):
   - `public struct RGB: Equatable, Sendable { var red, green, blue: Double; init(hex: UInt32) }` (components 0…1).
-  - `public enum Palette` — `static let` values from Global Constraints: `accentLight`, `accentDark`, `attentionTextLight`, `attentionFillLight`, `attentionDark`, `problemLight`, `problemDark`, `successLight`, `successDark`, `recording`, `contentLight = RGB(hex: 0xFFFFFF)`, `contentDark = RGB(hex: 0x1E1E1E)`; `softLight = 0.10`, `softDark = 0.13`.
+  - `public enum Palette` — `static let` values from Global Constraints: `accentLight`, `accentDark`, `attentionTextLight`, `attentionFillLight`, `attentionDark`, `problemLight`, `problemDark`, `successLight`, `successDark`, `recording`, `contentLight = RGB(hex: 0xFFFFFF)`, `contentDark = RGB(hex: 0x1E1E1E)`; text: `primaryTextAlpha = 0.85` (the system label colour: black or white at 85%), `secondaryTextLight = 0x5C5C5C`, `secondaryTextDark = 0xA6A6A6`, `tertiaryTextLight = 0x6E6E6E`, `tertiaryTextDark = 0x8C8C8C`; `softLight = 0.10`, `softDark = 0.13`, `neutralSoftAlpha = 0.08` (a grey `0x808080` fill for the waiting role).
   - `public enum Contrast { static func luminance(_ c: RGB) -> Double; static func ratio(_ a: RGB, _ b: RGB) -> Double; static func composite(_ top: RGB, alpha: Double, over bottom: RGB) -> RGB }` (WCAG 2 relative luminance).
 - Produces (app):
-  - `enum Theme` — `Color` statics built from `Palette` with `NSColor(name:dynamicProvider:)` choosing by `bestMatch(from: [.aqua, .darkAqua])`: `accent`, `accentSoft`, `attentionText`, `attentionFill`, `attentionSoft`, `problem`, `problemSoft`, `success`, `successSoft`, `recording`, `contentBackground` (`NSColor.textBackgroundColor`). Fonts: `meetingTitle` = `.system(size: 27, weight: .semibold, design: .serif)`, `subject` = 19 semibold serif, `reading` 14.5, `interface` 13, `meta` 12.5, `label` 11 semibold (a `ViewModifier` `SectionLabel` applying uppercase and `.tertiary`), `mono` = `.system(size: 11.5, design: .monospaced)`. `enum Space { xs = 4, s = 8, m = 16, l = 24, xl = 32 }`, `enum Radius { chip = 6, card = 10, panel = 14 }`, `readingWidth: CGFloat = 760`.
-  - `struct StatusCard: View` with `enum Role { case progress, waiting, attention, problem, success }`, `struct Action: Identifiable { label, run, menu: [(String, () -> Void)] = [], disabledReason: String? }`, and stored properties `role`, `title`, `explanation: String?`, `meta: String?`, `since: Date?` (shown as `Text(since, style: .timer)` after `meta`), `steps: (current: Int, labels: [String])?`, `progress: Progress?` (`enum Progress { case indeterminate, fraction(Double) }`), `actions: [Action]` (only the first three are shown), `copyDetails: String?`, `showInActivity: (() -> Void)?`, `onDismiss: (() -> Void)?`; every property but `role` and `title` defaults to nil (`actions` to `[]`). Layout: icon (progress: a small `ProgressView`; waiting `clock`; attention `exclamationmark.circle.fill` in `attentionFill`; problem `exclamationmark.triangle.fill` in `problem`; success `checkmark.circle.fill` in `success`), title (13 pt semibold, primary), explanation (13 pt, secondary), meta (mono, secondary), the step bar (four segments filled up to `current` in `accent`, labels in meta style under them), a linear progress bar, then the action buttons, then "Copy details" (copies to `NSPasteboard.general` and reads "Copied" for two seconds) and "Show in Activity" when given. Background: role soft fill (`accentSoft`, `Color.secondary.opacity(0.08)`, `attentionSoft`, `problemSoft`, `successSoft`) in a `RoundedRectangle(cornerRadius: Radius.card)`. Text uses the label colours only. The dismiss button is icon-only with accessibility label "Dismiss". A disabled action shows its reason with `.help`.
+  - `enum Theme` — `Color` statics built from `Palette` with `NSColor(name:dynamicProvider:)` choosing by `bestMatch(from: [.aqua, .darkAqua])`: `accent`, `accentSoft`, `attentionText`, `attentionFill`, `attentionSoft`, `problem`, `problemSoft`, `success`, `successSoft`, `neutralSoft`, `recording`, `primaryText` (`NSColor.labelColor`), `secondaryText`, `tertiaryText`, `contentBackground` (`NSColor.textBackgroundColor`). Fonts: `meetingTitle` = `.system(size: 27, weight: .semibold, design: .serif)`, `subject` = 19 semibold serif, `reading` 14.5, `interface` 13, `meta` 12.5, `label` 11 semibold (a `ViewModifier` `SectionLabel` applying uppercase and `Theme.tertiaryText`), `mono` = `.system(size: 11.5, design: .monospaced)`. `enum Space { xs = 4, s = 8, m = 16, l = 24, xl = 32 }`, `enum Radius { chip = 6, card = 10, panel = 14 }`, `readingWidth: CGFloat = 760`.
+  - `struct StatusCard: View` with `enum Role { case progress, waiting, attention, problem, success }`, `struct Action: Identifiable { label, run, menu: [(String, () -> Void)] = [], disabledReason: String? }`, and stored properties `role`, `title`, `explanation: String?`, `meta: String?`, `since: Date?` (shown as `Text(since, style: .timer)` after `meta`), `steps: (current: Int, labels: [String])?`, `progress: Progress?` (`enum Progress { case indeterminate, fraction(Double) }`), `actions: [Action]` (only the first three are shown), `copyDetails: String?`, `showInActivity: (() -> Void)?`, `onDismiss: (() -> Void)?`; every property but `role` and `title` defaults to nil (`actions` to `[]`). Layout: icon (progress: a small `ProgressView`; waiting `clock`; attention `exclamationmark.circle.fill` in `attentionFill`; problem `exclamationmark.triangle.fill` in `problem`; success `checkmark.circle.fill` in `success`), title (13 pt semibold, `primaryText`), explanation (13 pt, `secondaryText`), meta (mono, `secondaryText`), the step bar (four segments filled up to `current` in `accent`, labels in meta style under them), a linear progress bar, then the action buttons, then "Copy details" (copies to `NSPasteboard.general` and reads "Copied" for two seconds) and "Show in Activity" when given. Background: role soft fill (`accentSoft`, `neutralSoft`, `attentionSoft`, `problemSoft`, `successSoft`) in a `RoundedRectangle(cornerRadius: Radius.card)`. Text uses `primaryText` and `secondaryText` only. `compact: Bool = false`: one tighter row of title and explanation, the actions as small borderless buttons, and "Copy details" and "Show in Activity" in a `…` menu; same roles and colours. The dismiss button is icon-only with accessibility label "Dismiss". A disabled action shows its reason with `.help`.
   - `struct ProblemHandlers { var tryAgain, engineSettings, changeKey, signInAgain, recordingSettings: (() -> Void)?; var write: ((EngineKind) -> Void)?; var failedEngine: EngineKind?; var disabledReason: String? }` (all defaulted nil).
-  - `struct ProblemCard: View { let problem: Problem; var role: StatusCard.Role? = nil; let handlers: ProblemHandlers; var showInActivity: (() -> Void)? = nil; var onDismiss: (() -> Void)? = nil }` — role defaults from severity (problem → `.problem`, warning and info → `.waiting`); actions from `problem.actions` that have a handler (`writeWithClaude` → `write(.claude)`, `writeOnThisMac` → `write(.macbook)`, `writeWithAnotherEngine` → a menu of `EngineKind.allCases` minus `failedEngine`, labelled with `displayName`); `copyDetails` and `showInActivity` only for severity `.problem`, copying `"\(title)\n\(explanation)\n\n\(details.text(includeHost: true))"`.
-  - `struct InlineProblem: View { init(_ problem: Problem); init(title: String, explanation: String? = nil) }` — one row: a small role icon, title, explanation as a caption; for Settings fields and popovers.
+  - `struct ProblemCard: View { let problem: Problem; var role: StatusCard.Role? = nil; var compact = false; let handlers: ProblemHandlers; var showInActivity: (() -> Void)? = nil; var onDismiss: (() -> Void)? = nil }` — role defaults from severity (problem → `.problem`, warning and info → `.waiting`); actions from `problem.actions` that have a handler (`writeWithClaude` → `write(.claude)`, `writeOnThisMac` → `write(.macbook)`, `writeWithAnotherEngine` → a menu of `EngineKind.allCases` minus `failedEngine`, labelled with `displayName`); `copyDetails` and `showInActivity` only for severity `.problem`, copying `"\(title)\n\(explanation)\n\n\(details.text(includeHost: true))"`.
+  - `extension Problem { static func notice(_ title: String) -> Problem }` (app-side): a warning with that title, no explanation, no actions — for a field's validation message, shown as a compact `ProblemCard`.
 
 - [ ] **Step 1: Write the failing tests** (`PaletteTests`):
 
@@ -877,10 +906,12 @@ Activity (last <n> entries, newest first)
 func lightRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette.contentLight) >= 4.5) }
 @Test(arguments: [Palette.accentDark, Palette.attentionDark, Palette.problemDark, Palette.successDark])
 func darkRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette.contentDark) >= 4.5) }
-@Test func labelTextMeetsAAOnSoftFills() {
-    // light: composite(black, alpha 0.85, over: composite(role, softLight, over: contentLight)) vs that fill ≥ 4.5,
-    //        for accentLight, attentionFillLight, problemLight, successLight
-    // dark:  composite(white, alpha 0.85, …) over composite(role, softDark, over: contentDark) ≥ 4.5
+@Test func tertiaryTextMeetsAAOnContent() { /* tertiaryTextLight on contentLight, tertiaryTextDark on contentDark ≥ 4.5 */ }
+@Test func primaryAndSecondaryTextMeetAAEverywhere() {
+    // backgrounds: contentLight, and composite(role, softLight, over: contentLight) for accentLight, attentionFillLight, problemLight,
+    //   successLight, plus composite(0x808080, neutralSoftAlpha, over: contentLight); the same in dark with softDark over contentDark
+    // light text: composite(black, primaryTextAlpha, over: background) and secondaryTextLight; dark: white at primaryTextAlpha and secondaryTextDark
+    // every pair ≥ 4.5
 }
 ```
 
@@ -915,7 +946,7 @@ func darkRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette
     - Launch recovery: `.transcribe` → info, `.recording`, "Recovered an interrupted recording"; `.markUnreadable` → `Problems.recordingUnreadable()`; `.delete` → info, "Removed an empty interrupted recording".
     - Draft created → info, `.outlook`, "Draft created in Outlook"; note filed (manual or automatic) → info, `.obsidian`, "Filed in Obsidian".
     - `RecordingController`: recording started → info, `.recording`, "Recording started"; stopped → info, "Recording stopped · \(DurationText.short(length))"; every notice it posts → recorded at its severity, area `.recording`.
-  - `Window("Activity", id: "activity")` in `MuninnApp`, `.defaultSize(width: 760, height: 520)`, `.defaultLaunchBehavior(.suppressed)`, with `ActivityWindow` (environment objects `model` and `model.activity`). Opened by "Activity" in the menu bar menu (above "Settings…") and in the Help menu (`CommandGroup(after: .help)`), both through `WindowPresenter.present`.
+  - `Window("Activity", id: "activity")` in `MuninnApp`, `.defaultSize(width: 760, height: 520)`, `.defaultLaunchBehavior(.suppressed)`, content `frame(minWidth: 560, minHeight: 360)`, with `ActivityWindow` (environment objects `model` and `model.activity`). Opened by "Activity" in the menu bar menu (above "Settings…") and in the Help menu (`CommandGroup(after: .help)`), both through `WindowPresenter.present`.
   - `ActivityWindow`: toolbar with a segmented "All" / "Problems" filter (Problems = level `.problem`), `.searchable` (message, area label, meeting title, details text), and "Copy diagnostics" (copies `diagnostics(settings:)`, then reads "Copied" for two seconds). A `List` with selection, newest first; a row shows the time (`HH:mm:ss`, mono; a day header per date), a level icon with accessibility label "Info", "Warning" or "Problem", the area label, the message and, when the meeting still exists, its title as a link button calling `model.showMeeting(id)`. The selected row expands to its details text (`includeHost: true`, mono, selectable) and a "Copy" button copying time, level, area, meeting title, message and details. Footer: "Show log file in Finder" and the note "Muninn keeps 14 days of activity." An empty list says "No activity yet" (All) or "No problems" (Problems). It scrolls to and selects `focusedEntryID` when set.
 
 - [ ] **Step 1: Implement** (no app test target; the logic is covered by Tasks 7–11).
@@ -938,7 +969,7 @@ func darkRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette
 - Produces on `AppModel`:
   - `@Published private(set) var pipelineSnapshot = PipelineSnapshot.idle` (from `pipeline.setOnSnapshot`, hopping to the main actor), `@Published private(set) var speechModels: [SpeechModelPreparation] = []` (from `SpeechModelActivity.shared.setObserver`), `@Published private(set) var claudeKeyPresent: Bool` (read from the Keychain at launch, on every lifecycle tick and after the key is saved or removed in Settings; a read failure counts as absent), `@Published var sidebarFilter: SidebarFilter = .all` (`enum SidebarFilter { case all, needsAttention }`), `@Published var settingsTab: SettingsTab = .engines` (`enum SettingsTab: Hashable { case engines, accounts, obsidian, recording, dictionary, permissions }`).
   - `func progress(for meeting: Meeting) -> MeetingProgress` (`ProcessingDisplay.progress(for:snapshot:speechModel: speechModels.first)`), `func dismissEngineNotice(_ id: MeetingID)`, `func dismissTranscriptNotice(_ id: MeetingID)` (both through `mutate`).
-  - The lifecycle loop becomes `var tick = 0; while !Task.isCancelled { await pipeline.resumeWaiting(only: WaitRetry.reasons(forTick: tick)); tick += 1; try? await Task.sleep(for: WaitRetry.interval) }`.
+  - The lifecycle loop becomes `var tick = 0; while !Task.isCancelled { await pipeline.requeueWaiting(only: WaitRetry.reasons(forTick: tick)); tick += 1; try? await Task.sleep(for: WaitRetry.interval) }`.
 - `MeetingStatusCards(meeting:)`, placed in `MeetingDetail` between the banners and the header so it shows on both tabs; it replaces `SummaryEditor`'s `banners`:
   - `.queued(ahead)` → `StatusCard(role: .waiting, title: "Waiting its turn", explanation: ahead == 0 ? "Muninn starts on it next." : ahead == 1 ? "1 meeting ahead." : "\(ahead) meetings ahead.")`.
   - `.working(work)` → `StatusCard(role: .progress, title: work.stage.title, meta: work.engine.map { "\($0.displayName) · " } ?? "", since: work.stageStartedAt, steps: (work.stage.step, PipelineStage.allCases.map(\.stepLabel)))`.
@@ -990,10 +1021,10 @@ func darkRoleTextMeetsAA(_ colour: RGB) { #expect(Contrast.ratio(colour, Palette
 
 - Notices: auto-file `.unsourced(n)` → `Problems.notFiledAutomatically(unsourced: n)`; `.vaultNotChosen` → `Problems.vaultNotChosen()`; a draft without a link → `Problems.draftWithoutLink()`; an event left unchanged → `Problems.eventNotChanged()`.
 - `MeetingDetail`: `saveError: Problem?` (summary and meeting edits translated at stage `.savingEdits`, subject "your changes"); the three banners become `ProblemCard`s (`actionErrors` and notices dismissible; the save error's `tryAgain` is the existing `saveRetry`).
-- Settings: `saveSettings` sets `settingsProblem` (translated at `.savingSettings`) and records it; `SettingsView` shows it as `InlineProblem` above the tabs with a dismiss button. `ClaudeSection` key read → `Problems.keychainUnreadable(details:)`, save and remove → `Problems.keychainUnwritable(details:)`, each with the `KeychainError` status as `errorCode`, shown with `InlineProblem`. `AccountsTab`: token removal → `keychainUnwritable`; missing client ID or tenant → `InlineProblem(title: "Enter a client ID and tenant for \(name) first")`; the account status `.unreadable(String)` becomes `.unreadable(Problem)`; removal refusals keep `AccountManagement.removalRefusal` text as an `InlineProblem` title. `DebouncedText` shows its validation message with `InlineProblem(title:)`. `RecordingTab` shows `hotkeyError` with `InlineProblem`.
+- Settings (every card compact, each problem with `showInActivity`): `saveSettings` sets `settingsProblem` (translated at `.savingSettings`), keeps the settings it failed to save in `failedSettings: MuninnCore.Settings?` and records the problem; `SettingsView` shows the card above the tabs with `tryAgain` → `saveSettings(failedSettings)` and a dismiss. `ClaudeSection`: key read → `Problems.keychainUnreadable(details:)` with `tryAgain` → read again; save and remove → `Problems.keychainUnwritable(details:)` with `tryAgain` → repeat the save or removal; each with the `KeychainError` status as `errorCode`. `AccountsTab`: token removal → `keychainUnwritable` with `tryAgain` → remove again; an unreadable account status `.unreadable(Problem)` with `tryAgain` → reload the statuses; missing client ID or tenant → `Problem.notice("Enter a client ID and tenant for \(name) first")`; removal refusals → `Problem.notice(AccountManagement.removalRefusal(…))`. `DebouncedText` shows its validation message as `Problem.notice`. `RecordingTab` shows `hotkeyError` (no actions: the explanation points at the field above it).
 - Sign-in: `SignInFlow.Phase.failed(Problem)` — device-code and polling failures translated at `.signingIn` with the account's display name; storing the tokens → `Problems.keychainUnwritable(details:)`; the profile read → translated at `.signingIn`. The sheet shows a `ProblemCard` whose `tryAgain` is `retry()`. `SignInFlow.describe` and `keychainMessage` are removed.
-- Change-event popover: `eventsAround` returns `failures: [Problem]` (translated per account at `.readingCalendar`); each shows as `InlineProblem`.
-- Recording: `RecordingNotice { var problems: [Problem]; var isError: Bool { problems.contains { $0.severity == .problem } } }`; `post(_ problem: Problem)` appends unless a problem with the same title is already there. Call sites: start failure → `Problems.recordingDidNotStart(details:)` with the translated details (stage `.recording`), stored both as the meeting's `.failed` status and in the notice; flag save → translated, subject "the flag"; saving the meeting end → translated, subject "the end of the recording"; removing an unused meeting → translated at `.deletingMeeting`; write errors at stop → `Problems.recordingPartlyUnsaved(tracks:)`; a `.writeFailed` interruption → `Problems.recordingTrackStopped(track:)` ("microphone" or "call audio"); no call audio → `Problems.noCallAudio(app:)`; hotkey → `Problems.hotkeyInUse(keys:)` for `HotkeyError.status`, `Problems.hotkeyUnsupported(keys:)` for `.unsupported`, with `HotkeyText.format`. The interruption reason strings stay in `os.Logger` only. The call prompt shows the first problem's title and explanation, "+\(n) more" when there are more, "Show in Activity" for errors, and "Dismiss"; the pill shows the titles; the menu shows each title as `Text` and "Dismiss".
+- Change-event popover: `eventsAround` returns `failures: [Problem]` (translated per account at `.readingCalendar`); each shows as a compact `ProblemCard` with `tryAgain` → reload the events, `signInAgain` → the Accounts settings pane, and `showInActivity`.
+- Recording: `RecordingNotice { var problems: [Problem]; var isError: Bool { problems.contains { $0.severity == .problem } } }`; `post(_ problem: Problem)` appends unless a problem with the same title is already there. Call sites: start failure → `Problems.recordingDidNotStart(details:)` with the translated details (stage `.recording`), stored both as the meeting's `.failed` status and in the notice; flag save → translated, subject "the flag"; saving the meeting end → translated, subject "the end of the recording"; removing an unused meeting → translated at `.deletingMeeting`; write errors at stop → `Problems.recordingPartlyUnsaved(tracks:)`; a `.writeFailed` interruption → `Problems.recordingTrackStopped(track:)` ("microphone" or "call audio"); no call audio → `Problems.noCallAudio(app:)`; hotkey → `Problems.hotkeyInUse(keys:)` for `HotkeyError.status`, `Problems.hotkeyUnsupported(keys:)` for `.unsupported`, with `HotkeyText.format`. The interruption reason strings stay in `os.Logger` only. The call prompt shows the first problem as a compact `ProblemCard` (with `recordingSettings` → the Recording settings pane, and `showInActivity`), "+\(n) more" when there are more, and "Dismiss"; the pill shows the titles; the menu shows each title as `Text`, then "Show in Activity" when any is a problem, and "Dismiss".
 - Live transcript: `liveStatus: Problem?` (translated at `.liveTranscript`), shown with `ProblemCard`; while `model.speechModels` contains the live model's display name, a `StatusCard` "Getting the speech model ready" as in Task 14. The `Window("Live transcript")` scene also gets `.environmentObject(model)`.
 
 - [ ] **Step 1: Implement**, then run `X swift test --package-path Packages/MuninnCore --filter StorageTests` — expect PASS.
@@ -1060,3 +1091,4 @@ Signed Debug build installed in `/Applications`, started with `open`:
 2. Record two meetings back to back: the second shows "Waiting its turn · 1 meeting ahead"; the sidebar shows rings; the menu bar menu leads with "… · step n of 4" (acceptance 4).
 3. Open Activity: the session's milestones and problems are there; "Copy diagnostics" pastes text with no meeting titles, email addresses or hostnames (acceptance 3).
 4. Light and dark: the status cards, the sidebar signs and the Activity window read well (acceptance 7, 8).
+5. Shrink the Meetings, Activity and Settings windows to their minimum sizes: no control or label is cut off. With Accessibility Inspector, every icon-only control added here (dismiss buttons, level icons, sidebar signs, the progress ring) reads a label (acceptance 7).
