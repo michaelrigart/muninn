@@ -56,7 +56,8 @@ points at Xcode.
 - Swift code uses `AppIdentity.bundleIdentifier` (`com.michaelrigart.muninn`) for the Keychain
   service, the log subsystem and the call detector's queue label, never the literal.
   `project.yml`, `scripts/verify-app` and the cask template carry the literal too;
-  `AppIdentityTests` and the verifier fail if they drift.
+  `AppIdentityTests` and the verifier catch drift in the Swift constant and in the built bundle,
+  but the cask template's `uninstall quit:` line is not checked.
 - Builds are signed with the maintainer's Personal Team. Ad hoc builds (`CODE_SIGN_IDENTITY=-
   DEVELOPMENT_TEAM=`, which CI and contributors use) are a new app to macOS after every rebuild,
   so the Microphone and System Audio Recording permissions are asked again.
