@@ -64,7 +64,20 @@ struct ProcessingDisplayTests {
     }
 
     @Test func processingStatusOutsideTheQueueReadsAsWaitingItsTurn() {
-        #expect(progress(meeting(a, .transcribing), .idle) == .queued(ahead: 0))
+        for status in [ProcessingStatus.transcribing, .diarizing, .cleaning, .summarizing] {
+            #expect(progress(meeting(a, status), .idle) == .queued(ahead: 0))
+        }
+    }
+
+    @Test func queuePositionCountsNothingAheadWhenNothingRuns() {
+        let snapshot = PipelineSnapshot(current: nil, queued: [b, c])
+        #expect(progress(meeting(c, .ready), snapshot) == .queued(ahead: 1))
+    }
+
+    @Test func currentWorkBeatsAWaitThatHasNotBeenRewritten() {
+        let current = work(a, .transcribing)
+        let snapshot = PipelineSnapshot(current: current, queued: [])
+        #expect(progress(meeting(a, .waiting(.thisMacUnreachable)), snapshot) == .working(current))
     }
 
     @Test func readyAndRecordingShowNothing() {
@@ -87,6 +100,10 @@ struct ProcessingDisplayTests {
         #expect(ProcessingDisplay.attentionReason(meeting(a, .failed(Problems.claudeBusy())), api: .ollama) == "Claude is busy right now")
         #expect(ProcessingDisplay.attentionReason(meeting(a, .ready, engineNotice: Problems.claudeKeyMissing()), api: .ollama) == "There's no Claude API key")
         #expect(ProcessingDisplay.attentionReason(meeting(a, .ready), api: .ollama) == nil)
+        #expect(ProcessingDisplay.attentionReason(meeting(a, .waiting(.studioUnreachable)), api: .ollama) == nil)
+        #expect(ProcessingDisplay.attentionReason(meeting(a, .waiting(.queued)), api: .ollama) == nil)
+        let warning = Problems.writtenOnThisMac(because: .studioUnreachable)
+        #expect(ProcessingDisplay.attentionReason(meeting(a, .ready, engineNotice: warning), api: .ollama) == nil)
     }
 
     // MARK: Attention tracker
