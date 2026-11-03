@@ -32,8 +32,8 @@ asks again for `claude.apiKey` or the Graph tokens. Items written by a build wit
 certificate belong to that build's signature, so a prompt (choose Always Allow) or a re-entered
 key is expected after each such rebuild.
 
-Muninn lives in the menu bar (the Muninn raven) and shows in the Dock while one of its windows
-is open; Settings is in its menu (Settings…, Command-comma).
+Muninn lives in the menu bar (the Muninn raven) and in the Dock; Settings is in its menu
+(Settings…, Command-comma).
 
 ## 2. Outbound firewall (optional)
 

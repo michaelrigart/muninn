@@ -52,8 +52,8 @@ else
   fi
 fi
 
-if [[ "$(plist_value LSUIElement)" != "true" ]]; then
-  fail "LSUIElement is not true"
+if [[ "$(plist_value LSUIElement)" == "true" ]]; then
+  fail "LSUIElement is set; Muninn is a regular app"
 fi
 
 actual_id="$(plist_value CFBundleIdentifier)"

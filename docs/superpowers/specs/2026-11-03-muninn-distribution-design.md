@@ -75,10 +75,10 @@ are no installs, settings or Keychain items to migrate.
   replaces `be.netronix.muninn` everywhere, the Keychain service and log subsystem included.
 - **The full release setup now** (2026-11-03): changelog, release script, verifier, Homebrew
   cask and CI, as Hulder and Linger have.
-- **The designer's Muninn logo set, and a Dock icon while a window is open** (2026-11-03): the
-  logo set is the app icon and the menu bar mark, integrated as Hulder and Linger do it. Muninn
-  shows a Dock icon (and appears in Command-Tab) while one of its windows is open, and is
-  menu-bar-only again when the last one closes. Windows open in front of other apps' windows.
+- **The designer's Muninn logo set, and a permanent Dock icon alongside the menu bar icon**
+  (2026-11-03): the logo set is the app icon and the menu bar mark, integrated as Hulder and
+  Linger do it. Muninn is a regular app: it has a Dock icon and appears in Command-Tab, and it
+  keeps its menu bar icon. Windows open in front of other apps' windows.
 
 ## How it works
 
@@ -115,8 +115,8 @@ Muninn takes Hulder's shape:
   out of scope.
 - No App Sandbox. Hardened Runtime on. Entitlements: exactly
   `com.apple.security.device.audio-input`, which Hardened Runtime needs for the microphone.
-- Info.plist keys stay as today, from `project.yml`: `LSUIElement`,
-  `LSMultipleInstancesProhibited`, the Microphone, Audio Capture and Local Network usage
+- Info.plist keys stay as today, from `project.yml`, except that `LSUIElement` is gone (Muninn
+  is a regular app): `LSMultipleInstancesProhibited`, the Microphone, Audio Capture and Local Network usage
   descriptions, and `NSAllowsLocalNetworking`. The version keys become
   `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)`; builds outside the release script
   are `dev`, build `0`.
@@ -174,7 +174,8 @@ It fails unless:
 - the signature verifies (`codesign --verify --strict`);
 - the entitlements are exactly `com.apple.security.device.audio-input` = true, so a Debug build
   (which carries `get-task-allow`) fails, as Linger's does;
-- `LSUIElement` is true and the bundle identifier is `com.michaelrigart.muninn`;
+- `LSUIElement` is not true (Muninn is a regular app) and the bundle identifier is
+  `com.michaelrigart.muninn`;
 - the Microphone and Audio Capture usage descriptions are present (without them macOS ends the
   app at the first recording);
 - the bundle contains no `muninn-spike`;
@@ -284,7 +285,7 @@ for its reason:
 | Install location | anywhere (`/Applications` by default) | `/Applications` only (status item attribution) | anywhere |
 | Debug-only probe | no (the spike CLI is separate) | yes | yes |
 | Extra tool | `muninn-spike`, `design/render` | `design/render` | `design/render` |
-| Dock icon | while a window is open | never | never |
+| Dock icon | always | never | never |
 
 ## Constraints
 

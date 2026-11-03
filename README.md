@@ -1,9 +1,10 @@
 # Muninn
 
-Muninn is a macOS menu bar app that records your calls and conversations without a bot joining.
-It captures your microphone and the call audio on separate tracks, transcribes them on your Mac,
-and turns the transcript into a draft recap: a bullet summary per subject, with action points.
-You review the draft and send it, and you no longer need to take notes during calls.
+Muninn is a macOS app, with a Dock icon and a menu bar icon, that records your calls and
+conversations without a bot joining. It captures your microphone and the call audio on separate
+tracks, transcribes them on your Mac, and turns the transcript into a draft recap: a bullet
+summary per subject, with action points. You review the draft and send it, and you no longer need
+to take notes during calls.
 
 The recap can be written by a model on your Mac, on another Mac on your network, or by Claude.
 Finished meetings can be filed into an Obsidian vault.

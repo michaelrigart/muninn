@@ -4,10 +4,14 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var recorder: RecordingController?
+    static weak var model: AppModel?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        DockPresence.install()
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { Self.model?.openMeetingsRequest += 1 }
+        return true
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let recorder = Self.recorder, recorder.needsShutdown else { return .terminateNow }
@@ -45,6 +49,7 @@ struct MuninnApp: App {
         let recorder = RecordingController(model: model)
         _recorder = StateObject(wrappedValue: recorder)
         AppDelegate.recorder = recorder
+        AppDelegate.model = model
     }
 
     var body: some Scene {

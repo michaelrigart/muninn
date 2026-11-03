@@ -23,7 +23,6 @@ targets:
         CFBundleDisplayName: Muninn
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        LSUIElement: true
         LSMultipleInstancesProhibited: true
         NSMicrophoneUsageDescription: Muninn records your microphone during calls you choose to record.
         NSAudioCaptureUsageDescription: Muninn records the audio of calls you choose to record.

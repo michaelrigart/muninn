@@ -1,6 +1,6 @@
 # Muninn
 
-Native macOS 26 menu bar app for meeting capture. Built with Xcode from an XcodeGen project, Swift 5 language mode in every target, Swift Testing.
+Native macOS 26 app for meeting capture, with a Dock icon and a menu bar icon. Built with Xcode from an XcodeGen project, Swift 5 language mode in every target, Swift Testing.
 
 ## Design records
 
@@ -29,9 +29,9 @@ points at Xcode.
   `scripts/tests/test-verify-app <Release Muninn.app>`
 - Verify a built app: `scripts/verify-app [--team <ID>] <Muninn.app> [<version>]`. It fails on a
   bad signature, entitlements other than exactly `com.apple.security.device.audio-input` (so on
-  every Debug build), `LSUIElement` not true, a wrong bundle identifier or version, a missing or
-  empty Microphone or Audio Capture usage description, a `muninn-spike` inside the bundle, or
-  (with `--team`) a different `TeamIdentifier`.
+  every Debug build), `LSUIElement` set to true (Muninn is a regular app), a wrong bundle
+  identifier or version, a missing or empty Microphone or Audio Capture usage description, a
+  `muninn-spike` inside the bundle, or (with `--team`) a different `TeamIdentifier`.
 - Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, on the maintainer's Mac only (it
   needs the signing certificate and pushes). Use `--dry-run` to check it; never run it for real
   unless the maintainer asks. `--version` resumes a failed release.
@@ -55,6 +55,8 @@ points at Xcode.
 - In the app target, refer to the settings type as `MuninnCore.Settings`, because
   `SwiftUI.Settings` is a scene type.
 - Swift 5 language mode in every target.
+- Muninn is a regular app with a Dock icon and a menu bar icon: no `LSUIElement`, and no
+  activation-policy switching. Windows open through `WindowPresenter`, which brings them in front.
 - Swift code uses `AppIdentity.bundleIdentifier` (`com.michaelrigart.muninn`) for the Keychain
   service, the log subsystem and the call detector's queue label, never the literal.
   `project.yml`, `scripts/verify-app` and the cask template carry the literal too;

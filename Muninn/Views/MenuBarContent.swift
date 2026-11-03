@@ -14,14 +14,14 @@ struct MenuBarContent: View {
         }
         ForEach(model.settings.accounts.filter { model.signInNeeded.contains($0.id) }, id: \.id) { account in
             Button("⚠ Sign in again to \(account.displayName) (calendar)") {
-                DockPresence.present { openSettings() }
+                WindowPresenter.present { openSettings() }
             }
             Divider()
         }
         controls
         Divider()
         Button("Show live transcript") {
-            DockPresence.present { openWindow(id: "live-transcript") }
+            WindowPresenter.present { openWindow(id: "live-transcript") }
         }
         let recent = Array(model.meetings.prefix(5))
         if !recent.isEmpty {
@@ -38,7 +38,7 @@ struct MenuBarContent: View {
         Button("Open meetings…") { openMeetings() }
             .keyboardShortcut("o")
         Button("Settings…") {
-            DockPresence.present { openSettings() }
+            WindowPresenter.present { openSettings() }
         }
         .keyboardShortcut(",")
         Divider()
@@ -82,7 +82,7 @@ struct MenuBarContent: View {
     }
 
     private func openMeetings() {
-        DockPresence.present { openWindow(id: "meetings") }
+        WindowPresenter.present { openWindow(id: "meetings") }
     }
 }
 
@@ -93,7 +93,7 @@ struct MeetingsOpener: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onChange(of: model.openMeetingsRequest) {
-            DockPresence.present { openWindow(id: "meetings") }
+            WindowPresenter.present { openWindow(id: "meetings") }
         }
     }
 }
