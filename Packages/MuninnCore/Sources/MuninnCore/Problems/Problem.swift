@@ -334,8 +334,8 @@ extension WaitReason {
     /// True when the wait won't clear by itself and needs the user to act.
     public var needsYou: Bool {
         switch self {
-        case .studioNotConfigured, .claudeKeyMissing: true
-        case .studioUnreachable, .memoryPressure, .recording: false
+        case .studioNotConfigured, .claudeKeyMissing, .thisMacUnreachable, .claudeKeyUnreadable: true
+        case .studioUnreachable, .memoryPressure, .recording, .queued: false
         }
     }
 }

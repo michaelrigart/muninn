@@ -3,7 +3,7 @@ import Testing
 @testable import MuninnCore
 
 @Suite struct ProblemTests {
-    private let allWaitReasons: [WaitReason] = [.studioUnreachable, .studioNotConfigured, .memoryPressure, .claudeKeyMissing, .recording]
+    private let allWaitReasons: [WaitReason] = [.studioUnreachable, .studioNotConfigured, .memoryPressure, .claudeKeyMissing, .recording, .thisMacUnreachable, .claudeKeyUnreadable, .queued]
 
     private var allSampleProblems: [Problem] {
         var problems: [Problem] = [
@@ -199,6 +199,10 @@ import Testing
             (Problems.waiting(.claudeKeyMissing, api: .ollama, claudeKeyPresent: false), .warning, [.engineSettings, .writeOnThisMac]),
             (Problems.waiting(.recording, api: .ollama, claudeKeyPresent: true), .warning, []),
             (Problems.waiting(.recording, api: .ollama, claudeKeyPresent: false), .warning, []),
+            (Problems.waiting(.thisMacUnreachable, api: .ollama, claudeKeyPresent: true), .warning, [.writeWithClaude, .tryAgain, .engineSettings]),
+            (Problems.waiting(.thisMacUnreachable, api: .ollama, claudeKeyPresent: false), .warning, [.tryAgain, .engineSettings]),
+            (Problems.waiting(.claudeKeyUnreadable, api: .ollama, claudeKeyPresent: true), .warning, [.engineSettings, .writeOnThisMac]),
+            (Problems.waiting(.queued, api: .ollama, claudeKeyPresent: true), .info, []),
         ] + allWaitReasons.map { (Problems.keptRecap($0, api: .ollama), ActivityLevel.problem, [ProblemAction.tryAgain, .writeWithAnotherEngine]) }
         for (problem, severity, actions) in cases {
             #expect(problem.severity == severity, "\(problem.title)")
@@ -234,6 +238,21 @@ import Testing
     @Test func waitNeedsYouOnlyForReasonsThatDontClear() {
         #expect(WaitReason.studioNotConfigured.needsYou && WaitReason.claudeKeyMissing.needsYou)
         #expect(!WaitReason.studioUnreachable.needsYou && !WaitReason.memoryPressure.needsYou && !WaitReason.recording.needsYou)
+        #expect(WaitReason.thisMacUnreachable.needsYou && WaitReason.claudeKeyUnreadable.needsYou)
+        #expect(!WaitReason.queued.needsYou)
+    }
+
+    @Test func newWaitsReadInPlainWords() {
+        let down = Problems.waiting(.thisMacUnreachable, api: .ollama, claudeKeyPresent: false)
+        #expect(down.title == "Ollama isn't running on This Mac" && down.severity == .warning)
+        #expect(Problems.waiting(.thisMacUnreachable, api: .openAICompatible, claudeKeyPresent: false).title == "The model server on This Mac isn't running")
+        let queued = Problems.waiting(.queued, api: .ollama, claudeKeyPresent: true)
+        #expect(queued.title == "Waiting its turn")
+        #expect(queued.explanation == "Muninn carries on once the meetings ahead are done.")
+        #expect(Problems.keptRecap(.thisMacUnreachable, api: .ollama).explanation == "Ollama isn't running on This Mac, so Muninn kept the recap you had.")
+        #expect(Problems.keptRecap(.thisMacUnreachable, api: .openAICompatible).explanation == "The model server on This Mac isn't running, so Muninn kept the recap you had.")
+        #expect(Problems.keptRecap(.claudeKeyUnreadable, api: .ollama).explanation == "Muninn couldn't read the Claude key, so Muninn kept the recap you had.")
+        #expect(Problems.keptRecap(.queued, api: .ollama).explanation == "Another meeting was being processed, so Muninn kept the recap you had.")
     }
 
     @Test func engineContextTakesTheModelFromSettings() {

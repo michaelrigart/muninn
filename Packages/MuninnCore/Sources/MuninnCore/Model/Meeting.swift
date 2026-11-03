@@ -107,6 +107,9 @@ public enum CaptureMode: Codable, Hashable, Sendable {
 
 public enum WaitReason: String, Codable, Hashable, Sendable {
     case studioUnreachable, studioNotConfigured, memoryPressure, claudeKeyMissing, recording
+    case thisMacUnreachable, claudeKeyUnreadable
+    /// The wait has cleared and the meeting is waiting its turn. The engine selector never returns it.
+    case queued
 }
 
 public enum ProcessingStatus: Codable, Hashable, Sendable {

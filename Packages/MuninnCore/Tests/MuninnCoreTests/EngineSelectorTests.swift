@@ -59,4 +59,50 @@ struct EngineSelectorTests {
         #expect(decide(.claude) == .run(.claude, fallbackFrom: nil))
         #expect(decide(.macbook, forced: .claude) == .run(.claude, fallbackFrom: nil))
     }
+
+    private func environment(
+        studioConfigured: Bool = true, studioReachable: Bool = false, pressure: MemoryPressureLevel = .normal, claudeKey: Bool = true,
+        isRecording: Bool = false, thisMacReachable: Bool = true, claudeKeyUnreadable: Bool = false
+    ) -> EngineEnvironment {
+        EngineEnvironment(
+            studioConfigured: studioConfigured, studioReachable: studioReachable, memoryPressure: pressure, claudeKeyPresent: claudeKey,
+            isRecording: isRecording, thisMacReachable: thisMacReachable, claudeKeyUnreadable: claudeKeyUnreadable
+        )
+    }
+
+    @Test func thisMacDownWaits() {
+        let down = environment(thisMacReachable: false)
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: down) == .wait(.thisMacUnreachable))
+        #expect(EngineSelector.decide(preferred: .claude, forced: .macbook, environment: down) == .wait(.thisMacUnreachable))
+        #expect(EngineSelector.decide(preferred: .studio, forced: nil, environment: down) == .wait(.studioUnreachable))
+        #expect(EngineSelector.decide(preferred: .studio, forced: .macbook, environment: down) == .wait(.thisMacUnreachable))
+        #expect(EngineSelector.decide(preferred: .claude, forced: nil, environment: down) == .run(.claude, fallbackFrom: nil))
+        let unconfigured = environment(studioConfigured: false, thisMacReachable: false)
+        #expect(EngineSelector.decide(preferred: .studio, forced: nil, environment: unconfigured) == .wait(.studioNotConfigured))
+    }
+
+    @Test func aReachableThisMacStillRunsAsTheStudioFallback() {
+        #expect(EngineSelector.decide(preferred: .studio, forced: nil, environment: environment()) == .run(.macbook, fallbackFrom: .studio, because: .studioUnreachable))
+    }
+
+    @Test func reachabilityComesBeforeMemoryPressure() {
+        let down = environment(pressure: .critical, thisMacReachable: false)
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: down) == .wait(.thisMacUnreachable))
+        let up = environment(pressure: .critical)
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: up) == .wait(.memoryPressure))
+    }
+
+    @Test func unreadableKeyWaits() {
+        let unreadable = environment(claudeKey: false, claudeKeyUnreadable: true)
+        #expect(EngineSelector.decide(preferred: .claude, forced: nil, environment: unreadable) == .wait(.claudeKeyUnreadable))
+        #expect(EngineSelector.decide(preferred: .macbook, forced: .claude, environment: unreadable) == .wait(.claudeKeyUnreadable))
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: unreadable) == .run(.macbook, fallbackFrom: nil))
+    }
+
+    @Test func recordingStillHoldsThisMac() {
+        let recording = environment(isRecording: true)
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: recording) == .wait(.recording))
+        let down = environment(isRecording: true, thisMacReachable: false)
+        #expect(EngineSelector.decide(preferred: .macbook, forced: nil, environment: down) == .wait(.thisMacUnreachable))
+    }
 }

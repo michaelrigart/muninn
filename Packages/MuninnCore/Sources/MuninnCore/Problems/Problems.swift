@@ -162,6 +162,9 @@ public enum Problems {
         case .memoryPressure: sentence = "This Mac was short of memory"
         case .claudeKeyMissing: sentence = "There's no Claude API key"
         case .recording: sentence = "A recording was running"
+        case .thisMacUnreachable: sentence = api == .ollama ? "Ollama isn't running on This Mac" : "The model server on This Mac isn't running"
+        case .claudeKeyUnreadable: sentence = "Muninn couldn't read the Claude key"
+        case .queued: sentence = "Another meeting was being processed"
         }
         return Problem(severity: .problem, title: "The recap wasn't rewritten", explanation: "\(sentence), so Muninn kept the recap you had.", actions: [.tryAgain, .writeWithAnotherEngine], details: details)
     }
@@ -203,6 +206,7 @@ public enum Problems {
         let title: String
         let explanation: String
         let actions: [ProblemAction]
+        var severity = ActivityLevel.warning
         switch reason {
         case .studioUnreachable:
             title = "Waiting for the Network Mac"
@@ -226,8 +230,23 @@ public enum Problems {
             title = "Waiting for the recording to end"
             explanation = "Muninn doesn't run the model on This Mac while it records."
             actions = []
+        case .thisMacUnreachable:
+            let base = thisMacServerNotRunning(api: api, claudeKeyPresent: claudeKeyPresent, waiting: true)
+            title = base.title
+            explanation = base.explanation
+            actions = base.actions
+        case .claudeKeyUnreadable:
+            let base = keychainUnreadable()
+            title = base.title
+            explanation = base.explanation
+            actions = [.engineSettings, .writeOnThisMac]
+        case .queued:
+            title = "Waiting its turn"
+            explanation = "Muninn carries on once the meetings ahead are done."
+            actions = []
+            severity = .info
         }
-        return Problem(severity: .warning, title: title, explanation: explanation, actions: actions, details: details)
+        return Problem(severity: severity, title: title, explanation: explanation, actions: actions, details: details)
     }
 }
 

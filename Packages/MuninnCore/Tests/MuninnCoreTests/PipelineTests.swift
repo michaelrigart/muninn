@@ -119,8 +119,24 @@ private struct FakeDiarizer: Diarizing {
 private final class FakeProbe: EnvironmentProbing, @unchecked Sendable {
     let environment = Locked(EngineEnvironment(studioConfigured: true, studioReachable: true, memoryPressure: .normal, claudeKeyPresent: true))
 
+    let calls = Locked(0)
+    let gateNext = Locked<Milestone?>(nil)
+    let gated = Milestone()
+
+    /// Returns the environment as it was when the call began. When `gateNext` is set, the next call suspends until the gate is reached.
     func environment(settings: Settings) async -> EngineEnvironment {
-        environment.get()
+        calls.update { $0 += 1 }
+        let result = environment.get()
+        var gate: Milestone?
+        gateNext.update {
+            gate = $0
+            $0 = nil
+        }
+        if let gate {
+            gated.reach()
+            try? await gate.wait()
+        }
+        return result
     }
 }
 
@@ -261,8 +277,8 @@ private struct Harness {
 }
 
 private extension EngineEnvironment {
-    static func make(studioReachable: Bool = true, memoryPressure: MemoryPressureLevel = .normal, claudeKeyPresent: Bool = true) -> EngineEnvironment {
-        EngineEnvironment(studioConfigured: true, studioReachable: studioReachable, memoryPressure: memoryPressure, claudeKeyPresent: claudeKeyPresent)
+    static func make(studioReachable: Bool = true, memoryPressure: MemoryPressureLevel = .normal, claudeKeyPresent: Bool = true, thisMacReachable: Bool = true) -> EngineEnvironment {
+        EngineEnvironment(studioConfigured: true, studioReachable: studioReachable, memoryPressure: memoryPressure, claudeKeyPresent: claudeKeyPresent, thisMacReachable: thisMacReachable)
     }
 }
 
@@ -1492,5 +1508,187 @@ struct PipelineTests {
         #expect(seen.get().compactMap(\.current?.stage) == [.transcribing])
         #expect(seen.get().last == .idle)
         #expect(await h.pipeline.snapshot() == .idle)
+    }
+
+    private func setStatus(_ h: Harness, _ id: String, _ status: ProcessingStatus) throws {
+        _ = try h.store.update(MeetingID(rawValue: id)) { $0.status = status }
+    }
+
+    private func status(_ h: Harness, _ id: MeetingID) throws -> ProcessingStatus {
+        try h.store.load(id).status
+    }
+
+    private func waits(_ h: Harness) -> [ProcessingStatus] {
+        h.changes.get().filter {
+            if case .waiting = $0 { return true }
+            return false
+        }
+    }
+
+    @Test func resumeWaitingCanBeLimitedToReasons() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try setStatus(h, "m1", .waiting(.thisMacUnreachable))
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.claudeKeyMissing)))
+        await h.pipeline.resumeWaiting(only: [.thisMacUnreachable])
+        #expect(try status(h, h.id) == .ready)
+        #expect(try status(h, b) == .waiting(.claudeKeyMissing))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func requeueingProbesWhileAnotherMeetingRuns() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.thisMacUnreachable)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+
+        let probesBefore = h.probe.calls.get()
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(h.probe.calls.get() >= probesBefore + 2)
+        #expect(await pipeline.snapshot().queued == [b])
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(try !h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.queued)])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { (try? status(h, b)) != .waiting(.queued) }
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aWaitThatHasNotClearedKeepsItsReason() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.thisMacUnreachable)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        h.probe.environment.set(.make(thisMacReachable: false))
+
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(await pipeline.snapshot().queued == [b])
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+        #expect(waits(h).isEmpty)
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aWaitThatChangesReasonStoresTheNewReason() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.memoryPressure)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+
+        h.probe.environment.set(.make(thisMacReachable: false))
+        await pipeline.requeueWaiting()
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+        #expect(try h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.thisMacUnreachable)])
+
+        h.probe.environment.set(.make())
+        await pipeline.requeueWaiting()
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(try !h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.thisMacUnreachable), .waiting(.queued)])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aStartedJobIsNotOverwritten() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = h.id
+        try setStatus(h, "m1", .waiting(.memoryPressure))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let gate = Milestone()
+        h.probe.gateNext.set(gate)
+        let requeue = Task { await pipeline.requeueWaiting() }
+        try await h.probe.gated.wait()
+
+        let job = Task { await pipeline.process(b) }
+        try await h.summarizer.entered.wait()
+        #expect(try status(h, b) == .summarizing)
+        gate.reach()
+        await requeue.value
+
+        #expect(try status(h, b) == .summarizing)
+        #expect(waits(h).isEmpty)
+        #expect(await pipeline.snapshot().queued.isEmpty)
+        h.summarizer.released.reach()
+        await job.value
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aJobThatHasItsTurnButHasNotWrittenYetIsNotOverwritten() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.probe.environment.set(.make(memoryPressure: .warning))
+        await h.pipeline.process(h.id)
+        #expect(try status(h, h.id) == .waiting(.memoryPressure))
+        h.probe.environment.set(.make())
+
+        let pipeline = h.pipeline
+        let gate = Milestone()
+        h.probe.gateNext.set(gate)
+        let job = Task { await pipeline.process(h.id) }
+        try await h.probe.gated.wait()
+
+        await pipeline.requeueWaiting()
+        #expect(try status(h, h.id) == .waiting(.memoryPressure))
+        #expect(waits(h) == [.waiting(.memoryPressure)])
+
+        gate.reach()
+        await job.value
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aQueuedWaitRunsAfterARelaunch() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.queued))
+        await h.pipeline.requeueWaiting(only: WaitRetry.reasons(forTick: 1))
+        await waitUntil { (try? status(h, h.id)) == .ready }
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test func startingTheServerClearsTheWait() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.probe.environment.set(.make(thisMacReachable: false))
+        await h.pipeline.process(h.id)
+        #expect(try status(h, h.id) == .waiting(.thisMacUnreachable))
+
+        h.probe.environment.set(.make())
+        await h.pipeline.resumeWaiting(only: WaitRetry.reasons(forTick: 1))
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test func waitRetryCadence() {
+        #expect(WaitRetry.reasons(forTick: 0) == nil && WaitRetry.reasons(forTick: 4) == nil)
+        #expect(WaitRetry.reasons(forTick: 1) == [.thisMacUnreachable, .studioUnreachable, .queued])
+        #expect(!WaitReason.queued.needsYou)
+        #expect(WaitRetry.interval == .seconds(15))
     }
 }

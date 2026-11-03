@@ -34,7 +34,7 @@ public actor ProcessingPipeline {
     private let clock: @Sendable () -> Date
     private var queuedJobs: [MeetingID: Job] = [:]
     private var activeJobs: [MeetingID: Int] = [:]
-    private var busy = false
+    private var turnHolder: MeetingID?
     private var turnOrder: [Job] = []
     private var currentWork: PipelineWork?
     private var lastEnvironment: EngineEnvironment?
@@ -111,18 +111,51 @@ public actor ProcessingPipeline {
         await submit(id, Request(forced: engine, regenerating: true))
     }
 
+    /// Meetings waiting for one of `reasons` (all waiting meetings when nil), oldest first.
+    private func waitingMeetings(only reasons: Set<WaitReason>?) -> [(meeting: Meeting, reason: WaitReason)] {
+        ((try? store.list()) ?? [])
+            .sorted { $0.startedAt == $1.startedAt ? $0.id.rawValue < $1.id.rawValue : $0.startedAt < $1.startedAt }
+            .compactMap {
+                guard case .waiting(let reason) = $0.status, reasons?.contains(reason) ?? true else { return nil }
+                return ($0, reason)
+            }
+    }
+
     /// Resubmits held meetings oldest first. Every job is queued before any is awaited, so the
     /// order of the queue is the order of the meetings.
-    public func resumeWaiting() async {
-        let waiting = ((try? store.list()) ?? [])
-            .filter {
-                if case .waiting = $0.status { return true }
-                return false
-            }
-            .sorted { $0.startedAt == $1.startedAt ? $0.id.rawValue < $1.id.rawValue : $0.startedAt < $1.startedAt }
-        let jobs = waiting.map { enqueue($0.id, Request(forced: nil, regenerating: false)) }
+    public func resumeWaiting(only reasons: Set<WaitReason>? = nil) async {
+        let jobs = waitingMeetings(only: reasons).map { enqueue($0.meeting.id, Request(forced: nil, regenerating: false)) }
         for job in jobs {
             await wait(for: job)
+        }
+    }
+
+    /// Probes the engines once, outside the processing queue, stores on each waiting meeting why it waits now
+    /// (`.queued` once its wait has cleared) and queues it without awaiting the jobs. A meeting whose job
+    /// has started is left alone.
+    public func requeueWaiting(only reasons: Set<WaitReason>? = nil) async {
+        let settings = settings()
+        var environment = await probe.environment(settings: settings)
+        environment.isRecording = isRecording()
+        for (meeting, stored) in waitingMeetings(only: reasons) {
+            let id = meeting.id
+            guard turnHolder != id else { continue }
+            let current: WaitReason
+            switch EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment: environment) {
+            case .run: current = .queued
+            case .wait(let reason): current = reason
+            }
+            if current != stored {
+                var wrote = false
+                let changed = try? update(id, notify: false) {
+                    guard $0.status == .waiting(stored) else { return }
+                    $0.status = .waiting(current)
+                    wrote = true
+                }
+                guard wrote, let changed else { continue }
+                onChange?(changed)
+            }
+            enqueue(id, Request(forced: nil, regenerating: false))
         }
     }
 
@@ -134,6 +167,7 @@ public actor ProcessingPipeline {
     /// already queued replaces the queued one, so the last request wins, except that a plain
     /// request never replaces a queued regeneration. Jobs run in tasks owned by the actor, so
     /// cancelling a caller only abandons that caller's wait.
+    @discardableResult
     private func enqueue(_ id: MeetingID, _ request: Request) -> Job {
         if let queued = queuedJobs[id] {
             if request.regenerating || !queued.request.regenerating {
@@ -197,13 +231,13 @@ public actor ProcessingPipeline {
     }
 
     private func releaseTurn() {
-        busy = false
+        turnHolder = nil
         grantTurns()
     }
 
     private func grantTurns() {
-        while !busy, let next = turnOrder.first, let turn = next.turn {
-            busy = true
+        while turnHolder == nil, let next = turnOrder.first, let turn = next.turn {
+            turnHolder = next.id
             turnOrder.removeFirst()
             publishIfChanged()
             next.turn = nil

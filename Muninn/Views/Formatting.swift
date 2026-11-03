@@ -10,6 +10,9 @@ extension WaitReason {
         case .memoryPressure: "Waiting: memory pressure"
         case .claudeKeyMissing: "Waiting: no Claude API key"
         case .recording: "Waiting for the recording to end"
+        case .thisMacUnreachable: "Waiting for This Mac's model server"
+        case .claudeKeyUnreadable: "Waiting: the Claude key can't be read"
+        case .queued: "Waiting its turn"
         }
     }
 }
