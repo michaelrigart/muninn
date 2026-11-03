@@ -93,12 +93,12 @@ struct DebouncedText: View {
     var flusher: FieldFlusher?
     let commit: (String) -> Void
 
-    @ViewState private var text: String
-    @ViewState private var synced: String
-    @ViewState private var error: String?
-    @ViewState private var ownCommit = false
-    @ViewState private var registration = UUID()
-    @ViewState private var debouncer = Debouncer()
+    @State private var text: String
+    @State private var synced: String
+    @State private var error: String?
+    @State private var ownCommit = false
+    @State private var registration = UUID()
+    @State private var debouncer = Debouncer()
     @FocusState private var focused: Bool
 
     init(
@@ -117,8 +117,8 @@ struct DebouncedText: View {
         self.validate = validate
         self.flusher = flusher
         self.commit = commit
-        _text = ViewState(initialValue: value)
-        _synced = ViewState(initialValue: value)
+        _text = State(initialValue: value)
+        _synced = State(initialValue: value)
     }
 
     /// True while the text holds an edit that has not been saved.
@@ -208,13 +208,13 @@ struct ClientDomainsEditor: View {
         var isComplete: Bool { !normalisedDomain.isEmpty && !trimmedClient.isEmpty }
     }
 
-    @ViewState private var rows: [Row]
-    @ViewState private var debouncer = Debouncer()
+    @State private var rows: [Row]
+    @State private var debouncer = Debouncer()
 
     init(value: [String: String], commit: @escaping ([String: String]) -> Void) {
         self.value = value
         self.commit = commit
-        _rows = ViewState(initialValue: value.sorted { $0.key < $1.key }.map { Row(domain: $0.key, client: $0.value) })
+        _rows = State(initialValue: value.sorted { $0.key < $1.key }.map { Row(domain: $0.key, client: $0.value) })
     }
 
     var body: some View {

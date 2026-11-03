@@ -2,7 +2,7 @@ import AppKit
 import MuninnCore
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "meetings")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "meetings")
 
 enum MeetingActionError: LocalizedError {
     case eventUnsettled

@@ -12,12 +12,12 @@ struct MeetingDetail: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
 
-    @ViewState private var tab = DetailTab.summary
-    @ViewState private var summary: Summary?
-    @ViewState private var transcript: Transcript?
-    @ViewState private var clean: CleanTranscript?
-    @ViewState private var scrollTarget: Int?
-    @ViewState private var saveError: String?
+    @State private var tab = DetailTab.summary
+    @State private var summary: Summary?
+    @State private var transcript: Transcript?
+    @State private var clean: CleanTranscript?
+    @State private var scrollTarget: Int?
+    @State private var saveError: String?
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
 
@@ -311,10 +311,10 @@ private struct ChangeEventButton: View {
     let meeting: Meeting
     let report: (Error) -> Void
 
-    @ViewState private var showing = false
-    @ViewState private var loading = false
-    @ViewState private var events: [CalendarEvent] = []
-    @ViewState private var failures: [String] = []
+    @State private var showing = false
+    @State private var loading = false
+    @State private var events: [CalendarEvent] = []
+    @State private var failures: [String] = []
 
     var body: some View {
         Button("Change Event…") { showing = true }
@@ -398,9 +398,9 @@ private struct RecipientsEditor: View {
     let meeting: Meeting
     let edit: ((inout Meeting) -> Void) -> Void
 
-    @ViewState private var expanded = false
-    @ViewState private var query = ""
-    @ViewState private var results: [Attendee] = []
+    @State private var expanded = false
+    @State private var query = ""
+    @State private var results: [Attendee] = []
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {

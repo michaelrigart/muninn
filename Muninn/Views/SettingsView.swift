@@ -82,9 +82,9 @@ private struct EndpointSection: View {
 
 private struct ClaudeSection: View {
     @EnvironmentObject private var model: AppModel
-    @ViewState private var apiKey = ""
-    @ViewState private var hasKey = false
-    @ViewState private var error: String?
+    @State private var apiKey = ""
+    @State private var hasKey = false
+    @State private var error: String?
 
     private static let efforts = ["low", "medium", "high", "xhigh", "max"]
 
@@ -155,10 +155,10 @@ private struct ClaudeSection: View {
 
 private struct AccountsTab: View {
     @EnvironmentObject private var model: AppModel
-    @ViewState private var signingIn: SigningIn?
-    @ViewState private var statuses: [String: SignInStatus] = [:]
-    @ViewState private var error: String?
-    @ViewState private var flusher = FieldFlusher()
+    @State private var signingIn: SigningIn?
+    @State private var statuses: [String: SignInStatus] = [:]
+    @State private var error: String?
+    @State private var flusher = FieldFlusher()
 
     private enum SignInStatus: Equatable {
         case signedIn
@@ -505,7 +505,7 @@ private struct DictionaryTab: View {
 // MARK: - Permissions
 
 private struct PermissionsTab: View {
-    @ViewState private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
+    @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
 
     var body: some View {
         Form {

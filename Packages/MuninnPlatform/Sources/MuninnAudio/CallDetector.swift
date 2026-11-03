@@ -1,4 +1,5 @@
 import Foundation
+import MuninnCore
 import os
 
 public enum CallEvent: Equatable, Sendable {
@@ -7,10 +8,8 @@ public enum CallEvent: Equatable, Sendable {
 }
 
 public struct CallDiff {
-    static let ownBundleID = "be.netronix.muninn"
-
     static var ignoredBundleIDs: Set<String> {
-        Set([ownBundleID, Bundle.main.bundleIdentifier].compactMap { $0 })
+        Set([AppIdentity.bundleIdentifier, Bundle.main.bundleIdentifier].compactMap { $0 })
     }
 
     public static func events(
@@ -49,11 +48,11 @@ public final class CallDetector: @unchecked Sendable {
     private let listing: AudioProcessListing
     private let watchList: @Sendable () -> [String]
     private let interval: TimeInterval
-    private let queue = DispatchQueue(label: "be.netronix.muninn.call-detector")
+    private let queue = DispatchQueue(label: "\(AppIdentity.bundleIdentifier).call-detector")
     private let stream: AsyncStream<CallEvent>
     private let continuation: AsyncStream<CallEvent>.Continuation
     private let lock = NSLock()
-    private let logger = Logger(subsystem: "be.netronix.muninn", category: "detection")
+    private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "detection")
     private var timer: DispatchSourceTimer?
     private var stopped = false
     private var lastFailure: String?

@@ -7,7 +7,7 @@ import MuninnSpeech
 import MuninnSystem
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "recording")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "recording")
 
 struct RecordingNotice: Equatable {
     enum Kind { case error, warning }

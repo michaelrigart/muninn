@@ -17,8 +17,8 @@ struct TranscriptView: View {
     @Binding var target: Int?
     let report: (Error) -> Void
 
-    @ViewState private var mode = TranscriptMode.clean
-    @ViewState private var highlighted: Int?
+    @State private var mode = TranscriptMode.clean
+    @State private var highlighted: Int?
 
     var body: some View {
         if let transcript {
@@ -145,8 +145,8 @@ private struct SpeakerButton: View {
     let isCustom: Bool
     let onRename: (String) -> Void
 
-    @ViewState private var editing = false
-    @ViewState private var draft = ""
+    @State private var editing = false
+    @State private var draft = ""
 
     var body: some View {
         Button {

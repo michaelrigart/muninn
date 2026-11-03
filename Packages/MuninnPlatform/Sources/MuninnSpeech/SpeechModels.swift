@@ -41,7 +41,7 @@ public enum TranscriberFactory {
 }
 
 enum SpeechLog {
-    static let logger = Logger(subsystem: "be.netronix.muninn", category: "speech")
+    static let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "speech")
 }
 
 /// Runs an expensive load once per key; concurrent first callers share the same load and a

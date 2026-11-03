@@ -33,8 +33,8 @@ enum MeetingGrouping {
 
 struct MainWindow: View {
     @EnvironmentObject private var model: AppModel
-    @ViewState private var query = ""
-    @ViewState private var summaryText: [MeetingID: String] = [:]
+    @State private var query = ""
+    @State private var summaryText: [MeetingID: String] = [:]
 
     private struct Stamp: Hashable {
         let id: MeetingID

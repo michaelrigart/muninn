@@ -68,7 +68,7 @@ import MuninnCore
 }
 
 @Test func keychainRoundTrip() throws {
-    let secrets = KeychainSecrets(service: "be.netronix.muninn.tests")
+    let secrets = KeychainSecrets(service: "com.michaelrigart.muninn.tests")
     let key = "round-trip-\(UUID().uuidString)"
     defer { try? secrets.delete(key) }
     do {

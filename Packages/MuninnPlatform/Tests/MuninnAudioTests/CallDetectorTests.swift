@@ -94,8 +94,8 @@ private final class ScriptedListing: AudioProcessListing, @unchecked Sendable {
     @Test func ownProcessIgnored() {
         let result = CallDiff.events(
             previous: [],
-            current: [proc("be.netronix.muninn"), proc("be.netronix.muninn.helper")],
-            watchList: ["be.netronix.muninn", "be.netronix"]
+            current: [proc("com.michaelrigart.muninn"), proc("com.michaelrigart.muninn.helper")],
+            watchList: ["com.michaelrigart.muninn", "com.michaelrigart"]
         )
         #expect(result.events.isEmpty)
         #expect(result.inputBundles.isEmpty)
@@ -175,7 +175,7 @@ private final class ScriptedListing: AudioProcessListing, @unchecked Sendable {
 
 @Suite struct TapResolverTests {
     private func resolve(_ entry: String, _ processes: [AudioProcessInfo], ownPID: pid_t = 999) -> ResolvedTap {
-        TapResolver.resolve(entry: entry, processes: processes, ownPID: ownPID, ignoredBundleIDs: ["be.netronix.muninn"])
+        TapResolver.resolve(entry: entry, processes: processes, ownPID: ownPID, ignoredBundleIDs: ["com.michaelrigart.muninn"])
     }
 
     @Test func includesInputOnlyAndOutputOnlyHelpersOfTheApp() {
@@ -200,9 +200,9 @@ private final class ScriptedListing: AudioProcessListing, @unchecked Sendable {
     }
 
     @Test func leavesMuninnOut() {
-        let result = resolve("be.netronix", [
-            proc("be.netronix.muninn", pid: 30, input: true),
-            proc("be.netronix.other", pid: 31, input: true),
+        let result = resolve("com.michaelrigart", [
+            proc("com.michaelrigart.muninn", pid: 30, input: true),
+            proc("com.michaelrigart.other", pid: 31, input: true),
         ])
         #expect(result.objectIDs == [31])
 

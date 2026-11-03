@@ -3,7 +3,7 @@ import Darwin
 import MuninnCore
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "instance")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "instance")
 
 /// Only one Muninn may run on a data folder: two would both recover the meetings and fight over the audio devices.
 /// The bundled app and a `swift run` build share the one lock in the data folder, so they exclude each other too.

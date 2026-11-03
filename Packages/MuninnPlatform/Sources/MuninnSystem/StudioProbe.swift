@@ -6,7 +6,7 @@ public struct LiveEnvironmentProbe: EnvironmentProbing {
     public static let claudeKeyName = "claude.apiKey"
     static let timeout: TimeInterval = 2
 
-    private static let logger = Logger(subsystem: "be.netronix.muninn", category: "system")
+    private static let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "system")
 
     private let secrets: any SecretsReading
     private let session: URLSession

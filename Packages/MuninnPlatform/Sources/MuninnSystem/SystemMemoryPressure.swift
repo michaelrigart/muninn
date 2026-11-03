@@ -3,7 +3,7 @@ import MuninnCore
 import os
 
 public enum SystemMemoryPressure {
-    private static let logger = Logger(subsystem: "be.netronix.muninn", category: "system")
+    private static let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "system")
     private static let logFailure: Void = logger.error("Reading kern.memorystatus_vm_pressure_level failed or returned an unknown value; assuming normal pressure")
 
     public static func current() -> MemoryPressureLevel {

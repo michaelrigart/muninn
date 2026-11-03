@@ -5,7 +5,7 @@ import MuninnSystem
 import UserNotifications
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "services")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "services")
 
 @MainActor
 final class GraphServices {

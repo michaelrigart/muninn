@@ -6,7 +6,7 @@ import MuninnSpeech
 import MuninnSystem
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "app")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "app")
 
 private struct SettingsTranscriber: Transcribing {
     let settings: @Sendable () -> MuninnCore.Settings

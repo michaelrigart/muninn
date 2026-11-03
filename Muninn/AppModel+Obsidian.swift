@@ -2,7 +2,7 @@ import AppKit
 import MuninnCore
 import os
 
-private let logger = Logger(subsystem: "be.netronix.muninn", category: "obsidian")
+private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "obsidian")
 
 extension AppModel {
     func exportToObsidian(_ id: MeetingID) {

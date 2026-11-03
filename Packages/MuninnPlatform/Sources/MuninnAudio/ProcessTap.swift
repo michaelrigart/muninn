@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreAudio
+import MuninnCore
 import os
 
 final class ProcessTap {
@@ -17,7 +18,7 @@ final class ProcessTap {
     var isActive: () -> Bool = { true }
 
     private static let listenerKey = DispatchSpecificKey<Void>()
-    private static let log = Logger(subsystem: "be.netronix.muninn", category: "process-tap")
+    private static let log = Logger(subsystem: AppIdentity.bundleIdentifier, category: "process-tap")
 
     private let queue = DispatchQueue(label: "muninn.process-tap", qos: .userInteractive)
     private let listenerQueue = DispatchQueue(label: "muninn.process-tap.events")

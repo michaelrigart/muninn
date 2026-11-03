@@ -43,7 +43,7 @@ struct CommitTextField: View {
     let title: String
     let value: String
     let onCommit: (String) -> Void
-    @ViewState private var text = ""
+    @State private var text = ""
     @FocusState private var focused: Bool
 
     var body: some View {

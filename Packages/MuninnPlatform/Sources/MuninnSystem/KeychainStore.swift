@@ -15,7 +15,7 @@ protocol SecretsReading: Sendable {
 public struct KeychainSecrets: SecretsReading {
     private let service: String
 
-    public init(service: String = "be.netronix.muninn") {
+    public init(service: String = AppIdentity.bundleIdentifier) {
         self.service = service
     }
 
