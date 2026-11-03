@@ -7,6 +7,15 @@ public enum KeychainError: Error, Equatable {
     case invalidData
 }
 
+extension KeychainError: ProblemConvertible {
+    public func problem(in context: ProblemContext) -> Problem {
+        switch self {
+        case .status(let status): Problems.keychainUnreadable(details: ProblemDetails(errorDomain: "Keychain", errorCode: Int(status)))
+        case .invalidData: Problems.keychainUnreadable(details: ProblemDetails(errorDomain: "Keychain"))
+        }
+    }
+}
+
 protocol SecretsReading: Sendable {
     func get(_ key: String) throws -> String?
 }
