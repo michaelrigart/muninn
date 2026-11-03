@@ -18,9 +18,6 @@ enum DockPresence {
                 guard let window = note.object as? NSWindow else { return }
                 MainActor.assumeIsolated { windowWillClose(window) }
             },
-            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { syncPolicy() }
-            },
         ]
     }
 
@@ -91,10 +88,7 @@ enum DockPresence {
 
     private static func windowWillClose(_ window: NSWindow) {
         guard isDocumentWindow(window) else { return }
-        DispatchQueue.main.async {
-            syncPolicy(closing: window)
-            // After a minimised window closes, the app has been seen back at `.regular` within a quarter of a second of `.accessory` being set.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { syncPolicy() }
-        }
+        // Dropping to `.accessory` in the turn after a window closes is sometimes undone (found by driving minimise, restore, close); half a second later it holds.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { syncPolicy(closing: window) }
     }
 }
