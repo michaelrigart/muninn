@@ -99,17 +99,22 @@ public enum Diagnostics {
 
 private extension ProblemDetails {
     static let outsidePath = "[path outside Muninn's folder]"
+    /// The extensions of the files Muninn writes; any other can be part of a person's or client's name.
+    static let keptExtensions: Set<String> = ["md", "json", "jsonl", "m4a", "wav", "caf", "txt"]
 
-    /// A file path outside `directory` can hold a vault, client or meeting name; only its extension stays.
+    /// A file path outside `directory` can hold a vault, client or meeting name; only a known extension stays.
     func keepingPaths(under directory: String) -> ProblemDetails {
         guard let path else { return self }
-        var root = directory
+        let standard = (path as NSString).standardizingPath
+        var root = (directory as NSString).standardizingPath
         while root.hasSuffix("/") { root.removeLast() }
-        if !root.isEmpty, path == root || path.hasPrefix(root + "/") { return self }
         var copy = self
-        let ext = (path as NSString).pathExtension
-        let safe = !ext.isEmpty && ext.count <= 8 && ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
-        copy.path = safe ? "\(Self.outsidePath).\(ext)" : Self.outsidePath
+        if !root.isEmpty, standard == root || standard.hasPrefix(root + "/") {
+            copy.path = standard
+            return copy
+        }
+        let ext = (standard as NSString).pathExtension
+        copy.path = Self.keptExtensions.contains(ext.lowercased()) ? "\(Self.outsidePath).\(ext)" : Self.outsidePath
         return copy
     }
 }
@@ -120,32 +125,58 @@ private struct Masks {
     private static let meetingID = #"\d{4}-\d{2}-\d{2}-\d{4}(?:-[a-z0-9]+)*"#
     private static let ipv4 = #"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d)"#
 
-    /// Longest first, so a title that holds an id's words never leaves part of itself behind.
-    private let meetings: [(text: String, label: String)]
-    private let accounts: [(text: String, label: String)]
-    private let hosts: [String]
+    private struct Literal {
+        var text: String
+        var label: String
+        var pattern: String
+    }
+
+    /// One alternation over every literal, longest first and each with its own boundaries, so no mask can split another.
+    private let literals: NSRegularExpression?
+    private let labels: [String: String]
+    private let hostLabels: [String: String]
     private let home: String
 
     init(settings: Settings, entries: [ActivityEntry], homeDirectory: String) {
-        var meetingLabels: [(text: String, label: String)] = []
+        var found: [Literal] = []
+        func word(_ text: String) -> String { #"(?<!\w)"# + NSRegularExpression.escapedPattern(for: text) + #"(?!\w)"# }
+        func token(_ text: String) -> String { #"(?<![\w\-])"# + NSRegularExpression.escapedPattern(for: text) + #"(?![\w\-])"# }
+
         var seen: [String] = []
         for meeting in entries.compactMap(\.meeting) {
             if !seen.contains(meeting.id.rawValue) { seen.append(meeting.id.rawValue) }
             let label = "meeting \(Self.letters(seen.firstIndex(of: meeting.id.rawValue)!))"
-            meetingLabels += [(meeting.id.rawValue, label), (meeting.title, label)]
+            found.append(Literal(text: meeting.id.rawValue, label: label, pattern: token(meeting.id.rawValue)))
+            found.append(Literal(text: meeting.title, label: label, pattern: word(meeting.title)))
         }
-        meetings = Self.longestFirst(meetingLabels)
 
         var names: [[String]] = settings.accounts.map { [$0.displayName, $0.id] }
         let known = Set(names.joined())
         for account in entries.compactMap({ $0.details?.account }) where !known.contains(account) && !names.contains([account]) {
             names.append([account])
         }
-        accounts = Self.longestFirst(names.enumerated().flatMap { index, strings in strings.map { ($0, "account \(index + 1)") } })
+        for (index, strings) in names.enumerated() {
+            for name in strings { found.append(Literal(text: name, label: "account \(index + 1)", pattern: word(name))) }
+        }
 
         let entryHosts = entries.compactMap { $0.details?.request?.host }
         let settingsHosts = [settings.macbook.baseURL, settings.studio.baseURL].compactMap { URL(string: $0)?.host }
-        hosts = Array(Set((entryHosts + settingsHosts).filter { !$0.isEmpty })).sorted { $0.count > $1.count }
+        var hostLabels: [String: String] = [:]
+        for host in entryHosts + settingsHosts where !host.isEmpty {
+            hostLabels[host.lowercased()] = "<host>"
+            found.append(Literal(text: host, label: "<host>", pattern: "(?i:" + token(host) + ")"))
+        }
+        self.hostLabels = hostLabels
+
+        var labels: [String: String] = [:]
+        var distinct: [Literal] = []
+        for literal in found where !literal.text.isEmpty && labels[literal.text] == nil {
+            labels[literal.text] = literal.label
+            distinct.append(literal)
+        }
+        self.labels = labels
+        let ordered = distinct.sorted { $0.text.count > $1.text.count }
+        literals = ordered.isEmpty ? nil : try? NSRegularExpression(pattern: ordered.map(\.pattern).joined(separator: "|"))
 
         var home = homeDirectory
         while home.hasSuffix("/") { home.removeLast() }
@@ -157,35 +188,26 @@ private struct Masks {
         if !home.isEmpty {
             result = Self.replace(NSRegularExpression.escapedPattern(for: home) + #"(?![\w\-])"#, in: result, with: "~")
         }
+        if let literals {
+            let source = result as NSString
+            var masked = ""
+            var last = 0
+            for match in literals.matches(in: result, range: NSRange(location: 0, length: source.length)) {
+                let found = source.substring(with: match.range)
+                masked += source.substring(with: NSRange(location: last, length: match.range.location - last))
+                masked += labels[found] ?? hostLabels[found.lowercased()] ?? found
+                last = match.range.location + match.range.length
+            }
+            result = masked + source.substring(from: last)
+        }
         result = Self.replace(Self.email, in: result, with: "<email>")
-        for host in hosts {
-            result = Self.replace(#"(?<![\w\-])"# + NSRegularExpression.escapedPattern(for: host) + #"(?![\w\-])"#, in: result, with: "<host>", options: .caseInsensitive)
-        }
         result = Self.replace(Self.ipv4, in: result, with: "<host>")
-        for (string, label) in meetings {
-            result = Self.replaceWord(string, in: result, with: label)
-        }
         result = Self.replace(Self.meetingID, in: result, with: "another meeting")
-        for (name, label) in accounts {
-            result = Self.replaceWord(name, in: result, with: label)
-        }
         return Redaction.redact(result)
     }
 
-    private static func longestFirst(_ pairs: [(String, String)]) -> [(text: String, label: String)] {
-        var distinct: [(text: String, label: String)] = []
-        for (text, label) in pairs where !text.isEmpty && !distinct.contains(where: { $0.text == text }) {
-            distinct.append((text, label))
-        }
-        return distinct.sorted { $0.text.count > $1.text.count }
-    }
-
-    private static func replaceWord(_ word: String, in text: String, with label: String) -> String {
-        replace(#"(?<!\w)"# + NSRegularExpression.escapedPattern(for: word) + #"(?!\w)"#, in: text, with: label)
-    }
-
-    private static func replace(_ pattern: String, in text: String, with replacement: String, options: NSRegularExpression.Options = []) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return text }
+    private static func replace(_ pattern: String, in text: String, with replacement: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         return regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
     }
 

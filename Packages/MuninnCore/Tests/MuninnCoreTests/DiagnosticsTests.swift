@@ -223,4 +223,47 @@ struct DiagnosticsTests {
         let text = Diagnostics.text(input(settings: settings(), entries: [entry("the engine e failed", meeting: short)]))
         #expect(text.contains("the engine meeting A failed"))
     }
+
+    @Test func aTitleHoldingAnEmailAnAddressAndAHostIsMaskedWhole() {
+        var configured = settings(studioURL: "http://studio:11434")
+        configured.accounts = []
+        let title = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-intro"), title: "Henderson studio ann@client.example 10.0.0.1 migration")
+        let entries = [entry("Reached studio and 10.0.0.2", meeting: title), entry("Mail to ann@client.example")]
+        let text = Diagnostics.text(input(settings: configured, entries: entries))
+        for word in ["Henderson", "migration", "client.example", "10.0.0.1"] {
+            #expect(!text.contains(word), "\(word)")
+        }
+        #expect(text.contains("Recap · meeting A · Reached <host> and <host>"))
+        #expect(text.contains("Mail to <email>"))
+    }
+
+    @Test(arguments: ["J.Smith", "Acme.Inc", "Q4.review"])
+    func anExtensionMuninnDoesNotWriteIsDropped(name: String) {
+        let details = ProblemDetails(path: "/Users/tester/Vault/Clients/\(name)")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Could not read", details: details)]))
+        #expect(text.contains("File: [path outside Muninn's folder]"))
+        #expect(!text.contains(String(name.split(separator: ".")[1])))
+    }
+
+    @Test(arguments: ["md", "json", "jsonl", "m4a", "wav", "caf", "txt"])
+    func anExtensionMuninnWritesIsKept(ext: String) {
+        let details = ProblemDetails(path: "/Users/tester/Vault/Clients/note.\(ext)")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Could not read", details: details)]))
+        #expect(text.contains("File: [path outside Muninn's folder].\(ext)"))
+    }
+
+    @Test func aPathThatLeavesMuninnsFolderWithDotDotCountsAsOutside() {
+        let details = ProblemDetails(path: "/Users/tester/.local/share/muninn/../../../Vault/Acme Henderson/note.md")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Could not read", details: details)]))
+        #expect(text.contains("File: [path outside Muninn's folder].md"))
+        #expect(!text.contains("Henderson") && !text.contains("Acme"))
+    }
+
+    @Test func aLongerMeetingIdIsNotLabelledAsAShorterOne() {
+        let sync = ActivityMeeting(id: MeetingID(rawValue: "2026-11-03-1400-planning"), title: "Planning")
+        let details = ProblemDetails(path: "/Users/tester/.local/share/muninn/meetings/2026-11-03-1400-planning-2/meeting.json")
+        let text = Diagnostics.text(input(settings: settings(), entries: [entry("Could not save", meeting: sync, details: details)]))
+        #expect(text.contains("File: ~/.local/share/muninn/meetings/another meeting/meeting.json"))
+        #expect(!text.contains("meeting A-2") && !text.contains("planning"))
+    }
 }
