@@ -21,6 +21,8 @@ public final class RecapDocument {
         self.save = save
     }
 
+    /// Inside an enclosing group (the window's event group), the edit seals it first, so typing registered earlier in
+    /// the same event stays a step of its own. The edit's step fills the reopened group, so it is never empty.
     public func edit(_ actionName: String, undoManager: UndoManager?, _ change: (inout Summary) -> Void) {
         endTyping(undoManager: undoManager)
         let before = summary
@@ -29,6 +31,10 @@ public final class RecapDocument {
         guard after != before else { return }
         summary = after
         save(after)
+        if let undoManager, undoManager.groupingLevel == 1, !undoManager.isUndoing, !undoManager.isRedoing {
+            undoManager.endUndoGrouping()
+            undoManager.beginUndoGrouping()
+        }
         registerUndo(restoring: before, actionName: actionName, undoManager: undoManager)
     }
 
@@ -46,16 +52,11 @@ public final class RecapDocument {
         save(after)
     }
 
-    /// Registers the run as one "Typing" step. Inside an enclosing group (the window's event group), that group is
-    /// sealed, so whatever registers next in the same event is a step of its own.
     public func endTyping(undoManager: UndoManager?) {
         guard let run = typingRun else { return }
         typingRun = nil
         guard summary != run.start else { return }
         registerUndo(restoring: run.start, actionName: "Typing", undoManager: undoManager)
-        guard let undoManager, undoManager.groupingLevel == 1, !undoManager.isUndoing, !undoManager.isRedoing else { return }
-        undoManager.endUndoGrouping()
-        undoManager.beginUndoGrouping()
     }
 
     public func replace(with summary: Summary, undoManager: UndoManager?) {

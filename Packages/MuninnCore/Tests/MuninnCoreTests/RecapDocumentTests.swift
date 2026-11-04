@@ -147,6 +147,17 @@ struct RecapDocumentTests {
         #expect(document.summary == Self.summary())
     }
 
+    @Test func typingAloneInsideAnEventGroupUndoesInOneStep() {
+        let (document, undo, _) = Self.make()
+        undo.beginUndoGrouping()
+        document.type(.bulletText(0, 0), undoManager: undo) { $0.subjects[0].bullets[0].text = "Typed" }
+        document.endTyping(undoManager: undo)
+        undo.endUndoGrouping()
+        undo.undo()
+        #expect(document.summary == Self.summary())
+        #expect(undo.canUndo == false)
+    }
+
     @Test func replaceClearsHistory() {
         let (document, undo, saves) = Self.make()
         document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 0) }
