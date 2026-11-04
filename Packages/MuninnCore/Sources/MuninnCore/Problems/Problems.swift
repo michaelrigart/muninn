@@ -91,7 +91,7 @@ public enum Problems {
     }
 
     public static func signedInProfileUnreadable(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .problem, title: "Signed in to \(account), but Muninn couldn't read your profile", explanation: "Muninn uses your profile to know which addresses are yours. Try again to read it.", actions: [.tryAgain], details: details.with(account: account))
+        Problem(severity: .problem, title: "Signed in to \(account), but Muninn couldn't read your profile", explanation: "Muninn uses your profile to know which addresses are yours. Try again to sign in and read it.", actions: [.tryAgain], details: details.with(account: account))
     }
 
     public static func signInUnreadable(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {

@@ -342,7 +342,7 @@ private struct ChangeEventButton: View {
                     problem: failure,
                     compact: true,
                     handlers: failureHandlers,
-                    showInActivity: { model.showInActivity(failure, meeting: meeting.id) }
+                    showInActivity: { model.showInActivity(failure) }
                 )
             }
             Divider()
