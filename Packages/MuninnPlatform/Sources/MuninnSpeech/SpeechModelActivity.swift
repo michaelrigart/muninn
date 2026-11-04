@@ -87,7 +87,7 @@ public final class SpeechModelActivity: @unchecked Sendable {
 
     /// Progress reports arrive far more often than the whole-percent value a person can see changes.
     private static func percent(_ fraction: Double?) -> Int? {
-        fraction.map { Int(($0 * 100).rounded()) }
+        fraction.map { Int($0 * 100) }
     }
 
     private func notify() {

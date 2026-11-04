@@ -144,8 +144,9 @@ struct ActivityWindow: View, Equatable {
 
     private var filtered: [ActivityEntry] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let foldedTerm = activity.foldedTerm(term)
         return activity.entries.filter { entry in
-            (filter == .all || entry.level == .problem) && (term.isEmpty || activity.matches(entry, term: term))
+            (filter == .all || entry.level == .problem) && (term.isEmpty || activity.matches(entry, foldedTerm: foldedTerm))
         }
     }
 

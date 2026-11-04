@@ -28,12 +28,21 @@ final class ActivityCenter: ObservableObject {
 
     private func index(_ entry: ActivityEntry) {
         let parts = [entry.message, entry.area.label, entry.meeting?.title, entry.details?.text(includeHost: true)]
-        searchText[entry.id] = parts.compactMap { $0 }.joined(separator: "\n").lowercased()
+        searchText[entry.id] = Self.folded(parts.compactMap { $0 }.joined(separator: "\n"))
     }
 
-    /// True when the entry's message, area, meeting title or details contain the term, ignoring case.
-    func matches(_ entry: ActivityEntry, term: String) -> Bool {
-        searchText[entry.id]?.contains(term.lowercased()) ?? false
+    private static func folded(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// The term, folded once for a search to pass to `matches(_:foldedTerm:)` for every entry.
+    func foldedTerm(_ term: String) -> String {
+        Self.folded(term)
+    }
+
+    /// True when the entry's message, area, meeting title or details contain the folded term, ignoring case and diacritics.
+    func matches(_ entry: ActivityEntry, foldedTerm: String) -> Bool {
+        searchText[entry.id]?.contains(foldedTerm) ?? false
     }
 
     /// Writers on other threads can reach the observer out of order, so each entry goes in at its place by time, newest first.

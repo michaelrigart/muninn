@@ -215,6 +215,16 @@ import Testing
         #expect(second.details.errorDomain == NSPOSIXErrorDomain && second.details.errorCode == Int(ENOSPC))
     }
 
+    @Test func isDiskWriteFailureCoversFileWriteAndDiskErrorsOnly() {
+        #expect(ProblemTranslator.isDiskWriteFailure(CocoaError(.fileWriteOutOfSpace)))
+        #expect(ProblemTranslator.isDiskWriteFailure(CocoaError(.fileWriteNoPermission)))
+        #expect(ProblemTranslator.isDiskWriteFailure(POSIXError(.EDQUOT)))
+        #expect(ProblemTranslator.isDiskWriteFailure(POSIXError(.EROFS)))
+        #expect(!ProblemTranslator.isDiskWriteFailure(CocoaError(.fileNoSuchFile)))
+        #expect(!ProblemTranslator.isDiskWriteFailure(POSIXError(.ENOENT)))
+        #expect(!ProblemTranslator.isDiskWriteFailure(URLError(.notConnectedToInternet)))
+    }
+
     @Test func diskWriteFailureTakesItsPathFromTheURLKeyAndDefaultsTheSubject() {
         let error = CocoaError(.fileWriteNoPermission, userInfo: [NSURLErrorKey: URL(fileURLWithPath: "/x/meeting.json")])
         let problem = translate(error, ProblemContext(stage: .savingEdits))

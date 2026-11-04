@@ -320,9 +320,9 @@ final class RecordingController: ObservableObject {
         cancelAutoStop()
         logger.error("Failed \(activity, privacy: .public): \(String(describing: error), privacy: .public)")
         let translated = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording))
-        let diskTitles = [Problems.couldNotSave(what: "the meeting").title, Problems.couldNotDelete(what: "the meeting").title]
-        let isDiskFailure = diskTitles.contains(translated.title) || translated.details.path != nil
-        let problem = isDiskFailure ? translated : Problems.recordingDidNotStart(details: translated.details)
+        let problem = id == nil && ProblemTranslator.isDiskWriteFailure(error)
+            ? translated
+            : Problems.recordingDidNotStart(details: translated.details)
         var recorded = false
         if let id {
             do {

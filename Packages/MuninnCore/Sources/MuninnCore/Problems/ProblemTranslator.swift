@@ -22,7 +22,7 @@ public enum ProblemTranslator {
         default: break
         }
         let nsError = error as NSError
-        if isDiskWriteFailure(nsError) {
+        if isDiskWriteFailure(error) {
             let url = nsError.userInfo[NSURLErrorKey] as? URL
             let path = (nsError.userInfo[NSFilePathErrorKey] as? String) ?? url?.path
             let what = context.subject ?? "the meeting"
@@ -120,7 +120,8 @@ public enum ProblemTranslator {
         }
     }
 
-    private static func isDiskWriteFailure(_ error: NSError) -> Bool {
+    public static func isDiskWriteFailure(_ error: Error) -> Bool {
+        let error = error as NSError
         switch error.domain {
         case NSCocoaErrorDomain:
             return (512...642).contains(error.code)
