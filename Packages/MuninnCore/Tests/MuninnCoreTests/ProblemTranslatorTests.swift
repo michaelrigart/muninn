@@ -222,6 +222,14 @@ import Testing
         #expect(problem.details.path == "/x/meeting.json")
     }
 
+    @Test func aDiskFailureWhileDeletingSaysDeleting() {
+        let error = CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: "/x/m"])
+        let named = translate(error, ProblemContext(stage: .deletingMeeting, subject: "the folder"))
+        #expect(named.title == "Muninn couldn't delete the folder")
+        #expect(named.details.path == "/x/m")
+        #expect(translate(error, ProblemContext(stage: .deletingMeeting)).title == "Muninn couldn't delete the meeting")
+    }
+
     @Test func otherCocoaErrorsAreGeneric() {
         let problem = translate(CocoaError(.fileNoSuchFile), ProblemContext(stage: .loadingMeetings))
         #expect(problem.title == "Something went wrong while loading the meetings")

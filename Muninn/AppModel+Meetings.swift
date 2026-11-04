@@ -118,7 +118,6 @@ extension AppModel {
                 logger.warning("Fetching events for \(account.id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 guard !ActivityCenter.isCancellation(error) else { continue }
                 let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .readingCalendar, accountName: account.displayName))
-                activity.record(problem, area: .accounts, meeting: meeting)
                 failures.append(problem)
             }
         }

@@ -70,7 +70,7 @@ final class SignInFlow: ObservableObject {
             phase = .done(addresses)
             activity.record(.info, .accounts, "Signed in to \(account.displayName)", details: ProblemDetails(account: account.displayName))
         } catch {
-            fail(error)
+            fail(error) { Problems.signedInProfileUnreadable(account: account.displayName, details: $0.details) }
         }
     }
 

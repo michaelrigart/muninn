@@ -4,8 +4,6 @@ import SwiftUI
 /// What Muninn is doing with a meeting, what it waits for and what went wrong, shown on both tabs.
 struct MeetingStatusCards: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.openSettings) private var openSettings
-    @Environment(\.openWindow) private var openWindow
     let meeting: Meeting
 
     var body: some View {
@@ -81,32 +79,19 @@ struct MeetingStatusCards: View {
     }
 
     private func handlers(for problem: Problem, tryAgain: (() -> Void)?) -> ProblemHandlers {
-        ProblemHandlers(
-            tryAgain: tryAgain,
-            engineSettings: { showSettings(.engines) },
-            changeKey: { showSettings(.engines) },
-            signInAgain: { showSettings(.accounts) },
-            recordingSettings: { showSettings(.recording) },
-            write: { regenerate($0) },
-            failedEngine: problem.details.engine,
-            disabledReason: disabledReason
-        )
+        var handlers = model.problemHandlers(tryAgain: tryAgain)
+        handlers.write = { regenerate($0) }
+        handlers.failedEngine = problem.details.engine
+        handlers.disabledReason = disabledReason
+        return handlers
     }
 
     private func regenerate(_ engine: EngineKind? = nil) {
         model.regenerate(meeting.id, engine: engine ?? meeting.requestedEngine ?? model.settings.defaultEngine)
     }
 
-    private func showSettings(_ tab: SettingsTab) {
-        model.settingsTab = tab
-        WindowPresenter.present { openSettings() }
-    }
-
     private func showInActivity(_ problem: Problem) -> () -> Void {
-        {
-            model.activity.focus(problemTitle: problem.title, meetingID: meeting.id)
-            WindowPresenter.present { openWindow(id: "activity") }
-        }
+        { model.showInActivity(problem, meeting: meeting.id) }
     }
 
     private var disabledReason: String? {

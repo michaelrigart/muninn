@@ -393,10 +393,16 @@ func aReadableKeyIsNeverUnreadable(secrets: Result<String?, Error>) async {
 }
 
 @Test func aKeychainErrorWhileUsingAnAccountOffersSigningInAgain() {
-    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .readingCalendar))
-    #expect(problem.title == "Muninn couldn't read its saved key")
+    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .readingCalendar, accountName: "Work"))
+    #expect(problem.title == "Muninn couldn't read the sign-in for Work")
     #expect(problem.actions == [.signInAgain])
+    #expect(problem.details.account == "Work")
     #expect(problem.details.errorDomain == "Keychain" && problem.details.errorCode == -25308)
+}
+
+@Test func aKeychainErrorWhileUsingAnAccountWithoutANameFallsBack() {
+    let problem = ProblemTranslator.problem(for: KeychainError.invalidData, in: ProblemContext(stage: .signingIn))
+    #expect(problem.title == "Muninn couldn't read the sign-in for your Microsoft account")
 }
 
 @Test func aKeychainErrorElsewhereKeepsTheEngineSettingsAction() {

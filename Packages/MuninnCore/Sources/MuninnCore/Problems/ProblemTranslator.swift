@@ -25,7 +25,11 @@ public enum ProblemTranslator {
         if isDiskWriteFailure(nsError) {
             let url = nsError.userInfo[NSURLErrorKey] as? URL
             let path = (nsError.userInfo[NSFilePathErrorKey] as? String) ?? url?.path
-            return Problems.couldNotSave(what: context.subject ?? "the meeting", details: ProblemDetails(path: path))
+            let what = context.subject ?? "the meeting"
+            let details = ProblemDetails(path: path)
+            return context.stage == .deletingMeeting
+                ? Problems.couldNotDelete(what: what, details: details)
+                : Problems.couldNotSave(what: what, details: details)
         }
         return Problems.somethingWentWrong(stage: context.stage)
     }

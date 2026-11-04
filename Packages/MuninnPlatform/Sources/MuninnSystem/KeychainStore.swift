@@ -15,7 +15,7 @@ extension KeychainError: ProblemConvertible {
         case .savingSettings:
             return Problems.keychainUnwritable(details: details)
         case .signingIn, .creatingDraft, .readingCalendar, .searchingPeople, .changingEvent:
-            return Problems.keychainUnreadable(details: details).with(actions: [.signInAgain])
+            return Problems.signInUnreadable(account: context.accountName ?? "your Microsoft account", details: details)
         default:
             return Problems.keychainUnreadable(details: details)
         }

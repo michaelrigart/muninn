@@ -331,7 +331,6 @@ final class RecordingController: ObservableObject {
                 recorded = true
             } catch {
                 logger.error("Marking \(id.rawValue, privacy: .public) as failed failed: \(String(describing: error), privacy: .public)")
-                post(ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording, subject: "the meeting")))
             }
         }
         meetingID = nil

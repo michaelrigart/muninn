@@ -32,6 +32,9 @@ import Testing
             Problems.keychainUnwritable(),
             Problems.speechModelUnavailable(model: "parakeet"),
             Problems.couldNotSave(what: "the settings"),
+            Problems.couldNotDelete(what: "the meeting"),
+            Problems.signedInProfileUnreadable(account: "Work"),
+            Problems.signInUnreadable(account: "Work"),
             Problems.hotkeyInUse(keys: "⌃⌥F"),
             Problems.hotkeyUnsupported(keys: "⌃⌥F"),
             Problems.somethingWentWrong(stage: .writingRecap),
@@ -171,6 +174,9 @@ import Testing
             (Problems.keychainUnwritable(), .problem, [.tryAgain]),
             (Problems.speechModelUnavailable(model: "m"), .problem, [.tryAgain]),
             (Problems.couldNotSave(what: "x"), .problem, [.tryAgain]),
+            (Problems.couldNotDelete(what: "x"), .problem, [.tryAgain]),
+            (Problems.signedInProfileUnreadable(account: "Work"), .problem, [.tryAgain]),
+            (Problems.signInUnreadable(account: "Work"), .problem, [.signInAgain]),
             (Problems.hotkeyInUse(keys: "k"), .problem, [.recordingSettings]),
             (Problems.hotkeyUnsupported(keys: "k"), .problem, [.recordingSettings]),
             (Problems.somethingWentWrong(stage: .other), .problem, [.tryAgain]),
@@ -270,6 +276,8 @@ import Testing
         #expect(Problems.signInExpired(account: "Work").details.account == "Work")
         #expect(Problems.signInFailed(account: "Work").details.account == "Work")
         #expect(Problems.calendarUnreadable(account: "Work").details.account == "Work")
+        #expect(Problems.signedInProfileUnreadable(account: "Work").details.account == "Work")
+        #expect(Problems.signInUnreadable(account: "Work").details.account == "Work")
     }
 
     @Test func regenerationFailedKeepsTheCause() {

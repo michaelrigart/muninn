@@ -90,12 +90,24 @@ public enum Problems {
         Problem(severity: .problem, title: "Muninn couldn't read the \(account) calendar", explanation: "Microsoft Graph refused the request. Muninn tries again in a minute.", actions: [.tryAgain], details: details.with(account: account))
     }
 
+    public static func signedInProfileUnreadable(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .problem, title: "Signed in to \(account), but Muninn couldn't read your profile", explanation: "Muninn uses your profile to know which addresses are yours. Try again to read it.", actions: [.tryAgain], details: details.with(account: account))
+    }
+
+    public static func signInUnreadable(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .problem, title: "Muninn couldn't read the sign-in for \(account)", explanation: "The Keychain refused access. Sign in again to store it afresh.", actions: [.signInAgain], details: details.with(account: account))
+    }
+
     public static func keychainUnreadable(details: ProblemDetails = ProblemDetails()) -> Problem {
         Problem(severity: .problem, title: "Muninn couldn't read its saved key", explanation: "The Keychain refused access. Save the key again in Engine settings.", actions: [.engineSettings], details: details)
     }
 
     public static func keychainUnwritable(details: ProblemDetails = ProblemDetails()) -> Problem {
         Problem(severity: .problem, title: "Muninn couldn't save to the Keychain", explanation: "The Keychain refused the change. Try again; if it keeps failing, check Muninn's items in Keychain Access.", actions: [.tryAgain], details: details)
+    }
+
+    public static func couldNotDelete(what: String, details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .problem, title: "Muninn couldn't delete \(what)", explanation: "Muninn may not be allowed to change that folder. Try again; if it keeps failing, check the folder's permissions in Finder.", actions: [.tryAgain], details: details)
     }
 
     public static func speechModelUnavailable(model: String, details: ProblemDetails = ProblemDetails()) -> Problem {
