@@ -98,6 +98,7 @@ struct MuninnApp: App {
                 .environmentObject(model)
         }
         .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 1180, height: 780)
         .commands { MeetingsCommands(model: model) }
 
         Window("Live transcript", id: "live-transcript") {

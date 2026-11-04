@@ -1,23 +1,15 @@
 import MuninnCore
 import SwiftUI
 
-private enum TranscriptMode: String, CaseIterable, Identifiable {
-    case clean = "Clean"
-    case changes = "Show changes"
-    case verbatim = "Verbatim"
-
-    var id: String { rawValue }
-}
-
 struct TranscriptView: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let transcript: Transcript?
     let clean: CleanTranscript?
+    @Binding var mode: TranscriptMode
     @Binding var target: Int?
     let report: (Error) -> Void
 
-    @State private var mode = TranscriptMode.clean
     @State private var highlighted: Int?
 
     var body: some View {
@@ -25,7 +17,7 @@ struct TranscriptView: View {
             let flagged = Set(FlagCoverage.flaggedSegmentIDs(meeting.flags, in: transcript))
             VStack(spacing: 0) {
                 Picker("", selection: $mode) {
-                    ForEach(TranscriptMode.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(TranscriptMode.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()

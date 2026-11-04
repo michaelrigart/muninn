@@ -4,6 +4,8 @@ import SwiftUI
 struct MainWindow: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
+    @State private var tab = DetailTab.recap
+    @State private var transcriptMode = TranscriptMode.clean
     @State private var summaryText: [MeetingID: String] = [:]
 
     private struct Stamp: Hashable {
@@ -21,16 +23,17 @@ struct MainWindow: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 380)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             if let id = model.selectedMeetingID, let meeting = model.meetings.first(where: { $0.id == id }) {
-                MeetingDetail(meeting: meeting)
+                MeetingDetail(meeting: meeting, tab: $tab, transcriptMode: $transcriptMode)
                     .id(meeting.id)
             } else {
                 ContentUnavailableView("No meeting selected", systemImage: "waveform")
+                    .navigationTitle("Meetings")
             }
         }
-        .frame(minWidth: 940, minHeight: 600)
+        .frame(minWidth: 820, minHeight: 560)
         .task(id: SearchKey(active: !trimmedQuery.isEmpty, stamps: model.meetings.map { Stamp(id: $0.id, status: $0.status, engine: $0.summaryEngine) }, reloadRevision: model.reloadRevision)) {
             await loadSummaryText()
         }

@@ -1,18 +1,12 @@
 import MuninnCore
 import SwiftUI
 
-private enum DetailTab: String, CaseIterable, Identifiable {
-    case summary = "Summary"
-    case transcript = "Transcript"
-
-    var id: String { rawValue }
-}
-
 struct MeetingDetail: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
+    @Binding var tab: DetailTab
+    @Binding var transcriptMode: TranscriptMode
 
-    @State private var tab = DetailTab.summary
     @State private var summary: Summary?
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
@@ -46,27 +40,21 @@ struct MeetingDetail: View {
             MeetingStatusCards(meeting: meeting)
             MeetingHeader(meeting: meeting, edit: edit, report: report)
             Divider()
-            HStack(spacing: 12) {
-                Picker("", selection: $tab) {
-                    ForEach(DetailTab.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 260)
-                if summaryUnsaved {
-                    Label("Unsaved summary changes", systemImage: "exclamationmark.circle")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                }
-            }
-            .padding(.vertical, 8)
             switch tab {
-            case .summary:
-                SummaryEditor(meeting: meeting, summary: summary, onEdit: saveSummary, onSource: show(segment:), onRestore: restorePrevious)
+            case .recap:
+                if summaryUnsaved {
+                    Label("Unsaved recap changes", systemImage: "exclamationmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(Theme.attentionText)
+                        .padding(.vertical, Space.s)
+                }
+                SummaryEditor(meeting: meeting, summary: summary, onEdit: saveSummary, onSource: show(segment:))
             case .transcript:
-                TranscriptView(meeting: meeting, transcript: transcript, clean: clean, target: $scrollTarget, report: report)
+                TranscriptView(meeting: meeting, transcript: transcript, clean: clean, mode: $transcriptMode, target: $scrollTarget, report: report)
             }
         }
+        .navigationTitle(meeting.title)
+        .toolbar { MeetingToolbar(meeting: meeting, summary: summary, tab: $tab, restorePrevious: restorePrevious) }
         .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine, reloadRevision: model.reloadRevision)) {
             let store = model.store
             let id = meeting.id
@@ -173,18 +161,6 @@ private struct MeetingHeader: View {
                 }
                 .textFieldStyle(.plain)
                 .font(.title2.bold())
-                Menu {
-                    let reason = MeetingCommands.disabledReason(.moveToTrash, model.commandContext(for: meeting))
-                    Button("Move to Trash…", role: .destructive) { model.trashMeeting(meeting.id) }
-                        .disabled(reason != nil)
-                        .help(reason ?? "")
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("More actions")
             }
 
             HStack(spacing: 12) {

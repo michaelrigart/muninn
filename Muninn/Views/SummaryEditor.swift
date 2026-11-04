@@ -2,17 +2,14 @@ import MuninnCore
 import SwiftUI
 
 struct SummaryEditor: View {
-    @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let summary: Summary?
     let onEdit: (Summary) -> Void
     let onSource: (Int) -> Void
-    let onRestore: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                toolbar
                 if let summary {
                     ForEach(Array(summary.subjects.indices), id: \.self) { index in
                         subjectView(index)
@@ -23,7 +20,7 @@ struct SummaryEditor: View {
                         Label("Add subject", systemImage: "plus")
                     }
                 } else if meeting.status == .ready {
-                    Text("No summary yet.")
+                    Text("No recap yet.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -36,68 +33,6 @@ struct SummaryEditor: View {
         guard var updated = summary else { return }
         change(&updated)
         onEdit(updated)
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 12) {
-            Menu("Written by: \(engineName) ▾") {
-                ForEach(EngineKind.allCases, id: \.self) { engine in
-                    Button(engine.displayName) { model.regenerate(meeting.id, engine: engine) }
-                }
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(isBusy || heldForRecording || hasUnsavedEdits || eventChanging)
-            .help(heldForRecording ? "Choose an engine once the recording has ended" : blockedHelp)
-            if model.store.hasPreviousSummary(meeting.id) {
-                Button("Restore Previous Recap", action: onRestore)
-                    .disabled(isBusy || hasUnsavedEdits)
-                    .help(hasUnsavedEdits ? "Save your edits first" : "Swap back to the recap that was replaced when this one was written")
-            }
-            Spacer()
-            if eventUnsettled {
-                Text("Choose the event above first")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Button("✉ Outlook draft") { model.createDraft(meeting.id) }
-                .disabled(hasUnsavedEdits || eventChanging || eventUnsettled || meeting.status != .ready || !MeetingActions.canDraft(meeting, accounts: model.settings.accounts))
-                .help(hasUnsavedEdits ? "Save your edits first" : eventChanging ? "Wait for the event change" : eventUnsettled ? "Choose the event, account and client before drafting" : "")
-            Button("◆ To Obsidian") { model.exportToObsidian(meeting.id) }
-                .disabled(hasUnsavedEdits || eventChanging || eventUnsettled || meeting.status != .ready || summary == nil)
-                .help(hasUnsavedEdits ? "Save your edits first" : eventChanging ? "Wait for the event change" : eventUnsettled ? "Choose the event, account and client before exporting" : "")
-        }
-    }
-
-    private var hasUnsavedEdits: Bool {
-        model.unsavedSummaries[meeting.id] != nil
-    }
-
-    private var eventChanging: Bool {
-        model.eventChangesInFlight.contains(meeting.id)
-    }
-
-    private var blockedHelp: String {
-        hasUnsavedEdits ? "Save your edits first" : eventChanging ? "Wait for the event change" : ""
-    }
-
-    private var eventUnsettled: Bool {
-        !meeting.candidateEvents.isEmpty
-    }
-
-    private var engineName: String {
-        (summary?.engine ?? meeting.summaryEngine)?.displayName ?? "none"
-    }
-
-    private var heldForRecording: Bool {
-        meeting.status == .waiting(.recording)
-    }
-
-    private var isBusy: Bool {
-        switch meeting.status {
-        case .recording, .transcribing, .diarizing, .cleaning, .summarizing: true
-        default: false
-        }
     }
 
     private func subjectView(_ s: Int) -> some View {
