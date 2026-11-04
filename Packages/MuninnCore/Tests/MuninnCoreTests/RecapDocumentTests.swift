@@ -123,8 +123,10 @@ struct RecapDocumentTests {
     @Test func replaceClearsHistory() {
         let (document, undo, saves) = Self.make()
         document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 0) }
+        document.edit("Add bullet", undoManager: undo) { $0.subjects[0].bullets.append(Bullet(text: "New", sources: [])) }
         undo.undo()
-        document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 0) }
+        #expect(undo.canUndo)
+        #expect(undo.canRedo)
         let saved = saves.summaries.count
         var fresh = Self.summary()
         fresh.subjects[0].title = "Fresh"
@@ -138,7 +140,9 @@ struct RecapDocumentTests {
     @Test func replaceDropsTheOpenRun() {
         let (document, undo, _) = Self.make()
         document.type(.bulletText(0, 0), undoManager: undo) { $0.subjects[0].bullets[0].text = "Typed" }
-        document.replace(with: Self.summary(), undoManager: undo)
+        var fresh = Self.summary()
+        fresh.subjects[0].title = "Fresh"
+        document.replace(with: fresh, undoManager: undo)
         document.endTyping(undoManager: undo)
         #expect(undo.canUndo == false)
     }

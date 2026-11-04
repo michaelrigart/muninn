@@ -67,7 +67,8 @@ public final class RecapDocument {
     }
 
     private func registerRestore(of earlier: Summary, actionName: String, undoManager: UndoManager) {
-        undoManager.registerUndo(withTarget: self) { document in
+        undoManager.registerUndo(withTarget: self) { [weak undoManager] document in
+            guard let undoManager else { return }
             document.restore(earlier, actionName: actionName, undoManager: undoManager)
         }
         undoManager.setActionName(actionName)
