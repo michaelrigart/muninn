@@ -54,4 +54,9 @@ enum DueDate {
         guard let date = formatter.date(from: text), formatter.string(from: date) == text else { return nil }
         return date
     }
+
+    /// The day and month, such as "4 Nov".
+    static func label(for date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated))
+    }
 }

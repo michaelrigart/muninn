@@ -4,11 +4,13 @@ import SwiftUI
 
 struct MeetingDetail: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.undoManager) private var undoManager
     let meeting: Meeting
     @Binding var tab: DetailTab
     @Binding var transcriptMode: TranscriptMode
 
     @State private var summary: Summary?
+    @State private var document: RecapDocument?
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
     @State private var scrollTarget: Int?
@@ -53,7 +55,17 @@ struct MeetingDetail: View {
                         .foregroundStyle(Theme.attentionText)
                         .padding(.vertical, Space.s)
                 }
-                SummaryEditor(meeting: meeting, summary: summary, onEdit: saveSummary, onSource: show(segment:))
+                RecapEditor(
+                    meeting: meeting,
+                    document: document,
+                    summary: summary,
+                    segmentStarts: segmentStarts,
+                    canPlay: false,
+                    onSource: show(segment:),
+                    hasPreviousVersion: model.store.hasPreviousSummary(meeting.id),
+                    onPreviousVersion: restorePrevious,
+                    previousVersionReason: MeetingCommands.disabledReason(.previousVersion, model.commandContext(for: meeting, hasRecap: summary != nil))
+                )
             case .transcript:
                 TranscriptView(meeting: meeting, transcript: transcript, clean: clean, mode: $transcriptMode, target: $scrollTarget, report: report)
             }
@@ -61,6 +73,11 @@ struct MeetingDetail: View {
         .navigationTitle(meeting.title)
         .toolbar { MeetingToolbar(meeting: meeting, summary: summary, tab: $tab, restorePrevious: restorePrevious, openDraft: { showingDraft = true }) }
         .sheet(isPresented: $showingDraft) { DraftSheet(meeting: meeting, summary: summary) }
+        .onDisappear {
+            guard let document else { return }
+            document.endTyping(undoManager: undoManager)
+            undoManager?.removeAllActions(withTarget: document)
+        }
         .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine, reloadRevision: model.reloadRevision)) {
             let store = model.store
             let id = meeting.id
@@ -72,6 +89,33 @@ struct MeetingDetail: View {
             }
             transcript = model.loadFile("transcript.json", for: meeting) { try store.loadTranscript(id) }
             clean = model.loadFile("transcript.clean.json", for: meeting) { try store.loadClean(id) }
+            adoptDocument()
+        }
+    }
+
+    private var segmentStarts: [Int: TimeInterval] {
+        Dictionary(
+            (transcript?.segments ?? []).map { ($0.id, $0.start) },
+            uniquingKeysWith: min
+        )
+    }
+
+    /// Points the recap document at the loaded summary: a new document the first time, `replace` afterwards, which
+    /// drops the undo history of what was replaced.
+    private func adoptDocument() {
+        endFieldEditing()
+        guard let summary else {
+            if let document {
+                document.endTyping(undoManager: undoManager)
+                undoManager?.removeAllActions(withTarget: document)
+            }
+            document = nil
+            return
+        }
+        if let document {
+            document.replace(with: summary, undoManager: undoManager)
+        } else {
+            document = RecapDocument(summary: summary, save: saveSummary)
         }
     }
 
@@ -118,6 +162,7 @@ struct MeetingDetail: View {
             summary = try model.restorePreviousSummary(meeting.id)
             model.unsavedSummaries[meeting.id] = nil
             saveError = nil
+            adoptDocument()
         } catch {
             do {
                 summary = try model.store.loadSummary(meeting.id)
@@ -127,6 +172,7 @@ struct MeetingDetail: View {
                 model.activity.record(failure: reloadError, in: ProblemContext(stage: .loadingMeetings), meeting: meeting)
                 report(error)
             }
+            adoptDocument()
         }
     }
 
