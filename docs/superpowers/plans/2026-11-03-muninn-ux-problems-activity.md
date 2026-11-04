@@ -1,6 +1,8 @@
 # Muninn UX pass, pull request 1: problems, Activity and processing status — Implementation Plan
 
-**Status:** In progress
+**Status:** Implemented — [PR #3](https://github.com/michaelrigart/muninn/pull/3)
+
+> **Execution complete (2026-11-04).** All 17 tasks are implemented, with the final whole-branch review's fixes. Do not run this plan again. The "Manual acceptance" checks are done by hand on the owner's Mac.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

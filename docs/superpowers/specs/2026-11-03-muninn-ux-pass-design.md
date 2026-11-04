@@ -1,7 +1,7 @@
 # Muninn UX pass — design
 
 **Date:** 2026-11-03
-**Status:** Approved
+**Status:** In progress — [PR #3](https://github.com/michaelrigart/muninn/pull/3) (pull request 1 of 3)
 **Mockups:** the direction and playback mockups shown to the owner on 2026-11-03 are described in
 full below; this document is the reference, the mockups were the illustration.
 
