@@ -120,7 +120,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `enum SidebarSign: Equatable, Sendable { case progress(step: Int, label: String), queued, attention, recording, draftCreated, filed, none; static func sign(for meeting: Meeting, progress: MeetingProgress, needsAttention: Bool) -> SidebarSign }` — first match wins: `.working(w)` → `.progress(w.stage.step, w.stage.title)`; `.preparingSpeechModel` → `.progress(1, "Getting the speech model ready")`; `.queued` → `.queued`; `needsAttention` → `.attention`; status `.recording` → `.recording`; `draftID` or `draftWebLink` set → `.draftCreated`; `exportedNotePath` set → `.filed`; else `.none`.
   - `enum MeetingSearch { static func recapText(_ summary: Summary) -> String; static func matches(_ meeting: Meeting, term: String, recapText: String?, transcriptText: String?) -> Bool }` — `recapText` joins subject titles, bullet texts, action owners and texts with newlines (what `MainWindow.loadSummaryText` builds today). `matches` trims the term (empty matches everything) and uses `localizedStandardContains` over the title, client, attendee names and addresses, the recap text and the transcript text.
 
-- [ ] **Step 1: Write the failing tests** (`PresentationTests`), with `t = Date(timeIntervalSince1970: 1_793_800_800)` (Wednesday 4 November 2026, 14:00 UTC), a Gregorian calendar in UTC and `Locale(identifier: "en_GB")`:
+- [x] **Step 1: Write the failing tests** (`PresentationTests`), with `t = Date(timeIntervalSince1970: 1_793_800_800)` (Wednesday 4 November 2026, 14:00 UTC), a Gregorian calendar in UTC and `Locale(identifier: "en_GB")`:
 
 ```swift
 @Test func timestamps() {
@@ -171,10 +171,10 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 @Test func recapTextHoldsTitlesBulletsAndActions() // a summary with one subject, a bullet and an action (owner "Ann") → contains each of the four strings
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PresentationTests` — expect a build failure.
-- [ ] **Step 3: Implement** the Core types; move `MeetingGrouping` out of `MainWindow.swift` (the sidebar uses `group.group.title` for the section heading) and `MeetingProgress.title` out of `Formatting.swift`. Any test whose expected text differs from what the formatter produces is reported to the controller, not changed.
-- [ ] **Step 4: Run** the focused suite and the app build — expect PASS.
-- [ ] **Step 5: Commit** — `Add labels, the sidebar sign and search to MuninnCore`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PresentationTests` — expect a build failure.
+- [x] **Step 3: Implement** the Core types; move `MeetingGrouping` out of `MainWindow.swift` (the sidebar uses `group.group.title` for the section heading) and `MeetingProgress.title` out of `Formatting.swift`. Any test whose expected text differs from what the formatter produces is reported to the controller, not changed.
+- [x] **Step 4: Run** the focused suite and the app build — expect PASS.
+- [x] **Step 5: Commit** — `Add labels, the sidebar sign and search to MuninnCore`
 
 ---
 
@@ -205,11 +205,11 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `MeetingActions.accountChangeDropsEvent(_ m: Meeting, to account: String?) -> Bool` — the meeting has an association whose account isn't `account`.
   - `MeetingActions.clearingEventLosesDetails(_ m: Meeting) -> Bool` — the meeting has an association or attendees.
 
-- [ ] **Step 1: Write the failing tests** (`MeetingCommandsTests`): one `@Test(arguments:)` per row of the table, each case giving the context and the expected reason (including nil for a ready meeting with a recap and nothing pending), plus `draftRefusalNamesWhatIsMissing`, `accountChangeDropsOnlyAnotherAccountsEvent` (same account false, other account true, no association false) and `clearingAsksOnlyWhenSomethingIsLost` (association true, attendees only true, neither false).
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter MeetingCommandsTests` — expect a build failure.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the focused suite — expect PASS.
-- [ ] **Step 5: Commit** — `Say which meeting commands are available and why not`
+- [x] **Step 1: Write the failing tests** (`MeetingCommandsTests`): one `@Test(arguments:)` per row of the table, each case giving the context and the expected reason (including nil for a ready meeting with a recap and nothing pending), plus `draftRefusalNamesWhatIsMissing`, `accountChangeDropsOnlyAnotherAccountsEvent` (same account false, other account true, no association false) and `clearingAsksOnlyWhenSomethingIsLost` (association true, attendees only true, neither false).
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter MeetingCommandsTests` — expect a build failure.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the focused suite — expect PASS.
+- [x] **Step 5: Commit** — `Say which meeting commands are available and why not`
 
 ---
 
@@ -228,7 +228,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `enum SpeakerColours { static let count = 6; static func indices(for transcript: Transcript) -> [String: Int]; static func personIndex(name: String, email: String) -> Int }` — `indices`: "you" → 0; every other speaker → `1 + (n % 5)`, where `n` counts distinct non-"you" speakers in order of first appearance. `personIndex`: FNV-1a 32-bit (offset `0x811C9DC5`, prime `0x01000193`) over the UTF-8 of the trimmed, lowercased name, or the address when the name is empty, modulo 6.
 - Produces (app): `Theme.accentMid`; `Theme.speaker(_ index: Int) -> Color`; and `Theme.AppKit` — `NSColor` statics for the transcript view: `primaryText`, `secondaryText`, `tertiaryText`, `attentionText`, `accentSoft`, `accentMid`, and `speaker(_ index: Int) -> NSColor`. The SwiftUI colours wrap the same `NSColor`s, so each colour is defined once.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```swift
 @Test func speakerColoursMeetAA() {
@@ -249,10 +249,10 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PaletteTests` — expect a build failure.
-- [ ] **Step 3: Implement.** A colour pair that fails is reported to the controller, not changed.
-- [ ] **Step 4: Run** the focused suite and the app build — expect PASS.
-- [ ] **Step 5: Commit** — `Add speaker colours and the read-along tint`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PaletteTests` — expect a build failure.
+- [x] **Step 3: Implement.** A colour pair that fails is reported to the controller, not changed.
+- [x] **Step 4: Run** the focused suite and the app build — expect PASS.
+- [x] **Step 5: Commit** — `Add speaker colours and the read-along tint`
 
 ---
 
@@ -274,7 +274,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `replace`: drops the open run, removes every undo and redo action targeting the document (`removeAllActions(withTarget:)`) and takes the new summary without saving it.
   - Action names used by the app: "Remove subject", "Remove bullet", "Remove action", "Add subject", "Add bullet", "Add action", "Change due date"; the owner is typed, so it undoes as "Typing".
 
-- [ ] **Step 1: Write the failing tests** (`RecapDocumentTests`), each with `let undo = UndoManager(); undo.groupsByEvent = false` and a document whose `save` appends to an array:
+- [x] **Step 1: Write the failing tests** (`RecapDocumentTests`), each with `let undo = UndoManager(); undo.groupsByEvent = false` and a document whose `save` appends to an array:
 
 ```swift
 @Test func undoRestoresARemovedBullet()   // remove bullet 0 of subject 0; undo → the bullet is back and was saved
@@ -291,10 +291,10 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 @Test func undoCarriesTheActionName()      // after edit("Remove bullet") → undo.undoActionName == "Remove bullet"
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter RecapDocumentTests` — expect a build failure.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the focused suite — expect PASS.
-- [ ] **Step 5: Commit** — `Add the recap document with undo`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter RecapDocumentTests` — expect a build failure.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the focused suite — expect PASS.
+- [x] **Step 5: Commit** — `Add the recap document with undo`
 
 ---
 
@@ -313,7 +313,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `enum WordAlignment { static func tokenWords(text: String, words: [Word]) -> [Int?]; static func pairs(_ a: [String], _ b: [String]) -> [(Int, Int)] }` — `tokenWords` gives, for each whitespace-separated token of `text`, the index of its word: the identity when the counts match, otherwise the longest common subsequence of the tokens' and the words' `Tokenizer.normalize` forms (empty forms never match). `pairs` is that longest-common-subsequence over two lists of normalised forms, returning matched index pairs in order, empty forms excluded; it replaces the table inside `ChangeView.tokens`.
   - `ChangeView.alignment(verbatim: String, clean: String) -> [Int?]` — for each whitespace-separated token of `clean`, the index of the verbatim token it keeps, from the same `pairs` that decide `tokens(verbatim:clean:)`'s removed flags.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```swift
 @Test func tokensMatchWordsOneToOne() // "we ship friday" with words we, ship, friday → [0, 1, 2]
@@ -324,10 +324,10 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 @Test func punctuationTokensMapToNothing() // verbatim "yes — fine", clean "Yes — fine." → [0, nil, 2]
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter WordAlignmentTests` — expect a build failure.
-- [ ] **Step 3: Implement.** `ChangeView`'s existing tests must pass unchanged.
-- [ ] **Step 4: Run** `--filter WordAlignmentTests` and `--filter CleanupTests` — expect PASS.
-- [ ] **Step 5: Commit** — `Align transcript tokens with word timings`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter WordAlignmentTests` — expect a build failure.
+- [x] **Step 3: Implement.** `ChangeView`'s existing tests must pass unchanged.
+- [x] **Step 4: Run** `--filter WordAlignmentTests` and `--filter CleanupTests` — expect PASS.
+- [x] **Step 5: Commit** — `Align transcript tokens with word timings`
 
 ---
 
@@ -354,7 +354,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `struct ReadAlongPosition: Equatable, Sendable { var segment: Int; var word: Int? }` — indices into `segments` and that segment's `words`.
   - `struct SegmentTimeline: Sendable { init(transcript: Transcript); func previousStart(before time: TimeInterval) -> TimeInterval; func nextStart(after time: TimeInterval) -> TimeInterval? }` — over the distinct segment starts, sorted: previous is the latest start before `time − 1.0`, or 0; next is the earliest start after `time + 0.05`, or nil.
 
-- [ ] **Step 1: Write the failing tests** (`TranscriptLayoutTests`) over this fixture, with user name "Ann":
+- [x] **Step 1: Write the failing tests** (`TranscriptLayoutTests`) over this fixture, with user name "Ann":
 
 ```swift
 let transcript = Transcript(segments: [
@@ -392,10 +392,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter TranscriptLayoutTests` — expect a build failure.
-- [ ] **Step 3: Implement.** `position(at:)` must not scan every segment: keep the segments sorted by start and search.
-- [ ] **Step 4: Run** the focused suite — expect PASS.
-- [ ] **Step 5: Commit** — `Lay out the transcript and look up the spoken word`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter TranscriptLayoutTests` — expect a build failure.
+- [x] **Step 3: Implement.** `position(at:)` must not scan every segment: keep the segments sorted by start and search.
+- [x] **Step 4: Run** the focused suite — expect PASS.
+- [x] **Step 5: Commit** — `Lay out the transcript and look up the spoken word`
 
 ---
 
@@ -417,7 +417,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `MuninnPaths.playbackFile` = `state/playback.json`.
   - `ProblemStage.playingRecording`: phrase "playing the recording", area `.recording`.
 
-- [ ] **Step 1: Write the failing tests** (`PlaybackTests`):
+- [x] **Step 1: Write the failing tests** (`PlaybackTests`):
 
 ```swift
 @Test func lanesMergeASpeakersCloseSpans() {
@@ -440,10 +440,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 @Test func playbackFileIsInTheStateDirectory()
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PlaybackTests` — expect a build failure.
-- [ ] **Step 3: Implement**, and add `playingRecording` wherever `ProblemTests` enumerates the stages.
-- [ ] **Step 4: Run** `--filter PlaybackTests` and `--filter ProblemTests` — expect PASS.
-- [ ] **Step 5: Commit** — `Add the playback model and remembered positions`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter PlaybackTests` — expect a build failure.
+- [x] **Step 3: Implement**, and add `playingRecording` wherever `ProblemTests` enumerates the stages.
+- [x] **Step 4: Run** `--filter PlaybackTests` and `--filter ProblemTests` — expect PASS.
+- [x] **Step 5: Commit** — `Add the playback model and remembered positions`
 
 ---
 
@@ -460,7 +460,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `MeetingStore.moveToTrash(_ id: MeetingID) throws` — moves the whole meeting folder with `trashItem`; a missing folder is not an error. `var trashItem: (URL) throws -> Void` defaults to `{ try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }`; tests replace it.
   - `ProblemStage.trashingMeeting`: phrase "moving the meeting to the Trash", area `.app`.
 
-- [ ] **Step 1: Write the failing tests** (in `StorageTests`; the fake `trashItem` moves the folder into a temporary "Trash" directory):
+- [x] **Step 1: Write the failing tests** (in `StorageTests`; the fake `trashItem` moves the folder into a temporary "Trash" directory):
 
 ```swift
 @Test func trashedMeetingLeavesTheList()   // create, save a transcript and a recap, write audio/mic.caf bytes; moveToTrash → list() hasn't it, exists(id) false
@@ -468,10 +468,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 @Test func trashingAMissingMeetingDoesNothing()
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter StorageTests` — expect a build failure.
-- [ ] **Step 3: Implement**, and add `trashingMeeting` wherever `ProblemTests` enumerates the stages.
-- [ ] **Step 4: Run** `--filter StorageTests` and `--filter ProblemTests` — expect PASS.
-- [ ] **Step 5: Commit** — `Move meetings to the Trash in the store`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter StorageTests` — expect a build failure.
+- [x] **Step 3: Implement**, and add `trashingMeeting` wherever `ProblemTests` enumerates the stages.
+- [x] **Step 4: Run** `--filter StorageTests` and `--filter ProblemTests` — expect PASS.
+- [x] **Step 5: Commit** — `Move meetings to the Trash in the store`
 
 ---
 
@@ -489,7 +489,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `load`: for each given URL whose file exists, loads its first audio track with `AVURLAsset` (`load(.tracks)`, `load(.duration)`); a file with no audio track or zero duration counts as missing; a file that fails to load is skipped (logged with `os.Logger`, subsystem `AppIdentity.bundleIdentifier`, category "playback"). Each kept track is inserted at time zero in its own composition track, mic first. Nil when no file is kept and none failed; throws the first load error when every existing file failed. `duration` is the longest kept track's.
   - `audioMix`: one `AVMutableAudioMixInputParameters` per composition track, volume `mix.volume(for:)`.
 
-- [ ] **Step 1: Write the failing tests**, writing CAF files with `TrackWriter` (mic: 16 kHz mono, 2.0 s of a 440 Hz sine; system: 48 kHz stereo interleaved, 1.0 s):
+- [x] **Step 1: Write the failing tests**, writing CAF files with `TrackWriter` (mic: 16 kHz mono, 2.0 s of a 440 Hz sine; system: 48 kHz stereo interleaved, 1.0 s):
 
 ```swift
 @Test func bothTracksStartAtZero() async throws // tracks == [.mic, .system]; each composition track's first segment's target start == .zero
@@ -502,10 +502,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 @Test func mixSilencesTheOtherTrack() async throws // audioMix(.callOnly): the mic track's volume ramp at .zero is 0, the system's 1
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnPlatform --filter PlaybackCompositionTests` — expect a build failure.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the focused suite — expect PASS.
-- [ ] **Step 5: Commit** — `Build the two-track playback composition`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnPlatform --filter PlaybackCompositionTests` — expect a build failure.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the focused suite — expect PASS.
+- [x] **Step 5: Commit** — `Build the two-track playback composition`
 
 ---
 
@@ -525,10 +525,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 - `MeetingsCommands: Commands { let model: AppModel }` adds `CommandGroup(after: .toolbar) { Button("Reload") { model.reloadMeetings() } }`, attached to the Meetings window scene.
 - The sidebar's context menu and the header's menu offer "Move to Trash…", disabled with `.help` from `MeetingCommands.disabledReason(.moveToTrash, …)`.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n 'deleteMeeting|Delete Meeting|destructiveFirst' Muninn` — expect no output.
-- [ ] **Step 4: Commit** — `Move meetings to the Trash and reload them from the View menu`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n 'deleteMeeting|Delete Meeting|destructiveFirst' Muninn` — expect no output.
+- [x] **Step 4: Commit** — `Move meetings to the Trash and reload them from the View menu`
 
 ---
 
@@ -553,10 +553,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
     - a `…` `Menu` (`ellipsis.circle`, accessibility label and help "More"): "Previous version" (disabled with the `previousVersion` reason) and, after a divider, "Move to Trash…" (disabled with the `moveToTrash` reason).
   - `MeetingDetail`: `.navigationTitle(meeting.title)`; the empty state's title "Meetings". Its tab-picker row goes away, and so does `SummaryEditor`'s toolbar row (engine menu, Restore Previous Recap, draft and Obsidian buttons); "Previous version" calls the existing `restorePrevious`. The header's `…` menu goes away (its item is in the toolbar's). The "Unsaved summary changes" label becomes "Unsaved recap changes" at the top of the recap.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n 'Written by: |Restore Previous Recap|✉|◆' Muninn` — expect no output.
-- [ ] **Step 4: Commit** — `Give the Meetings window a toolbar for the recap, transcript and actions`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n 'Written by: |Restore Previous Recap|✉|◆' Muninn` — expect no output.
+- [x] **Step 4: Commit** — `Give the Meetings window a toolbar for the recap, transcript and actions`
 
 ---
 
@@ -579,9 +579,9 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
     - The context menu from Task 10.
     - The empty texts stay: "No matches", "Nothing needs attention", "No meetings yet".
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Commit** — `Show smart lists, richer rows and full-text search in the sidebar`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Commit** — `Show smart lists, richer rows and full-text search in the sidebar`
 
 ---
 
@@ -603,10 +603,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `DraftSheet(meeting: Meeting, summary: Summary?)`, opened by the toolbar's "Outlook draft": the title "Outlook draft"; "From" and the account's display name, or "Choose an account in the meeting's details" in `Theme.attentionText`; the recipients as checkbox rows (name, address in secondary) with the search-or-type field and its candidates (the header's `RecipientsEditor`, moved here unchanged in behaviour, then removed from the header); a "Subject" field starting at `RecapEmail.subject(title:date:timeZone:)`; a read-only preview of the recap (subject titles, bullets, and "Owner: text (due)" action lines) in a scroll view; when `model.actionErrors[id]` is set, a compact `ProblemCard`; "Cancel" (`.cancelAction`) and "Create draft" (`.defaultAction`), disabled with `draftRefusal` as its `.help`, showing a small spinner and "Creating…" while it runs. `.created` and `.review` close the sheet; `.cancelled` and `.failed` keep it open. Minimum size 520×480.
   - `MeetingDetail` shows `actionSuccesses[id]` as `StatusCard(role: .success)`, dismissible: "Draft created" with "Open in Outlook" when there is a link; "Filed in Obsidian" with "Reveal" (`NSWorkspace.shared.activateFileViewerSelecting`).
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n 'RecipientsEditor' Muninn` — expect matches only in `Muninn/Meetings/DraftSheet.swift`.
-- [ ] **Step 4: Commit** — `Choose recipients in an Outlook draft sheet, and confirm drafts and filed notes`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n 'RecipientsEditor' Muninn` — expect matches only in `Muninn/Meetings/DraftSheet.swift`.
+- [x] **Step 4: Commit** — `Choose recipients in an Outlook draft sheet, and confirm drafts and filed notes`
 
 ---
 
@@ -632,9 +632,9 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
       - `DetailsChip`: `MeetingLabels.detailsChip(accountName:client:)`, where a removed account reads "Account removed" (attention role); a popover with the account `Picker` (None, the removed account, the accounts) and the client field. When `accountChangeDropsEvent(meeting, to: new)`, it asks first: "Change the account to \(new name)?" (or "Remove the account from this meeting?" for None) / "This meeting's calendar event is in \(old name). Changing the account removes the event from the meeting; its title and attendees stay." with `["Change account", "Cancel"]`; Cancel leaves the picker as it was.
       - Person chips for the attendees that are not resources, the first four, then "+\(n)" with `.help` listing the others' names.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Commit** — `Show the meeting header as a title, a meta line and chips`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Commit** — `Show the meeting header as a title, a meta line and chips`
 
 ---
 
@@ -661,10 +661,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
     - "No recap yet." when the meeting is ready without one.
   - `canPlay` is false in this task; `onSource` keeps today's behaviour (switch to the Transcript tab and scroll to the segment).
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n '(Text|Button|Label|help|TextField)\("[^"]*[Ss]ummar' Muninn` — expect no output.
-- [ ] **Step 4: Commit** — `Edit the recap as text, with tokens, timestamps and undo`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n '(Text|Button|Label|help|TextField)\("[^"]*[Ss]ummar' Muninn` — expect no output.
+- [x] **Step 4: Commit** — `Edit the recap as text, with tokens, timestamps and undo`
 
 ---
 
@@ -689,10 +689,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - The toolbar, on the Transcript tab, adds before the engine menu: a segmented `Picker` of `TranscriptMode` (accessibility label "Transcript view"; "Changes" has `.help` "Show changes"), "Search" (`magnifyingglass`, `.keyboardShortcut("f")`, making the text view first responder, then `showFindInterface`) and "Copy all" (`doc.on.doc`; reads "Copied" for 2 s).
   - With no transcript: `ContentUnavailableView("No transcript yet", systemImage: "text.alignleft")`. `onSeek` does nothing in this task. The recap's `onSource` switches to the Transcript tab and calls `controller.reveal(segmentID:)`.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n '🚩|TranscriptView\(' Muninn` — expect no output.
-- [ ] **Step 4: Commit** — `Show the transcript as one selectable text flow with find and copy all`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n '🚩|TranscriptView\(' Muninn` — expect no output.
+- [x] **Step 4: Commit** — `Show the transcript as one selectable text flow with find and copy all`
 
 ---
 
@@ -722,10 +722,10 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
     - Only the subviews showing the time observe `clock`; `PlayerBar` itself, `MeetingDetail` and the recap observe `player` only.
   - The sidebar row of `player.meetingID` shows, while `isPlaying`, `waveform` in `Theme.accent` with `.symbolEffect(.variableColor.iterative)`, accessibility label "Playing", before its sign.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
-- [ ] **Step 3: Run** `rg -n 'clock' Muninn/Meetings/RecapEditor.swift Muninn/Views/MeetingDetail.swift` — expect no output.
-- [ ] **Step 4: Commit** — `Play a meeting's recording from a player docked under the meeting`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** `mise exec -- xcodegen generate` and the app build — expect PASS.
+- [x] **Step 3: Run** `rg -n 'clock' Muninn/Meetings/RecapEditor.swift Muninn/Views/MeetingDetail.swift` — expect no output.
+- [x] **Step 4: Commit** — `Play a meeting's recording from a player docked under the meeting`
 
 ---
 
@@ -747,9 +747,9 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `MeetingDetail` sets `player.timeline = SegmentTimeline(transcript:)` when the transcript loads.
   - `PlaybackKeys`: a background `NSViewRepresentable` in `MainWindow` that, while its window exists, installs a local `keyDown` monitor. It acts only on events for that window, only while the player is `.ready`, never with ⌘, ⌥ or ⌃ held, and not when the first responder is editable text (an `NSTextView` with `isEditable`, which covers every field editor). Space toggles playback; ← and → skip ∓15 s; ⇧← seeks to `timeline.previousStart(before:)`, ⇧→ to `timeline.nextStart(after:)` when there is one. It returns nil for the events it handled.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** the app build — expect PASS.
-- [ ] **Step 3: Commit** — `Follow playback in the transcript, play from a click, and add the playback keys`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** the app build — expect PASS.
+- [x] **Step 3: Commit** — `Follow playback in the transcript, play from a click, and add the playback keys`
 
 ---
 
@@ -760,7 +760,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 **Files:**
 - Modify: `CHANGELOG.md`, `docs/superpowers/plans/2026-11-04-muninn-ux-meetings-window.md` (tick boxes)
 
-- [ ] **Step 1:** Add under `## [Unreleased]`:
+- [x] **Step 1:** Add under `## [Unreleased]`:
 
 ```markdown
 ### Added
@@ -783,9 +783,9 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 - Recap sources show the time in the transcript instead of a segment number.
 ```
 
-- [ ] **Step 2: Run** the full verification, all must pass, and record the totals as passed/total: the Core suite, the Platform suite, `mise exec -- xcodegen generate`, the app build, the searches from Tasks 10, 11, 15, 16 and 17, `rg -n 'localizedDescription|String\(describing: error\)' Muninn | rg -v 'logger\.'` (expect no output), and `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`.
+- [x] **Step 2: Run** the full verification, all must pass, and record the totals as passed/total: the Core suite, the Platform suite, `mise exec -- xcodegen generate`, the app build, the searches from Tasks 10, 11, 15, 16 and 17, `rg -n 'localizedDescription|String\(describing: error\)' Muninn | rg -v 'logger\.'` (expect no output), and `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`.
 - [ ] **Step 3:** `rm -rf build/adhoc` (no ad hoc copy may outlive the run: see AGENTS.md on permissions).
-- [ ] **Step 4: Commit** — `Add the changelog entries for the Meetings window`
+- [x] **Step 4: Commit** — `Add the changelog entries for the Meetings window`
 
 ## Manual acceptance (the owner, on his Mac)
 

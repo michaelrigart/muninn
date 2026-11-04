@@ -23,6 +23,11 @@ whether it is compatible with the one before. Each section says what changed.
 - Meetings show their processing step, their place in the queue and speech model downloads, and
   the sidebar and the menu bar show work in progress.
 - A "Needs attention" list, and a notification, for meetings you have to act on.
+- Listen back to a meeting: a player under the meeting plays the recording, and the transcript
+  follows along, highlighting the passage and the word being spoken. Click a sentence or a
+  recap source to play from there.
+- Every recap edit can be undone with ⌘Z, including removing a subject, bullet or action.
+- Find in the transcript (⌘F) highlights every match, and Copy all copies the whole transcript.
 
 ### Changed
 
@@ -30,5 +35,13 @@ whether it is compatible with the one before. Each section says what changed.
 - When Ollama isn't running on This Mac, a meeting waits instead of failing, and carries on
   within about 15 seconds of starting it.
 - Muninn asks for permission to send notifications the first time it has one to send.
+- The Meetings window has a toolbar for the recap, the transcript, the engine, the Outlook draft
+  and Obsidian, and a calmer header, recap and transcript.
+- Recipients are chosen in the Outlook draft sheet, which also shows the subject and a preview.
+- Meetings move to the Trash instead of being deleted, so they can be put back from Finder;
+  View › Reload picks them up again.
+- Sidebar search also looks in recaps and transcripts, and each row shows the time, duration,
+  client and status.
+- Recap sources show the time in the transcript instead of a segment number.
 
 [Unreleased]: https://github.com/michaelrigart/muninn/commits/main
