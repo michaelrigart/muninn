@@ -22,13 +22,14 @@ struct ProblemCard: View {
     var onDismiss: (() -> Void)?
 
     var body: some View {
-        let isProblem = problem.severity == .problem
+        let shown = problem.redacted()
+        let isProblem = shown.severity == .problem
         StatusCard(
             role: role ?? (isProblem ? .problem : .waiting),
-            title: problem.title,
-            explanation: problem.explanation.isEmpty ? nil : problem.explanation,
+            title: shown.title,
+            explanation: shown.explanation.isEmpty ? nil : shown.explanation,
             actions: uniqueActions.compactMap(action),
-            copyDetails: isProblem ? copyText : nil,
+            copyDetails: isProblem ? copyText(of: shown) : nil,
             showInActivity: isProblem ? showInActivity : nil,
             onDismiss: onDismiss,
             compact: compact
@@ -40,7 +41,7 @@ struct ProblemCard: View {
         return problem.actions.filter { seen.insert($0).inserted }
     }
 
-    private var copyText: String {
+    private func copyText(of problem: Problem) -> String {
         "\(problem.title)\n\(problem.explanation)\n\n\(problem.details.text(includeHost: true))"
     }
 

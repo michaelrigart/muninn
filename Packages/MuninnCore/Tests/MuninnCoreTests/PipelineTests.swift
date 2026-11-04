@@ -967,7 +967,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == Problems.keptRecap(.studioNotConfigured, api: .ollama))
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioNotConfigured, api: .ollama, details: ProblemDetails(engine: .studio)))
     }
 
     @Test func llmCleanupSkippedWhenGateWaits() async throws {
@@ -1072,7 +1072,7 @@ struct PipelineTests {
         var meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama))
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama, details: ProblemDetails(engine: .studio)))
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.summarizer.engines.get() == [.macbook])
@@ -1081,7 +1081,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .claude)
         meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == Problems.keptRecap(.claudeKeyMissing, api: .ollama))
+        #expect(meeting.engineNotice == Problems.keptRecap(.claudeKeyMissing, api: .ollama, details: ProblemDetails(engine: .claude)))
     }
 
     @Test func requestedEngineSurvivesResume() async throws {
@@ -1268,7 +1268,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama))
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama, details: ProblemDetails(engine: .studio)))
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.transcriber.calls.get().count == 4)
     }
@@ -1289,6 +1289,35 @@ struct PipelineTests {
         #expect(meeting.engineNotice?.details.engine == .claude)
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
+    }
+
+    @Test func aFailedRegenerationOnThisMacRemembersThatEngineNotTheDefault() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        var settings = h.settings.get()
+        settings.defaultEngine = .claude
+        h.settings.set(settings)
+
+        h.summarizer.failure.set(SummarizerFailure())
+        await h.pipeline.regenerate(h.id, engine: .macbook)
+        let meeting = try h.meetingNow()
+        #expect(meeting.engineNotice?.severity == .problem)
+        #expect(meeting.engineNotice?.details.engine == .macbook)
+        #expect(meeting.requestedEngine == nil)
+    }
+
+    @Test func aRegenerationHeldByAWaitRemembersTheForcedEngine() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        h.probe.environment.set(.make(studioReachable: false))
+        await h.pipeline.regenerate(h.id, engine: .studio)
+        #expect(try h.meetingNow().engineNotice?.details.engine == .studio)
+
+        h.probe.environment.set(.make(memoryPressure: .warning, claudeKeyPresent: false))
+        await h.pipeline.regenerate(h.id, engine: .claude)
+        #expect(try h.meetingNow().engineNotice?.details.engine == .claude)
     }
 
     @Test func failedSaveStillNotifiesWithFailedMeeting() async throws {

@@ -128,11 +128,37 @@ private struct StubSecrets: SecretsReading {
     }
 }
 
+private final class ResponseGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var held: [() -> Void] = []
+
+    func whenOpen(_ run: @escaping () -> Void) {
+        lock.lock()
+        if isOpen {
+            lock.unlock()
+            run()
+        } else {
+            held.append(run)
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let released = held
+        held = []
+        lock.unlock()
+        released.forEach { $0() }
+    }
+}
+
 private final class StubProtocol: URLProtocol, @unchecked Sendable {
     enum Reply {
         case status(Int)
         case failure(URLError.Code)
-        case slowFailure(URLError.Code, TimeInterval)
+        case heldFailure(URLError.Code, ResponseGate)
     }
 
     private static let lock = NSLock()
@@ -169,8 +195,8 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
-        case .slowFailure(let code, let delay):
-            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+        case .heldFailure(let code, let gate):
+            gate.whenOpen { [self] in
                 client?.urlProtocol(self, didFailWithError: URLError(code))
             }
         case nil:
@@ -315,7 +341,8 @@ func probeClaudeKeyPresence(secrets: Result<String?, Error>, present: Bool) asyn
 
 @Test func anOlderOverlappingProbeNeverRecordsAfterANewerOne() async throws {
     let host = "overlap.thismac.test"
-    StubProtocol.register(host: host, reply: .slowFailure(.cannotConnectToHost, 0.5))
+    let gate = ResponseGate()
+    StubProtocol.register(host: host, reply: .heldFailure(.cannotConnectToHost, gate))
     var settings = Settings.defaults
     settings.macbook = EngineEndpoint(api: .ollama, baseURL: "http://\(host):11434", model: "m", keepAlive: "0")
     let activity = StubActivity()
@@ -325,6 +352,7 @@ func probeClaudeKeyPresence(secrets: Result<String?, Error>, present: Bool) asyn
     while StubProtocol.paths(host: host).isEmpty { try await Task.sleep(for: .milliseconds(5)) }
     StubProtocol.register(host: host, reply: .status(200))
     let newer = await probe.environment(settings: settings)
+    gate.open()
     let olderResult = await older.value
 
     #expect(newer.thisMacReachable)

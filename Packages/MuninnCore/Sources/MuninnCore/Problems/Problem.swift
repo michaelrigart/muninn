@@ -254,6 +254,15 @@ public struct Problem: Codable, Hashable, Sendable {
         copy.actions = actions
         return copy
     }
+
+    /// A copy safe to show and copy: no key pasted into a setting survives in the text or the details.
+    public func redacted() -> Problem {
+        var copy = self
+        copy.title = Redaction.redact(title)
+        copy.explanation = Redaction.redact(explanation)
+        copy.details = details.redacted()
+        return copy
+    }
 }
 
 public struct SystemInfo: Equatable, Sendable {

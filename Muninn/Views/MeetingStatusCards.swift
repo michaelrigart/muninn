@@ -21,7 +21,7 @@ struct MeetingStatusCards: View {
             if let notice = meeting.engineNotice {
                 ProblemCard(
                     problem: notice,
-                    handlers: handlers(for: notice, tryAgain: { regenerate() }),
+                    handlers: handlers(for: notice, tryAgain: { regenerate(notice.details.engine) }),
                     showInActivity: showInActivity(notice),
                     onDismiss: { model.dismissEngineNotice(meeting.id) }
                 )

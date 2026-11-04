@@ -89,6 +89,23 @@ import Testing
         #expect(problem.actions == [.tryAgain])
     }
 
+    @Test func aKeyPastedAsTheModelNameNeverReachesTheText() {
+        var settings = Settings.defaults
+        settings.macbook.model = "sk-ant-api03-abcdefghijklmnop"
+        let error = LLMError.http(status: 404, category: .modelNotFound, request: request)
+        let problem = translate(error, engineContext(.macbook, settings: settings))
+        #expect(problem.title.contains(Redaction.marker) && problem.explanation.contains(Redaction.marker))
+        #expect(!problem.title.contains("sk-ant-api03") && !problem.explanation.contains("sk-ant-api03"))
+        #expect(!problem.details.text(includeHost: true).contains("sk-ant-api03"))
+    }
+
+    @Test func redactedProblemsCoverTitleExplanationAndDetails() {
+        let problem = Problems.modelNotInstalled(model: "sk-ant-api03-abcdefghijklmnop", engine: .macbook, api: .ollama, details: ProblemDetails(model: "sk-ant-api03-abcdefghijklmnop"))
+        let safe = problem.redacted()
+        #expect(!safe.title.contains("sk-ant-api03") && !safe.explanation.contains("sk-ant-api03") && safe.details.model == Redaction.marker)
+        #expect(safe.actions == problem.actions && safe.severity == problem.severity)
+    }
+
     @Test(arguments: [401, 403]) func claudeRejectsTheKey(status: Int) {
         let error = LLMError.http(status: status, category: .unauthorized, request: request)
         let problem = translate(error, engineContext(.claude))

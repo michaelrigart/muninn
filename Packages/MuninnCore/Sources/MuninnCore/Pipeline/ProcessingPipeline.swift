@@ -430,7 +430,7 @@ public actor ProcessingPipeline {
             try update(id) {
                 if request.regenerating, hasSummary {
                     $0.status = .ready
-                    $0.engineNotice = Problems.keptRecap(reason, api: settings.macbook.api)
+                    $0.engineNotice = Problems.keptRecap(reason, api: settings.macbook.api, details: ProblemDetails(engine: forced))
                 } else {
                     $0.status = .waiting(reason)
                 }

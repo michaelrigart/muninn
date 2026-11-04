@@ -3,8 +3,8 @@ import Foundation
 public enum ProblemTranslator {
     public static func problem(for error: Error, in context: ProblemContext, system: SystemInfo = .current) -> Problem {
         var problem = translate(error, in: context)
-        problem.details = complete(problem.details, for: error, in: context, system: system).redacted()
-        return problem
+        problem.details = complete(problem.details, for: error, in: context, system: system)
+        return problem.redacted()
     }
 
     // MARK: Rules
