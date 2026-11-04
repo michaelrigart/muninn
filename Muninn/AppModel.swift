@@ -243,13 +243,21 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Reads the Claude key's presence from the Keychain again; called when it may have changed.
+    /// Checks the Claude key's presence in the Keychain again; called when it may have changed. The check runs off the
+    /// main actor and reads no key data, so a Keychain access prompt can't freeze the interface. An error counts as absent.
     func refreshClaudeKey() {
-        do {
-            claudeKeyPresent = !(try secrets.get(LiveEnvironmentProbe.claudeKeyName) ?? "").isEmpty
-        } catch {
-            logger.error("Reading the Claude key failed: \(String(describing: error), privacy: .public)")
-            claudeKeyPresent = false
+        let secrets = self.secrets
+        Task { [weak self] in
+            let present = await Task.detached {
+                do {
+                    return try secrets.contains(LiveEnvironmentProbe.claudeKeyName)
+                } catch {
+                    logger.error("Checking for the Claude key failed: \(String(describing: error), privacy: .public)")
+                    return false
+                }
+            }.value
+            guard let self, claudeKeyPresent != present else { return }
+            claudeKeyPresent = present
         }
     }
 

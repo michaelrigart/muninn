@@ -178,6 +178,7 @@ private struct SidebarRow: View {
                     .fill(Theme.attentionFill)
                     .frame(width: 8, height: 8)
                     .help("Needs attention")
+                    .accessibilityElement()
                     .accessibilityLabel("Needs attention")
             } else if meeting.status == .recording {
                 Image(systemName: "record.circle")

@@ -73,7 +73,9 @@ import MuninnCore
     defer { try? secrets.delete(key) }
     do {
         #expect(try secrets.get(key) == nil)
+        #expect(try !secrets.contains(key))
         try secrets.set("first", for: key)
+        #expect(try secrets.contains(key))
         #expect(try secrets.get(key) == "first")
         try secrets.set("second", for: key)
         #expect(try secrets.get(key) == "second")
@@ -93,6 +95,7 @@ import MuninnCore
 
         try secrets.delete(key)
         #expect(try secrets.get(key) == nil)
+        #expect(try !secrets.contains(key))
     } catch KeychainError.status(let status)
         where status == errSecInteractionNotAllowed || status == errSecNotAvailable
             || status == errSecAuthFailed || status == errSecMissingEntitlement

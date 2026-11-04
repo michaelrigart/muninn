@@ -45,13 +45,13 @@ struct ProblemCard: View {
     }
 
     private func action(for action: ProblemAction) -> StatusCard.Action? {
-        let reason = handlers.disabledReason
-        func plain(_ run: (() -> Void)?) -> StatusCard.Action? {
-            run.map { StatusCard.Action(label: action.label, run: $0, disabledReason: reason) }
+        let recapReason = handlers.disabledReason
+        func plain(_ run: (() -> Void)?, rewritesRecap: Bool = false) -> StatusCard.Action? {
+            run.map { StatusCard.Action(label: action.label, run: $0, disabledReason: rewritesRecap ? recapReason : nil) }
         }
         switch action {
         case .tryAgain:
-            return plain(handlers.tryAgain)
+            return plain(handlers.tryAgain, rewritesRecap: true)
         case .engineSettings:
             return plain(handlers.engineSettings)
         case .changeKey:
@@ -61,9 +61,9 @@ struct ProblemCard: View {
         case .recordingSettings:
             return plain(handlers.recordingSettings)
         case .writeWithClaude:
-            return plain(handlers.write.map { write in { write(.claude) } })
+            return plain(handlers.write.map { write in { write(.claude) } }, rewritesRecap: true)
         case .writeOnThisMac:
-            return plain(handlers.write.map { write in { write(.macbook) } })
+            return plain(handlers.write.map { write in { write(.macbook) } }, rewritesRecap: true)
         case .writeWithAnotherEngine:
             guard let write = handlers.write else { return nil }
             let engines = EngineKind.allCases.filter { $0 != handlers.failedEngine }
@@ -71,7 +71,7 @@ struct ProblemCard: View {
                 label: action.label,
                 run: {},
                 menu: engines.map { engine in (engine.displayName, { write(engine) }) },
-                disabledReason: reason
+                disabledReason: recapReason
             )
         }
     }

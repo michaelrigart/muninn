@@ -48,6 +48,17 @@ public struct KeychainSecrets: SecretsReading {
         return value
     }
 
+    /// Whether an item exists, without reading its data: reading the data of an item another build created can wait on a Keychain access prompt.
+    public func contains(_ key: String) throws -> Bool {
+        var query = baseQuery(key)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess else { throw KeychainError.status(status) }
+        return true
+    }
+
     public func set(_ v: String, for key: String) throws {
         let data = Data(v.utf8)
         let updated = SecItemUpdate(baseQuery(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
