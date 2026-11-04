@@ -74,6 +74,25 @@ extension AppModel {
         apply(meeting)
     }
 
+    /// Names a transcript speaker for the meeting (a blank name puts the default back) and rewrites the transcript files,
+    /// which carry the names.
+    func renameSpeaker(_ speaker: String, to name: String, in id: MeetingID, transcript: Transcript, clean: CleanTranscript?) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var names: [String: String] = [:]
+        try mutate(id) { current in
+            if trimmed.isEmpty {
+                current.speakerNames.removeValue(forKey: speaker)
+            } else {
+                current.speakerNames[speaker] = trimmed
+            }
+            names = current.speakerNames
+        }
+        try store.saveTranscript(transcript, for: id, speakerNames: names, userName: resolvedUserName)
+        if let clean {
+            try store.saveClean(clean, transcript: transcript, for: id, speakerNames: names, userName: resolvedUserName)
+        }
+    }
+
     /// Asks first, then moves the meeting's folder to the Trash. A meeting that is recording, being processed or has a job queued is refused;
     /// an exported Obsidian note is never touched, but its links to the audio and transcript stop working until the meeting is put back.
     func trashMeeting(_ id: MeetingID) {

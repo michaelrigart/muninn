@@ -20,6 +20,9 @@ struct MeetingToolbar: ToolbarContent {
     let meeting: Meeting
     let summary: Summary?
     @Binding var tab: DetailTab
+    @Binding var transcriptMode: TranscriptMode
+    let transcript: TranscriptController
+    let hasTranscript: Bool
     let restorePrevious: () -> Void
     let openDraft: () -> Void
 
@@ -42,6 +45,32 @@ struct MeetingToolbar: ToolbarContent {
             .pickerStyle(.segmented)
             .labelsHidden()
             .accessibilityLabel("View")
+        }
+        if tab == .transcript {
+            let noTranscript = hasTranscript ? nil : "There's no transcript yet"
+            ToolbarItemGroup(placement: .primaryAction) {
+                Picker("Transcript view", selection: $transcriptMode) {
+                    ForEach(TranscriptMode.allCases, id: \.self) { mode in
+                        Text(mode.label)
+                            .tag(mode)
+                            .help(ifPresent: mode == .changes ? "Show changes" : nil)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Transcript view")
+
+                Button {
+                    transcript.showFind()
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("f")
+                .disabled(noTranscript != nil)
+                .help(noTranscript ?? "Search the transcript")
+
+                CopyAllButton(transcript: transcript, disabledReason: noTranscript)
+            }
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
@@ -95,6 +124,30 @@ struct MeetingToolbar: ToolbarContent {
 
     private var engineName: String {
         (summary?.engine ?? meeting.summaryEngine)?.displayName ?? "Write recap"
+    }
+}
+
+/// "Copy all", which reads "Copied" for 2 s after a copy.
+private struct CopyAllButton: View {
+    let transcript: TranscriptController
+    let disabledReason: String?
+
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            transcript.copyAll()
+            copied = true
+        } label: {
+            Label(copied ? "Copied" : "Copy all", systemImage: "doc.on.doc")
+        }
+        .disabled(disabledReason != nil)
+        .help(disabledReason ?? "Copy the whole transcript")
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
+        }
     }
 }
 

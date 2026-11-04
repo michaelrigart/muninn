@@ -14,9 +14,9 @@ struct MeetingDetail: View {
     @State private var recapFocus = RecapFocus()
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
-    @State private var scrollTarget: Int?
     @State private var saveError: Problem?
     @State private var showingDraft = false
+    @StateObject private var transcriptController = TranscriptController()
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
 
@@ -58,11 +58,34 @@ struct MeetingDetail: View {
                 }
                 recapEditor
             case .transcript:
-                TranscriptView(meeting: meeting, transcript: transcript, clean: clean, mode: $transcriptMode, target: $scrollTarget, report: report)
+                if let transcript {
+                    TranscriptTextView(
+                        meeting: meeting,
+                        transcript: transcript,
+                        clean: clean,
+                        mode: transcriptMode,
+                        controller: transcriptController,
+                        onRename: renameSpeaker,
+                        onSeek: { _ in }
+                    )
+                } else {
+                    ContentUnavailableView("No transcript yet", systemImage: "text.alignleft")
+                }
             }
         }
         .navigationTitle(meeting.title)
-        .toolbar { MeetingToolbar(meeting: meeting, summary: summary, tab: $tab, restorePrevious: restorePrevious, openDraft: { showingDraft = true }) }
+        .toolbar {
+            MeetingToolbar(
+                meeting: meeting,
+                summary: summary,
+                tab: $tab,
+                transcriptMode: $transcriptMode,
+                transcript: transcriptController,
+                hasTranscript: transcript != nil,
+                restorePrevious: restorePrevious,
+                openDraft: { showingDraft = true }
+            )
+        }
         .sheet(isPresented: $showingDraft) { DraftSheet(meeting: meeting, summary: summary) }
         .onDisappear {
             guard let document else { return }
@@ -225,7 +248,16 @@ struct MeetingDetail: View {
     }
 
     private func show(segment id: Int) {
-        scrollTarget = id
         tab = .transcript
+        transcriptController.reveal(segmentID: id)
+    }
+
+    private func renameSpeaker(_ speaker: String, to name: String) {
+        guard let transcript else { return }
+        do {
+            try model.renameSpeaker(speaker, to: name, in: meeting.id, transcript: transcript, clean: clean)
+        } catch {
+            report(error)
+        }
     }
 }
