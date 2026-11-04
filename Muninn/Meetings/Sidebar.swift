@@ -6,8 +6,10 @@ struct Sidebar: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
     @State private var searchText: [MeetingID: SearchText] = [:]
+    @State private var textGeneration = 0
+    @State private var matchedIDs: Set<MeetingID>?
 
-    private struct SearchText {
+    private struct SearchText: Sendable {
         var recap: String
         var transcript: String
     }
@@ -22,6 +24,12 @@ struct Sidebar: View {
         let active: Bool
         let stamps: [Stamp]
         let reloadRevision: Int
+    }
+
+    private struct MatchKey: Hashable {
+        let term: String
+        let meetings: [Meeting]
+        let textGeneration: Int
     }
 
     var body: some View {
@@ -59,6 +67,9 @@ struct Sidebar: View {
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         .task(id: SearchKey(active: !trimmedQuery.isEmpty, stamps: model.meetings.map { Stamp(id: $0.id, status: $0.status, engine: $0.summaryEngine) }, reloadRevision: model.reloadRevision)) {
             await loadSearchText()
+        }
+        .task(id: MatchKey(term: trimmedQuery, meetings: model.meetings, textGeneration: textGeneration)) {
+            await updateMatches()
         }
     }
 
@@ -104,23 +115,23 @@ struct Sidebar: View {
         return model.sidebarFilter == .needsAttention ? "Nothing needs attention" : "No meetings yet"
     }
 
+    /// With a query, a lookup in the ids matched off the main thread; until the first result arrives, the fields that need no file.
     private var filtered: [Meeting] {
-        let term = trimmedQuery
         let meetings = model.sidebarFilter == .needsAttention ? model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) } : model.meetings
+        let term = trimmedQuery
         guard !term.isEmpty else { return meetings }
-        return meetings.filter {
-            let text = searchText[$0.id]
-            return MeetingSearch.matches($0, term: term, recapText: text?.recap, transcriptText: text?.transcript)
-        }
+        if let matchedIDs { return meetings.filter { matchedIDs.contains($0.id) } }
+        return meetings.filter { MeetingSearch.matches($0, term: term, recapText: nil, transcriptText: nil) }
     }
 
     private func loadSearchText() async {
         guard !trimmedQuery.isEmpty else { return }
         let store = model.store
         let ids = model.meetings.map(\.id)
-        let loaded = await Task.detached {
+        let loaded = await offMain {
             var result: [MeetingID: SearchText] = [:]
             for id in ids {
+                if Task.isCancelled { break }
                 let recap = (try? store.loadSummary(id)).map(MeetingSearch.recapText) ?? ""
                 let transcript = (try? String(contentsOf: store.cleanTranscriptMarkdownURL(id), encoding: .utf8))
                     ?? (try? String(contentsOf: store.transcriptMarkdownURL(id), encoding: .utf8))
@@ -128,9 +139,37 @@ struct Sidebar: View {
                 result[id] = SearchText(recap: recap, transcript: transcript)
             }
             return result
-        }.value
+        }
         guard !Task.isCancelled else { return }
         searchText = loaded
+        textGeneration += 1
+    }
+
+    private func updateMatches() async {
+        let term = trimmedQuery
+        guard !term.isEmpty else {
+            matchedIDs = nil
+            return
+        }
+        let meetings = model.meetings
+        let texts = searchText
+        let matched = await offMain {
+            var ids = Set<MeetingID>()
+            for meeting in meetings {
+                if Task.isCancelled { break }
+                let text = texts[meeting.id]
+                if MeetingSearch.matches(meeting, term: term, recapText: text?.recap, transcriptText: text?.transcript) { ids.insert(meeting.id) }
+            }
+            return ids
+        }
+        guard !Task.isCancelled else { return }
+        matchedIDs = matched
+    }
+
+    /// Runs `work` on a detached task that is cancelled with the caller, so `work` can stop early on `Task.isCancelled`.
+    private func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        let task = Task.detached(operation: work)
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 }
 
@@ -151,7 +190,7 @@ private struct SidebarRow: View {
             HStack(spacing: Space.xs + 2) {
                 Text(MeetingLabels.sidebarTime(start: meeting.startedAt, end: meeting.endedAt, group: group, now: Date(), calendar: .current, locale: .current))
                     .font(Theme.meta)
-                    .foregroundStyle(Theme.secondaryText)
+                    .rowSecondaryText()
                     .lineLimit(1)
                     .layoutPriority(1)
                 if let client = meeting.client, !client.isEmpty {
@@ -205,7 +244,7 @@ private struct SidebarRow: View {
     private func note(_ text: String) -> some View {
         Text(text)
             .font(Theme.meta)
-            .foregroundStyle(Theme.tertiaryText)
+            .rowSecondaryText(Theme.tertiaryText)
             .lineLimit(1)
             .help(text)
             .accessibilityLabel(text)
