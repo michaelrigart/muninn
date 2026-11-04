@@ -1,4 +1,5 @@
 import AppKit
+import MuninnCore
 import SwiftUI
 
 /// The one component for progress, waits, warnings and problems.
@@ -57,7 +58,14 @@ struct StatusCard: View {
         }
         .padding(.horizontal, Space.m)
         .padding(.vertical, compact ? Space.s : Space.m)
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(softFill))
+        .background {
+            let shape = RoundedRectangle(cornerRadius: Radius.card)
+            ZStack {
+                shape.fill(Theme.contentBackground)
+                shape.fill(softFill)
+            }
+        }
+        .tint(Theme.accent)
         .accessibilityElement(children: .contain)
         .task(id: copied) {
             guard copied else { return }
@@ -68,8 +76,7 @@ struct StatusCard: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            Text(verbatim: title)
-                .font(.system(size: 13, weight: .semibold))
+            Text(Self.formatted(title, font: Self.titleFont))
                 .foregroundStyle(Theme.primaryText)
             if let explanation {
                 Text(Self.formatted(explanation))
@@ -138,8 +145,7 @@ struct StatusCard: View {
     }
 
     private var compactText: AttributedString {
-        var result = AttributedString(title)
-        result.font = .system(size: 13, weight: .semibold)
+        var result = Self.formatted(title, font: Self.titleFont)
         result.foregroundColor = Theme.primaryText
         if let explanation {
             var detail = Self.formatted(" " + explanation)
@@ -241,19 +247,19 @@ struct StatusCard: View {
         copied = true
     }
 
-    /// Plain text, with a span between backticks set in monospace. Nothing else is parsed:
-    /// titles and explanations hold model and account names that may contain `*` or `_`.
-    static func formatted(_ text: String) -> AttributedString {
-        var parts = text.components(separatedBy: "`")
-        if parts.count > 1, parts.count.isMultiple(of: 2) {
-            let last = parts.removeLast()
-            parts[parts.count - 1] += "`" + last
-        }
+    private static let titleFont = Font.system(size: 13, weight: .semibold)
+
+    /// The runs of `InlineCode` as one string: code in monospace, the rest in `font` when given.
+    static func formatted(_ text: String, font: Font? = nil) -> AttributedString {
         var result = AttributedString()
-        for (index, part) in parts.enumerated() {
-            var run = AttributedString(part)
-            if index % 2 == 1 { run.font = Theme.mono }
-            result += run
+        for run in InlineCode.runs(text) {
+            var part = AttributedString(run.text)
+            if run.isCode {
+                part.font = Theme.mono
+            } else if let font {
+                part.font = font
+            }
+            result += part
         }
         return result
     }

@@ -27,12 +27,17 @@ struct ProblemCard: View {
             role: role ?? (isProblem ? .problem : .waiting),
             title: problem.title,
             explanation: problem.explanation.isEmpty ? nil : problem.explanation,
-            actions: problem.actions.compactMap(action),
+            actions: uniqueActions.compactMap(action),
             copyDetails: isProblem ? copyText : nil,
             showInActivity: isProblem ? showInActivity : nil,
             onDismiss: onDismiss,
             compact: compact
         )
+    }
+
+    private var uniqueActions: [ProblemAction] {
+        var seen = Set<ProblemAction>()
+        return problem.actions.filter { seen.insert($0).inserted }
     }
 
     private var copyText: String {

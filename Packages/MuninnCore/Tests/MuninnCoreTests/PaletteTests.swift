@@ -40,3 +40,15 @@ func darkRoleTextMeetsAA(_ colour: RGB) {
         #expect(Contrast.ratio(Palette.secondaryTextDark, background) >= 4.5)
     }
 }
+
+@Test func accentTextMeetsAAOnEverySoftFill() {
+    let lightFills = [Palette.accentLight, Palette.attentionFillLight, Palette.problemLight, Palette.successLight]
+        .map { Contrast.composite($0, alpha: Palette.softLight, over: Palette.contentLight) }
+        + [Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentLight)]
+    let darkFills = [Palette.accentDark, Palette.attentionDark, Palette.problemDark, Palette.successDark]
+        .map { Contrast.composite($0, alpha: Palette.softDark, over: Palette.contentDark) }
+        + [Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentDark)]
+
+    for fill in lightFills { #expect(Contrast.ratio(Palette.accentLight, fill) >= 4.5) }
+    for fill in darkFills { #expect(Contrast.ratio(Palette.accentDark, fill) >= 4.5) }
+}
