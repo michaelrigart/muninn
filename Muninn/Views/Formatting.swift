@@ -20,6 +20,7 @@ struct CommitTextField: View {
                 if !isFocused { commit() }
             }
             .onSubmit(commit)
+            .onDisappear(perform: commit)
     }
 
     private func commit() {
