@@ -71,7 +71,7 @@ extension AppModel {
             throw MeetingActionError.vaultMissing(vault.path)
         }
         let unsourced = MeetingActions.unsourcedItemCount(in: summary)
-        if unsourced > 0, !askToOverwrite || !confirmUnsourcedItems(unsourced, for: id) { return false }
+        if unsourced > 0, !askToOverwrite || confirmUnsourcedItems(unsourced, for: id) != .include { return false }
 
         var relativePath = NotePlanner.relativePath(meeting: meeting, settings: settings, timeZone: .current)
         var overwrite = false
@@ -128,6 +128,7 @@ extension AppModel {
         guard case .written = outcome else { return false }
         activity.record(.info, .obsidian, "Filed in Obsidian", meeting: meeting)
         try mutate(id) { $0.exportedNotePath = path }
+        actionSuccesses[id] = .filed(vault.appendingPathComponent(path))
         return true
     }
 }

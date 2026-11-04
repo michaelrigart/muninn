@@ -1,3 +1,4 @@
+import AppKit
 import MuninnCore
 import SwiftUI
 
@@ -12,6 +13,7 @@ struct MeetingDetail: View {
     @State private var clean: CleanTranscript?
     @State private var scrollTarget: Int?
     @State private var saveError: Problem?
+    @State private var showingDraft = false
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
 
@@ -37,6 +39,9 @@ struct MeetingDetail: View {
             if let notice = model.actionNotices[meeting.id] {
                 problemCard(notice, onDismiss: { model.actionNotices[meeting.id] = nil })
             }
+            if let success = model.actionSuccesses[meeting.id] {
+                successCard(success)
+            }
             MeetingStatusCards(meeting: meeting)
             MeetingHeader(meeting: meeting, edit: edit, report: report)
             Divider()
@@ -54,7 +59,8 @@ struct MeetingDetail: View {
             }
         }
         .navigationTitle(meeting.title)
-        .toolbar { MeetingToolbar(meeting: meeting, summary: summary, tab: $tab, restorePrevious: restorePrevious) }
+        .toolbar { MeetingToolbar(meeting: meeting, summary: summary, tab: $tab, restorePrevious: restorePrevious, openDraft: { showingDraft = true }) }
+        .sheet(isPresented: $showingDraft) { DraftSheet(meeting: meeting, summary: summary) }
         .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine, reloadRevision: model.reloadRevision)) {
             let store = model.store
             let id = meeting.id
@@ -140,6 +146,28 @@ struct MeetingDetail: View {
         .inset()
     }
 
+    private func successCard(_ success: ActionSuccess) -> some View {
+        let id = meeting.id
+        let card: StatusCard
+        switch success {
+        case .draftCreated(let link):
+            card = StatusCard(
+                role: .success,
+                title: "Draft created",
+                actions: link.map { link in [StatusCard.Action(label: "Open in Outlook", run: { NSWorkspace.shared.open(link) })] } ?? [],
+                onDismiss: { model.actionSuccesses[id] = nil }
+            )
+        case .filed(let url):
+            card = StatusCard(
+                role: .success,
+                title: "Filed in Obsidian",
+                actions: [StatusCard.Action(label: "Reveal", run: { NSWorkspace.shared.activateFileViewerSelecting([url]) })],
+                onDismiss: { model.actionSuccesses[id] = nil }
+            )
+        }
+        return card.inset()
+    }
+
     private func show(segment id: Int) {
         scrollTarget = id
         tab = .transcript
@@ -215,8 +243,6 @@ private struct MeetingHeader: View {
                     .frame(maxWidth: 220)
                 }
             }
-
-            RecipientsEditor(meeting: meeting, edit: edit)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -372,100 +398,4 @@ private extension CalendarEvent {
 
 private extension CalendarEventRef {
     var pickerID: String { "\(accountID)|\(eventID)" }
-}
-
-private struct RecipientsEditor: View {
-    @EnvironmentObject private var model: AppModel
-    let meeting: Meeting
-    let edit: ((inout Meeting) -> Void) -> Void
-
-    @State private var expanded = false
-    @State private var query = ""
-    @State private var results: [Attendee] = []
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(meeting.recipients, id: \.attendee.email) { recipient in
-                    Toggle(isOn: includedBinding(recipient.attendee.email)) {
-                        HStack(spacing: 6) {
-                            Text(recipient.attendee.name.isEmpty ? recipient.attendee.email : recipient.attendee.name)
-                            if !recipient.attendee.name.isEmpty {
-                                Text(recipient.attendee.email)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .toggleStyle(.checkbox)
-                }
-                TextField(meeting.accountID == nil ? "Email address" : "Search people or type an email address", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 360)
-                    .onSubmit {
-                        if let manual { add(manual) }
-                    }
-                ForEach(candidates, id: \.email) { attendee in
-                    Button {
-                        add(attendee)
-                    } label: {
-                        Label("\(attendee.name.isEmpty ? attendee.email : "\(attendee.name) <\(attendee.email)>")", systemImage: "plus.circle")
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.top, 4)
-        } label: {
-            Text("Recipients (\(meeting.recipients.filter(\.included).count) of \(meeting.recipients.count))")
-        }
-        .font(.callout)
-        .task(id: query) {
-            await search()
-        }
-    }
-
-    private var trimmedQuery: String {
-        query.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var manual: Attendee? {
-        let value = trimmedQuery
-        guard value.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil else { return nil }
-        return Attendee(name: "", email: value)
-    }
-
-    private var candidates: [Attendee] {
-        let known = Set(meeting.recipients.map { $0.attendee.email.lowercased() })
-        var list = results.filter { !known.contains($0.email.lowercased()) }
-        if let manual, !known.contains(manual.email.lowercased()), !list.contains(where: { $0.email.lowercased() == manual.email.lowercased() }) {
-            list.insert(manual, at: 0)
-        }
-        return list
-    }
-
-    private func includedBinding(_ email: String) -> Binding<Bool> {
-        Binding(
-            get: { meeting.recipients.first(where: { $0.attendee.email.lowercased() == email.lowercased() })?.included ?? false },
-            set: { included in edit { $0 = MeetingActions.setIncluded(email, included, in: $0) } }
-        )
-    }
-
-    private func add(_ attendee: Attendee) {
-        let selfAddresses = model.settings.accounts.flatMap(\.selfAddresses)
-        edit { $0 = MeetingActions.addRecipient(attendee, to: $0, selfAddresses: selfAddresses) }
-        query = ""
-        results = []
-    }
-
-    private func search() async {
-        let term = trimmedQuery
-        guard let account = meeting.accountID, term.count >= 2 else {
-            results = []
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(300))
-        guard !Task.isCancelled else { return }
-        let found = await model.searchPeople(account: account, query: term)
-        guard !Task.isCancelled else { return }
-        results = found
-    }
 }

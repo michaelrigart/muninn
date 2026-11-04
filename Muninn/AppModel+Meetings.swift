@@ -4,6 +4,22 @@ import os
 
 private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "meetings")
 
+/// What a draft or a filed note left behind for the meeting's success card.
+enum ActionSuccess: Equatable {
+    case draftCreated(URL?)
+    case filed(URL)
+}
+
+/// The answer to "N recap items have no transcript source".
+enum UnsourcedChoice {
+    case include, review, cancel
+}
+
+/// How a draft attempt ended, so the Outlook draft sheet knows whether to close.
+enum DraftOutcome {
+    case created, cancelled, review, failed
+}
+
 enum MeetingActionError: ProblemConvertible {
     case eventUnsettled
     case notReady
@@ -98,6 +114,7 @@ extension AppModel {
         meetings.removeAll { $0.id == id }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        actionSuccesses[id] = nil
         failedActions[id] = nil
         unsavedSummaries[id] = nil
         playbackPositions.remove(id)
@@ -185,47 +202,61 @@ extension AppModel {
         [ProblemStage.creatingDraft, .filingNote].contains { actionsInFlight.contains(Self.actionKey($0, id)) }
     }
 
-    func createDraft(_ id: MeetingID) {
-        Task {
-            await perform(.creatingDraft, for: id) {
-                guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
-                let meeting = try store.load(id)
-                guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
-                guard meeting.candidateEvents.isEmpty else { throw MeetingActionError.eventUnsettled }
-                guard meeting.status == .ready else { throw MeetingActionError.notReady }
-                guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
-                guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
-                guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
-                    throw MeetingActionError.unknownAccount
-                }
-                if meeting.draftID != nil || meeting.draftWebLink != nil,
-                   Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
-                    return
-                }
-                guard confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: id) else { return }
-                let result = try await graph.client(for: account).createDraft(
-                    subject: RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current),
-                    html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
-                    to: meeting.recipients.filter(\.included).map(\.attendee)
-                )
-                activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
-                var saveFailure: Error?
-                do {
-                    try mutate(id) {
-                        $0.draftID = result.id
-                        $0.draftWebLink = result.webLink?.absoluteString ?? $0.draftWebLink
-                    }
-                } catch {
-                    saveFailure = error
-                }
-                if let link = result.webLink {
-                    NSWorkspace.shared.open(link)
-                } else {
-                    actionNotices[id] = Problems.draftWithoutLink()
-                }
-                if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
+    /// Creates the draft in Outlook with `subject`, or the usual recap subject when it is nil or blank.
+    func createDraft(_ id: MeetingID, subject: String? = nil) async -> DraftOutcome {
+        var outcome = DraftOutcome.failed
+        await perform(.creatingDraft, for: id) {
+            guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
+            let meeting = try store.load(id)
+            guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
+            guard meeting.candidateEvents.isEmpty else { throw MeetingActionError.eventUnsettled }
+            guard meeting.status == .ready else { throw MeetingActionError.notReady }
+            guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
+            guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
+            guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
+                throw MeetingActionError.unknownAccount
             }
+            if meeting.draftID != nil || meeting.draftWebLink != nil,
+               Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
+                outcome = .cancelled
+                return
+            }
+            switch confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: id) {
+            case .include:
+                break
+            case .review:
+                outcome = .review
+                return
+            case .cancel:
+                outcome = .cancelled
+                return
+            }
+            let trimmed = subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let result = try await graph.client(for: account).createDraft(
+                subject: trimmed.isEmpty ? RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current) : trimmed,
+                html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
+                to: meeting.recipients.filter(\.included).map(\.attendee)
+            )
+            outcome = .created
+            activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
+            var saveFailure: Error?
+            do {
+                try mutate(id) {
+                    $0.draftID = result.id
+                    $0.draftWebLink = result.webLink?.absoluteString ?? $0.draftWebLink
+                }
+            } catch {
+                saveFailure = error
+            }
+            if let link = result.webLink {
+                NSWorkspace.shared.open(link)
+            } else {
+                actionNotices[id] = Problems.draftWithoutLink()
+            }
+            actionSuccesses[id] = .draftCreated(result.webLink)
+            if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
         }
+        return outcome
     }
 
     /// "N recap items have no transcript source": the phrase shared by the question and the auto-file notice.
@@ -235,20 +266,20 @@ extension AppModel {
 
     /// Before a recap leaves Muninn (draft or note): asks whether items without a transcript source may go along.
     /// "Review first" opens the meeting and stops, so the items can be checked in the editor.
-    func confirmUnsourcedItems(_ count: Int, for id: MeetingID) -> Bool {
-        guard count > 0 else { return true }
+    func confirmUnsourcedItems(_ count: Int, for id: MeetingID) -> UnsourcedChoice {
+        guard count > 0 else { return .include }
         switch Alerts.ask(
             "\(Self.unsourcedPhrase(count)). Include \(count == 1 ? "it" : "them") anyway?",
             "They are marked in the recap editor. Nothing is sent or filed unless you include them.",
             buttons: ["Include", "Review first", "Cancel"]
         ) {
         case 0:
-            return true
+            return .include
         case 1:
             showMeeting(id)
-            return false
+            return .review
         default:
-            return false
+            return .cancel
         }
     }
 
@@ -259,6 +290,7 @@ extension AppModel {
         defer { actionsInFlight.remove(key) }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        actionSuccesses[id] = nil
         failedActions[id] = nil
         do {
             try await body()
@@ -286,7 +318,7 @@ extension AppModel {
     /// Runs the draft or the export that failed again.
     func retryAction(_ id: MeetingID) {
         switch failedActions[id] {
-        case .creatingDraft: createDraft(id)
+        case .creatingDraft: Task { _ = await createDraft(id) }
         case .filingNote: exportToObsidian(id)
         default: break
         }

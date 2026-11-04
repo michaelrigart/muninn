@@ -21,6 +21,7 @@ struct MeetingToolbar: ToolbarContent {
     let summary: Summary?
     @Binding var tab: DetailTab
     let restorePrevious: () -> Void
+    let openDraft: () -> Void
 
     private var context: MeetingCommandContext {
         model.commandContext(for: meeting, hasRecap: summary != nil)
@@ -60,11 +61,9 @@ struct MeetingToolbar: ToolbarContent {
                 Text(engineName)
             }
             .disabled(regenerate != nil)
-            .help(regenerate ?? "Write the recap again with another engine")
+            .help(regenerate ?? (engineName == "Write recap" ? "Write the recap with another engine" : "Write the recap again with another engine"))
 
-            Button {
-                model.createDraft(meeting.id)
-            } label: {
+            Button(action: openDraft) {
                 Label("Outlook draft", systemImage: "envelope")
             }
             .disabled(draft != nil)
@@ -85,7 +84,7 @@ struct MeetingToolbar: ToolbarContent {
                 Divider()
                 Button("Move to Trash…", role: .destructive) { model.trashMeeting(meeting.id) }
                     .disabled(trash != nil)
-                    .help(trash ?? "")
+                    .help(ifPresent: trash)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -96,5 +95,13 @@ struct MeetingToolbar: ToolbarContent {
 
     private var engineName: String {
         (summary?.engine ?? meeting.summaryEngine)?.displayName ?? "Write recap"
+    }
+}
+
+private extension View {
+    /// A tooltip only when there is something to say, so an enabled control has none.
+    @ViewBuilder
+    func help(ifPresent reason: String?) -> some View {
+        if let reason { help(reason) } else { self }
     }
 }

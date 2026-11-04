@@ -87,6 +87,8 @@ final class AppModel: ObservableObject {
     /// The last failed draft, export or event change per meeting, shown as that meeting's problem card.
     @Published var actionErrors: [MeetingID: Problem] = [:]
     @Published var actionNotices: [MeetingID: Problem] = [:]
+    /// The last draft or filed note per meeting, shown as that meeting's success card until it is dismissed or another action starts.
+    @Published var actionSuccesses: [MeetingID: ActionSuccess] = [:]
     /// The stage of a failed draft or export, so the problem card can run it again.
     @Published var failedActions: [MeetingID: ProblemStage] = [:]
     /// Recap edits that couldn't be saved, per meeting, kept until a save succeeds.
