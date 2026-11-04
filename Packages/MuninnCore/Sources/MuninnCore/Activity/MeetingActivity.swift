@@ -32,7 +32,7 @@ public enum MeetingActivity {
             let length = DurationText.short(ended.timeIntervalSince(new.startedAt))
             return ActivityEntry(time: time, level: .info, area: .transcription, meeting: meeting, message: "Transcribed \(length) of audio in \(DurationText.short(took))")
         case .ready where old == .summarizing:
-            guard let engine = new.summaryEngine, let took = new.metrics.summarizeSeconds else { return nil }
+            guard new.engineNotice?.severity != .problem, let engine = new.summaryEngine, let took = new.metrics.summarizeSeconds else { return nil }
             let model = ProblemContext.engine(engine, settings: settings, stage: .writingRecap, claudeKeyPresent: false).model ?? ""
             return ActivityEntry(time: time, level: .info, area: .recap, meeting: meeting, message: "Recap written by \(engine.displayName) · \(model) · \(DurationText.short(took))")
         default:

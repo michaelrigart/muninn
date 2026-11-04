@@ -40,6 +40,17 @@ struct ProcessingDisplayTests {
         #expect(progress(meeting(MeetingID(rawValue: "d"), .failed(problem)), busy) == .failed(problem))
     }
 
+    @Test func aRetriedFailureWaitingItsTurnDoesNotNeedAttention() {
+        let failed = meeting(c, .failed(Problems.claudeBusy()))
+        #expect(failed.needsAttention)
+        #expect(!ProcessingDisplay.needsAttention(failed, snapshot: busy))
+        let running = meeting(a, .failed(Problems.claudeBusy()))
+        #expect(!ProcessingDisplay.needsAttention(running, snapshot: busy))
+        let idle = meeting(MeetingID(rawValue: "d"), .failed(Problems.claudeBusy()))
+        #expect(ProcessingDisplay.needsAttention(idle, snapshot: busy))
+        #expect(!ProcessingDisplay.needsAttention(meeting(MeetingID(rawValue: "d"), .ready), snapshot: busy))
+    }
+
     @Test func waitWinsOverQueue() {
         #expect(progress(meeting(c, .waiting(.thisMacUnreachable)), busy) == .waiting(.thisMacUnreachable))
     }

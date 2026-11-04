@@ -383,8 +383,12 @@ final class AppModel: ObservableObject {
     }
 
     /// Opens the Activity window on the newest entry with the problem's title, and the meeting's when one is given.
+    /// A problem the log doesn't hold (one from a popover, an older version or beyond the 14 days) is recorded first.
     func showInActivity(_ problem: Problem, meeting: MeetingID? = nil) {
-        activity.focus(problemTitle: problem.title, meetingID: meeting)
+        if !activity.focus(problemTitle: problem.title, meetingID: meeting) {
+            let reference = meeting.flatMap { id in meetings.first { $0.id == id } }.map { ActivityMeeting(id: $0.id, title: $0.title) }
+            activity.recordAndFocus(problem, area: problem.details.stage?.area ?? .app, meeting: reference)
+        }
         openActivityRequest += 1
     }
 

@@ -280,9 +280,9 @@ struct DiagnosticsTests {
     }
 
     @Test func anAddressOnASingleLabelHostIsMaskedWhole() {
-        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("Denied for michael@studio")]))
+        let text = Diagnostics.text(input(settings: settings(studioURL: "http://studio:11434"), entries: [entry("Denied for ann@studio")]))
         #expect(text.contains("Denied for <email>"))
-        #expect(!text.contains("michael"))
+        #expect(!text.contains("ann@"))
     }
 
     @Test(arguments: ["admin@studio", "admin:hunter2@studio"])

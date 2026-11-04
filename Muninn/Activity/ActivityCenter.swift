@@ -12,6 +12,8 @@ final class ActivityCenter: ObservableObject {
 
     let log: ActivityLog
     private let dataDirectory: String
+    /// Each entry's lowercased text a search looks through, built once when the entry arrives.
+    private var searchText: [UUID: String] = [:]
 
     init(log: ActivityLog, dataDirectory: String) {
         self.log = log
@@ -21,13 +23,25 @@ final class ActivityCenter: ObservableObject {
         }
         log.prune()
         entries = log.entries()
+        for entry in entries { index(entry) }
+    }
+
+    private func index(_ entry: ActivityEntry) {
+        let parts = [entry.message, entry.area.label, entry.meeting?.title, entry.details?.text(includeHost: true)]
+        searchText[entry.id] = parts.compactMap { $0 }.joined(separator: "\n").lowercased()
+    }
+
+    /// True when the entry's message, area, meeting title or details contain the term, ignoring case.
+    func matches(_ entry: ActivityEntry, term: String) -> Bool {
+        searchText[entry.id]?.contains(term.lowercased()) ?? false
     }
 
     /// Writers on other threads can reach the observer out of order, so each entry goes in at its place by time, newest first.
     private func insert(_ entry: ActivityEntry) {
         guard !entries.contains(where: { $0.id == entry.id }) else { return }
-        let index = entries.firstIndex { $0.time <= entry.time } ?? entries.endIndex
-        entries.insert(entry, at: index)
+        let position = entries.firstIndex { $0.time <= entry.time } ?? entries.endIndex
+        entries.insert(entry, at: position)
+        index(entry)
     }
 
     func record(_ level: ActivityLevel, _ area: ActivityArea, _ message: String, meeting: Meeting? = nil, details: ProblemDetails? = nil) {
@@ -44,12 +58,23 @@ final class ActivityCenter: ObservableObject {
         record(ProblemTranslator.problem(for: error, in: context), area: context.stage.area, meeting: meeting)
     }
 
-    /// Selects the newest entry with this title, and the meeting's when one is given.
-    func focus(problemTitle: String, meetingID: MeetingID?) {
+    /// Selects the newest entry with this title, and the meeting's when one is given. Returns false when none matches.
+    @discardableResult
+    func focus(problemTitle: String, meetingID: MeetingID?) -> Bool {
         let redacted = Redaction.redact(problemTitle)
-        focusedEntryID = entries.first { entry in
+        let match = entries.first { entry in
             (entry.message == problemTitle || entry.message == redacted) && (meetingID == nil || entry.meeting?.id == meetingID)
-        }?.id
+        }
+        focusedEntryID = match?.id
+        return match != nil
+    }
+
+    /// Records a problem the log doesn't hold and selects it. The entry is in `entries` when this returns.
+    func recordAndFocus(_ problem: Problem, area: ActivityArea, meeting: ActivityMeeting?) {
+        let entry = ActivityEntry.problem(problem, area: area, meeting: meeting, time: Date())
+        log.record(entry)
+        insert(entry.redacted())
+        focusedEntryID = entry.id
     }
 
     func revealLogFile() {

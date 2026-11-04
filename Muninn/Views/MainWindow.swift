@@ -93,8 +93,8 @@ struct MainWindow: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             Picker("Show", selection: $model.sidebarFilter) {
-                Text("All meetings").tag(SidebarFilter.all)
-                Text("Needs attention (\(model.meetings.filter(\.needsAttention).count))").tag(SidebarFilter.needsAttention)
+                Text("All").tag(SidebarFilter.all)
+                Text("Needs attention (\(attentionCount))").tag(SidebarFilter.needsAttention)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -104,6 +104,10 @@ struct MainWindow: View {
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
     }
 
+    private var attentionCount: Int {
+        model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) }.count
+    }
+
     private var emptyText: String {
         if !trimmedQuery.isEmpty { return "No matches" }
         return model.sidebarFilter == .needsAttention ? "Nothing needs attention" : "No meetings yet"
@@ -111,7 +115,7 @@ struct MainWindow: View {
 
     private var filtered: [Meeting] {
         let term = trimmedQuery
-        let meetings = model.sidebarFilter == .needsAttention ? model.meetings.filter(\.needsAttention) : model.meetings
+        let meetings = model.sidebarFilter == .needsAttention ? model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) } : model.meetings
         guard !term.isEmpty else { return meetings }
         return meetings.filter { meeting in
             meeting.title.localizedStandardContains(term)

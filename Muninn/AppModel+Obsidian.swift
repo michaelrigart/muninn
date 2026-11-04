@@ -31,12 +31,16 @@ extension AppModel {
         case .skip:
             return
         case .unsourced(let count):
-            actionNotices[id] = Problems.notFiledAutomatically(unsourced: count)
+            let notice = Problems.notFiledAutomatically(unsourced: count)
+            actionNotices[id] = notice
+            activity.record(notice, area: .obsidian, meeting: meeting)
             return
         case .vaultNotChosen(let showNotice):
             if showNotice {
                 vaultNoticeShown = true
-                actionNotices[id] = Problems.vaultNotChosen()
+                let notice = Problems.vaultNotChosen()
+                actionNotices[id] = notice
+                activity.record(notice, area: .obsidian, meeting: meeting)
             }
             logger.info("Not auto-filing \(id.rawValue, privacy: .public): no vault chosen")
             return

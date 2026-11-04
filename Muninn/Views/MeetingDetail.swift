@@ -192,7 +192,7 @@ private struct MeetingHeader: View {
                 if let language = meeting.language {
                     Label(language.uppercased(), systemImage: "globe")
                 }
-                if meeting.needsAttention {
+                if ProcessingDisplay.needsAttention(meeting, snapshot: model.pipelineSnapshot) {
                     Label("Needs attention", systemImage: "exclamationmark.circle")
                         .foregroundStyle(Theme.attentionText)
                 } else if let title = model.progress(for: meeting).title {

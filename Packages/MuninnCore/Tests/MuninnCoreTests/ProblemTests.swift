@@ -69,6 +69,24 @@ import Testing
         #expect(Problems.thisMacServerNotRunning(api: .openAICompatible, claudeKeyPresent: true, waiting: false).title == "The model server on This Mac isn't running")
     }
 
+    @Test func thisMacServerOffersAnotherEngineOnlyWithAKey() {
+        func explanation(_ api: EndpointAPI, key: Bool, waiting: Bool) -> String {
+            Problems.thisMacServerNotRunning(api: api, claudeKeyPresent: key, waiting: waiting).explanation
+        }
+        #expect(explanation(.ollama, key: false, waiting: true) == "Open Ollama and Muninn carries on within 15 seconds.")
+        #expect(explanation(.openAICompatible, key: false, waiting: true) == "Start the model server and Muninn carries on within 15 seconds.")
+        #expect(explanation(.ollama, key: false, waiting: false) == "Muninn writes recaps on This Mac with Ollama. Open Ollama, then try again.")
+        #expect(explanation(.openAICompatible, key: false, waiting: false) == "Muninn writes recaps on This Mac with its model server. Start it, then try again.")
+        #expect(explanation(.ollama, key: true, waiting: true) == "Open Ollama and Muninn carries on within 15 seconds, or write this recap with another engine.")
+        #expect(explanation(.openAICompatible, key: true, waiting: false) == "Muninn writes recaps on This Mac with its model server. Start it, then try again, or write this recap with another engine.")
+    }
+
+    @Test func couldNotDeleteTellsWhereToLookAndOffersNoRetry() {
+        let problem = Problems.couldNotDelete(what: "the meeting")
+        #expect(problem.explanation == "Muninn may not be allowed to change that folder. Check the folder's permissions in Finder, then delete it again.")
+        #expect(problem.actions.isEmpty)
+    }
+
     @Test func thisMacServerOffersClaudeOnlyWithAKey() {
         #expect(Problems.thisMacServerNotRunning(api: .ollama, claudeKeyPresent: true, waiting: true).actions == [.writeWithClaude, .tryAgain, .engineSettings])
         #expect(Problems.thisMacServerNotRunning(api: .ollama, claudeKeyPresent: false, waiting: true).actions == [.tryAgain, .engineSettings])
@@ -174,7 +192,7 @@ import Testing
             (Problems.keychainUnwritable(), .problem, [.tryAgain]),
             (Problems.speechModelUnavailable(model: "m"), .problem, [.tryAgain]),
             (Problems.couldNotSave(what: "x"), .problem, [.tryAgain]),
-            (Problems.couldNotDelete(what: "x"), .problem, [.tryAgain]),
+            (Problems.couldNotDelete(what: "x"), .problem, []),
             (Problems.signedInProfileUnreadable(account: "Work"), .problem, [.tryAgain]),
             (Problems.signInUnreadable(account: "Work"), .problem, [.signInAgain]),
             (Problems.hotkeyInUse(keys: "k"), .problem, [.recordingSettings]),

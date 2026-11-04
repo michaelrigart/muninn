@@ -37,6 +37,12 @@ public enum ProcessingDisplay {
         }
     }
 
+    /// The stored `needsAttention`, except that a meeting running or waiting its turn is not asking for the user.
+    public static func needsAttention(_ meeting: Meeting, snapshot: PipelineSnapshot) -> Bool {
+        if snapshot.current?.meetingID == meeting.id || snapshot.queued.contains(meeting.id) { return false }
+        return meeting.needsAttention
+    }
+
     public static func workLine(meetings: [Meeting], snapshot: PipelineSnapshot) -> String? {
         guard let current = snapshot.current, let meeting = meetings.first(where: { $0.id == current.meetingID }) else { return nil }
         return "\(current.stage.title) · \(meeting.title) · step \(current.stage.step) of 4"

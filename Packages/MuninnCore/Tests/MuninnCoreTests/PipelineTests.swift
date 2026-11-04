@@ -1699,6 +1699,37 @@ struct PipelineTests {
         #expect(try status(h, h.id) == .ready)
     }
 
+    @Test(.timeLimit(.minutes(1))) func aRecordingHoldAfterARelaunchIsQueuedWithoutConsultingTheEngines() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.recording)))
+        h.summarizer.holdFirstCall.set(true)
+        h.recording.set(false)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        h.probe.environment.set(.make(thisMacReachable: false))
+
+        await pipeline.requeueWaiting()
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(await pipeline.snapshot().queued == [b])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+    }
+
+    @Test func requeueingWithNothingWaitingDoesNotProbe() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let before = h.probe.calls.get()
+        await h.pipeline.requeueWaiting()
+        await h.pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(h.probe.calls.get() == before)
+    }
+
     @Test(.timeLimit(.minutes(1))) func aQueuedWaitRunsAfterARelaunch() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }

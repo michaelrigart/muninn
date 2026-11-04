@@ -79,9 +79,15 @@ public final class SpeechModelActivity: @unchecked Sendable {
     private func update(_ token: UUID, fraction: Double?) {
         lock.withLock {
             guard let index = current.firstIndex(where: { $0.token == token }) else { return }
+            let before = Self.percent(current[index].value.fraction)
             current[index].value.fraction = fraction
-            notify()
+            if Self.percent(fraction) != before { notify() }
         }
+    }
+
+    /// Progress reports arrive far more often than the whole-percent value a person can see changes.
+    private static func percent(_ fraction: Double?) -> Int? {
+        fraction.map { Int(($0 * 100).rounded()) }
     }
 
     private func notify() {

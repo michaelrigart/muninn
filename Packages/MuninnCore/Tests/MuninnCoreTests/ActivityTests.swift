@@ -216,6 +216,16 @@ struct ActivityTests {
         #expect(result.first?.message == "Recap written by Claude · claude-opus-5-5 · 42 s")
     }
 
+    @Test func failedRegenerationRecordsOnlyTheProblem() {
+        var kept = meeting(.ready, engineNotice: Problems.regenerationFailed(Problems.claudeBusy()))
+        kept.summaryEngine = .claude
+        kept.metrics.summarizeSeconds = 42
+        let result = entries(from: meeting(.summarizing), to: kept)
+        #expect(result.count == 1)
+        #expect(result.first?.level == .problem)
+        #expect(result.first?.area == .recap)
+    }
+
     @Test func recapWrittenOnAnEndpointNamesItsModel() {
         var done = meeting(.ready)
         done.summaryEngine = .macbook

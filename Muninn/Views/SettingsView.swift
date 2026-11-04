@@ -268,11 +268,20 @@ private struct AccountsTab: View {
                             showInActivity: { model.showInActivity(problem) }
                         )
                     }
+                    let signInExpired = status == .signedIn && model.signInNeeded.contains(account.id)
+                    if signInExpired {
+                        let problem = Problems.signInExpired(account: account.displayName)
+                        ProblemCard(
+                            problem: problem,
+                            compact: true,
+                            handlers: signInHandlers(account.id),
+                            showInActivity: { model.showInActivity(problem) }
+                        )
+                    }
                     HStack {
                         switch status {
-                        case .signedIn where model.signInNeeded.contains(account.id):
-                            Label("Sign-in expired: sign in again", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                        case .signedIn where signInExpired:
+                            EmptyView()
                         case .signedIn:
                             Label("Signed in", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
@@ -374,6 +383,12 @@ private struct AccountsTab: View {
             guard let index = settings.accounts.firstIndex(where: { $0.id == id }) else { return }
             change(&settings.accounts[index])
         }
+    }
+
+    private func signInHandlers(_ id: String) -> ProblemHandlers {
+        var handlers = model.problemHandlers()
+        handlers.signInAgain = { signIn(id) }
+        return handlers
     }
 
     private func signIn(_ id: String) {

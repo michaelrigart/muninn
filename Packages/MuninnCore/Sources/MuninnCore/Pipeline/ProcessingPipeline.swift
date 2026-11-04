@@ -133,8 +133,10 @@ public actor ProcessingPipeline {
     /// Probes the engines once, outside the processing queue, stores on each waiting meeting why it waits now
     /// (`.queued` once its wait has cleared) and queues the meetings that can now run, without awaiting the jobs.
     /// A meeting whose job has started is left alone, and so is one held for a recording while a
-    /// recording runs: the recording's end releases it through `resumeWaiting`.
+    /// recording runs: the recording's end releases it through `resumeWaiting`. With no recording running, a stored
+    /// recording hold has cleared: the meeting is queued and its job chooses the engine after transcribing.
     public func requeueWaiting(only reasons: Set<WaitReason>? = nil) async {
+        guard !waitingMeetings(only: reasons).isEmpty else { return }
         let settings = settings()
         var environment = await probe.environment(settings: settings)
         let recording = isRecording()
@@ -143,9 +145,13 @@ public actor ProcessingPipeline {
             let id = meeting.id
             guard !(stored == .recording && recording), turnHolder != id else { continue }
             let current: WaitReason
-            switch EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment: environment) {
-            case .run: current = .queued
-            case .wait(let reason): current = reason
+            if stored == .recording {
+                current = .queued
+            } else {
+                switch EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment: environment) {
+                case .run: current = .queued
+                case .wait(let reason): current = reason
+                }
             }
             if current != stored {
                 var wrote = false

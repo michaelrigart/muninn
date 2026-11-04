@@ -9,7 +9,7 @@ struct MenuBarContent: View {
 
     var body: some View {
         let workLine = ProcessingDisplay.workLine(meetings: model.meetings, snapshot: model.pipelineSnapshot)
-        let attentionLine = ProcessingDisplay.attentionLine(count: model.meetings.filter(\.needsAttention).count)
+        let attentionLine = ProcessingDisplay.attentionLine(count: model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) }.count)
         if let workLine {
             Text(workLine)
         }

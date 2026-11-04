@@ -7,12 +7,13 @@ public enum Problems {
 
     public static func thisMacServerNotRunning(api: EndpointAPI, claudeKeyPresent: Bool, waiting: Bool, details: ProblemDetails = ProblemDetails()) -> Problem {
         let ollama = api == .ollama
+        let other = claudeKeyPresent ? ", or write this recap with another engine." : "."
         let explanation: String
         switch (waiting, ollama) {
-        case (true, true): explanation = "Open Ollama and Muninn carries on within 15 seconds, or write this recap with another engine."
-        case (true, false): explanation = "Start the model server and Muninn carries on within 15 seconds, or write this recap with another engine."
-        case (false, true): explanation = "Muninn writes recaps on This Mac with Ollama. Open Ollama, then try again, or write this recap with another engine."
-        case (false, false): explanation = "Muninn writes recaps on This Mac with its model server. Start it, then try again, or write this recap with another engine."
+        case (true, true): explanation = "Open Ollama and Muninn carries on within 15 seconds\(other)"
+        case (true, false): explanation = "Start the model server and Muninn carries on within 15 seconds\(other)"
+        case (false, true): explanation = "Muninn writes recaps on This Mac with Ollama. Open Ollama, then try again\(other)"
+        case (false, false): explanation = "Muninn writes recaps on This Mac with its model server. Start it, then try again\(other)"
         }
         return Problem(
             severity: .problem,
@@ -107,7 +108,7 @@ public enum Problems {
     }
 
     public static func couldNotDelete(what: String, details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .problem, title: "Muninn couldn't delete \(what)", explanation: "Muninn may not be allowed to change that folder. Try again; if it keeps failing, check the folder's permissions in Finder.", actions: [.tryAgain], details: details)
+        Problem(severity: .problem, title: "Muninn couldn't delete \(what)", explanation: "Muninn may not be allowed to change that folder. Check the folder's permissions in Finder, then delete it again.", actions: [], details: details)
     }
 
     public static func speechModelUnavailable(model: String, details: ProblemDetails = ProblemDetails()) -> Problem {

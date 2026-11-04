@@ -14,8 +14,21 @@ struct ActivityCommands: Commands {
     }
 }
 
-struct ActivityWindow: View {
+/// Reads the model for the ids of the meetings that exist and hands them to a window that rebuilds only when they change.
+struct ActivityWindowHost: View {
     @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ActivityWindow(model: model, meetingIDs: Set(model.meetings.map(\.id)))
+            .equatable()
+    }
+}
+
+struct ActivityWindow: View, Equatable {
+    /// Not observed: the rows need the model only to open a meeting and to read the settings for the diagnostics.
+    let model: AppModel
+    let meetingIDs: Set<MeetingID>
+
     @EnvironmentObject private var activity: ActivityCenter
 
     @State private var filter = Filter.all
@@ -35,6 +48,10 @@ struct ActivityWindow: View {
         let entries: [ActivityEntry]
 
         var id: Date { start }
+    }
+
+    nonisolated static func == (lhs: ActivityWindow, rhs: ActivityWindow) -> Bool {
+        lhs.meetingIDs == rhs.meetingIDs
     }
 
     private static let timeFormatter: DateFormatter = formatter("HH:mm:ss")
@@ -60,7 +77,7 @@ struct ActivityWindow: View {
                                     entry: entry,
                                     time: Self.timeFormatter.string(from: entry.time),
                                     expanded: selection == entry.id,
-                                    meetingExists: entry.meeting.map { link in model.meetings.contains { $0.id == link.id } } ?? false,
+                                    meetingExists: entry.meeting.map { meetingIDs.contains($0.id) } ?? false,
                                     copyText: copyText(entry),
                                     showMeeting: model.showMeeting
                                 )
@@ -128,15 +145,8 @@ struct ActivityWindow: View {
     private var filtered: [ActivityEntry] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return activity.entries.filter { entry in
-            (filter == .all || entry.level == .problem) && (term.isEmpty || Self.matches(entry, term))
+            (filter == .all || entry.level == .problem) && (term.isEmpty || activity.matches(entry, term: term))
         }
-    }
-
-    private static func matches(_ entry: ActivityEntry, _ term: String) -> Bool {
-        entry.message.localizedStandardContains(term)
-            || entry.area.label.localizedStandardContains(term)
-            || (entry.meeting?.title.localizedStandardContains(term) ?? false)
-            || (entry.details?.text(includeHost: true).localizedStandardContains(term) ?? false)
     }
 
     private static func days(_ entries: [ActivityEntry], calendar: Calendar = .current) -> [Day] {

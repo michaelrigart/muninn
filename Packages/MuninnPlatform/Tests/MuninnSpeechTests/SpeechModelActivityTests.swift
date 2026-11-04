@@ -72,6 +72,21 @@ private final class RecordingActivity: ActivityRecording, @unchecked Sendable {
         #expect(snapshots.values.map { $0.first?.fraction } == [nil, 1, 0, nil, nil])
     }
 
+    @Test func observerHearsOnlyAChangeOfWholePercent() async throws {
+        let (activity, snapshots, _) = makeActivity()
+        let during = try await activity.run("Parakeet v3") { report in
+            report(0.5)
+            report(0.501)
+            report(0.504)
+            report(0.51)
+            report(nil)
+            report(nil)
+            return activity.preparing
+        }
+        #expect(during == [.init(model: "Parakeet v3", fraction: nil)])
+        #expect(snapshots.values.map { $0.first?.fraction } == [nil, 0.5, 0.51, nil, nil])
+    }
+
     @Test func preparingListsEachModelBeingPreparedWhileTheLoadRuns() async throws {
         let (activity, _, _) = makeActivity()
         let during = try await activity.run("Parakeet v3") { report in
