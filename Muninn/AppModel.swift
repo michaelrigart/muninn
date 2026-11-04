@@ -279,12 +279,12 @@ final class AppModel: ObservableObject {
         ProcessingDisplay.progress(for: meeting, snapshot: pipelineSnapshot, speechModel: speechModels.first)
     }
 
-    func commandContext(for meeting: Meeting, hasRecap: Bool = false) -> MeetingCommandContext {
+    func commandContext(for meeting: Meeting, hasRecap: Bool = false, includePreviousRecap: Bool = true) -> MeetingCommandContext {
         MeetingCommandContext(
             meeting: meeting,
             progress: progress(for: meeting),
             hasRecap: hasRecap,
-            hasPreviousRecap: store.hasPreviousSummary(meeting.id),
+            hasPreviousRecap: includePreviousRecap && store.hasPreviousSummary(meeting.id),
             unsavedEdits: unsavedSummaries[meeting.id] != nil,
             eventChanging: eventChangesInFlight.contains(meeting.id)
         )
