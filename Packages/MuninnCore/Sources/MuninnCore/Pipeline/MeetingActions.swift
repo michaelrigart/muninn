@@ -36,6 +36,17 @@ public enum MeetingActions {
         m.draftWebLink == nil && m.draftID == nil && m.exportedNotePath == nil
     }
 
+    /// Choosing `account` would leave the meeting's event behind, because the event belongs to another account.
+    public static func accountChangeDropsEvent(_ m: Meeting, to account: String?) -> Bool {
+        guard let association = m.association else { return false }
+        return association.accountID != account
+    }
+
+    /// Clearing the event would remove an association or attendees the meeting has now.
+    public static func clearingEventLosesDetails(_ m: Meeting) -> Bool {
+        m.association != nil || !m.attendees.isEmpty
+    }
+
     /// Whether and how to file a meeting automatically. The eligibility checks come first (enabled, ready, not exported,
     /// settled, no unsaved edits or event change under way, no unsourced items); the missing-vault check comes last, so the
     /// once-per-session notice is spent only on a meeting that would otherwise have been filed.
