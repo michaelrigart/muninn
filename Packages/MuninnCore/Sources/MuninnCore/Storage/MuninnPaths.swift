@@ -27,6 +27,10 @@ public struct MuninnPaths: Sendable {
         state.appendingPathComponent("activity.jsonl")
     }
 
+    public var playbackFile: URL {
+        state.appendingPathComponent("playback.json")
+    }
+
     public var settingsFile: URL {
         config.appendingPathComponent("settings.json")
     }

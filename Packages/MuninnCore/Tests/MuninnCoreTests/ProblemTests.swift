@@ -257,6 +257,8 @@ import Testing
         #expect(ProblemStage.writingRecap.phrase == "writing the recap")
         #expect(ProblemStage.writingRecap.area == .recap)
         #expect(ProblemStage.creatingDraft.area == .outlook)
+        #expect(ProblemStage.playingRecording.phrase == "playing the recording")
+        #expect(ProblemStage.playingRecording.area == .recording)
     }
 
     @Test func waitNeedsYouOnlyForReasonsThatDontClear() {
