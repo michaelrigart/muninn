@@ -11,6 +11,7 @@ struct MeetingDetail: View {
 
     @State private var summary: Summary?
     @State private var document: RecapDocument?
+    @State private var recapFocus = RecapFocus()
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
     @State private var scrollTarget: Int?
@@ -55,17 +56,7 @@ struct MeetingDetail: View {
                         .foregroundStyle(Theme.attentionText)
                         .padding(.vertical, Space.s)
                 }
-                RecapEditor(
-                    meeting: meeting,
-                    document: document,
-                    summary: summary,
-                    segmentStarts: segmentStarts,
-                    canPlay: false,
-                    onSource: show(segment:),
-                    hasPreviousVersion: model.store.hasPreviousSummary(meeting.id),
-                    onPreviousVersion: restorePrevious,
-                    previousVersionReason: MeetingCommands.disabledReason(.previousVersion, model.commandContext(for: meeting, hasRecap: summary != nil))
-                )
+                recapEditor
             case .transcript:
                 TranscriptView(meeting: meeting, transcript: transcript, clean: clean, mode: $transcriptMode, target: $scrollTarget, report: report)
             }
@@ -93,6 +84,22 @@ struct MeetingDetail: View {
         }
     }
 
+    private var recapEditor: some View {
+        let context = model.commandContext(for: meeting, hasRecap: summary != nil)
+        return RecapEditor(
+            meeting: meeting,
+            document: document,
+            focus: recapFocus,
+            summary: summary,
+            segmentStarts: segmentStarts,
+            canPlay: false,
+            onSource: show(segment:),
+            hasPreviousVersion: context.hasPreviousRecap,
+            onPreviousVersion: restorePrevious,
+            previousVersionReason: MeetingCommands.disabledReason(.previousVersion, context)
+        )
+    }
+
     private var segmentStarts: [Int: TimeInterval] {
         Dictionary(
             (transcript?.segments ?? []).map { ($0.id, $0.start) },
@@ -100,23 +107,26 @@ struct MeetingDetail: View {
         )
     }
 
-    /// Points the recap document at the loaded summary: a new document the first time, `replace` afterwards, which
-    /// drops the undo history of what was replaced.
+    /// Points the recap document at the loaded summary: a new document the first time, `replace` afterwards when the
+    /// recap changed, which drops the undo history of what was replaced.
     private func adoptDocument() {
-        endFieldEditing()
         guard let summary else {
             if let document {
+                recapFocus.resign()
                 document.endTyping(undoManager: undoManager)
                 undoManager?.removeAllActions(withTarget: document)
             }
             document = nil
             return
         }
-        if let document {
-            document.replace(with: summary, undoManager: undoManager)
-        } else {
-            document = RecapDocument(summary: summary, save: saveSummary)
+        guard let document else {
+            self.document = RecapDocument(summary: summary, save: saveSummary)
+            return
         }
+        var loaded = summary
+        loaded.edited = document.summary.edited
+        guard loaded != document.summary else { return }
+        RecapEditing(document: document, undoManager: undoManager, focus: recapFocus).replace(with: summary)
     }
 
     private func edit(_ change: (inout Meeting) -> Void) {

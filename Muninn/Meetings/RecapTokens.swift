@@ -1,67 +1,68 @@
 import MuninnCore
 import SwiftUI
 
-/// The owner of an action: a token that shows only when there is an owner or the row is hovered, and a popover to type it.
+/// The owner of an action: a token that shows when there is an owner or the row is hovered or focused, and a popover to
+/// type it. It stays in the layout and the accessibility tree.
 struct OwnerToken: View {
     let owner: String
     let hovering: Bool
     let field: RecapField
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
 
     @State private var showing = false
+    @FocusState private var focused: Bool
 
     var body: some View {
-        if !owner.isEmpty || hovering || showing {
-            Button {
-                endFieldEditing()
-                showing = true
-            } label: {
-                Token(label: owner.isEmpty ? "Owner" : owner, systemImage: "person", role: owner.isEmpty ? .placeholder : .normal)
-            }
-            .buttonStyle(.token)
-            .help("Change the owner")
-            .popover(isPresented: $showing, arrowEdge: .bottom) {
-                RecapTextField(
-                    field: field,
-                    text: owner,
-                    placeholder: "Owner",
-                    font: Theme.interface,
-                    document: document,
-                    undoManager: undoManager,
-                    autofocus: true,
-                    onSubmit: { showing = false }
-                )
-                .padding(Space.m)
-                .frame(width: 240)
-            }
+        Button {
+            editing.focus.resign()
+            showing = true
+        } label: {
+            Token(label: owner.isEmpty ? "Owner" : owner, systemImage: "person", role: owner.isEmpty ? .placeholder : .normal)
+        }
+        .buttonStyle(.token)
+        .focused($focused)
+        .opacity(!owner.isEmpty || hovering || focused || showing ? 1 : 0)
+        .help("Change the owner")
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            RecapTextField(
+                field: field,
+                text: owner,
+                placeholder: "Owner",
+                font: Theme.interface,
+                editing: editing,
+                autofocus: true,
+                onSubmit: { showing = false }
+            )
+            .padding(Space.m)
+            .frame(width: 240)
         }
     }
 }
 
-/// The due date of an action: a token that shows only when there is a date or the row is hovered, and a popover to pick it.
+/// The due date of an action: a token that shows when there is a date or the row is hovered or focused, and a popover to
+/// pick it. It stays in the layout and the accessibility tree.
 struct DueToken: View {
     let due: String?
     let hovering: Bool
     let subject: Int
     let action: Int
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
 
     @State private var showing = false
+    @FocusState private var focused: Bool
 
     var body: some View {
-        if due != nil || hovering || showing {
-            Button {
-                endFieldEditing()
-                showing = true
-            } label: {
-                token
-            }
-            .buttonStyle(.token)
-            .help("Change the due date")
-            .popover(isPresented: $showing, arrowEdge: .bottom) { picker }
+        Button {
+            editing.focus.resign()
+            showing = true
+        } label: {
+            token
         }
+        .buttonStyle(.token)
+        .focused($focused)
+        .opacity(due != nil || hovering || focused || showing ? 1 : 0)
+        .help("Change the due date")
+        .popover(isPresented: $showing, arrowEdge: .bottom) { picker }
     }
 
     private var date: Date? {
@@ -79,9 +80,15 @@ struct DueToken: View {
             DatePicker("Due date", selection: selection, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .labelsHidden()
-            Button("No due date") {
-                showing = false
-                setDue(nil)
+            HStack(spacing: Space.m) {
+                Button("Today") {
+                    showing = false
+                    setDue(DueDate.string(from: Date()))
+                }
+                Button("No due date") {
+                    showing = false
+                    setDue(nil)
+                }
             }
             .buttonStyle(.plain)
             .font(Theme.interface)
@@ -97,8 +104,7 @@ struct DueToken: View {
     }
 
     private func setDue(_ due: String?) {
-        endFieldEditing()
-        document.edit("Change due date", undoManager: undoManager) { $0.setDue(due, subject: subject, action: action) }
+        editing.edit("Change due date") { $0.setDue(due, subject: subject, action: action) }
     }
 }
 

@@ -2,10 +2,48 @@ import AppKit
 import MuninnCore
 import SwiftUI
 
-/// Ends the editing of a focused text field, so its own undo history is gone before the document registers or drops
-/// anything. Call it before every `RecapDocument.edit` and `replace`.
-func endFieldEditing() {
-    NSApp.keyWindow?.makeFirstResponder(nil)
+/// Which recap text fields have focus. Resigning only when one does leaves other responders, such as the sidebar list or
+/// another window, alone.
+final class RecapFocus {
+    private var fields: Set<RecapField> = []
+
+    func set(_ field: RecapField, focused: Bool) {
+        if focused { fields.insert(field) } else { fields.remove(field) }
+    }
+
+    /// Ends the editing of a focused recap field, so its own undo history is gone before the document registers or
+    /// drops anything.
+    func resign() {
+        guard !fields.isEmpty else { return }
+        fields.removeAll()
+        NSApp.keyWindow?.makeFirstResponder(nil)
+    }
+}
+
+/// The only way the interface changes the document: every structural change and `replace` resigns a focused field
+/// first (Task 4's undo routing), so no call site can forget it.
+struct RecapEditing {
+    let document: RecapDocument
+    let undoManager: UndoManager?
+    let focus: RecapFocus
+
+    func edit(_ actionName: String, _ change: (inout Summary) -> Void) {
+        focus.resign()
+        document.edit(actionName, undoManager: undoManager, change)
+    }
+
+    func type(_ field: RecapField, _ change: (inout Summary) -> Void) {
+        document.type(field, undoManager: undoManager, change)
+    }
+
+    func endTyping() {
+        document.endTyping(undoManager: undoManager)
+    }
+
+    func replace(with summary: Summary) {
+        focus.resign()
+        document.replace(with: summary, undoManager: undoManager)
+    }
 }
 
 /// The recap as text: subjects, bullets and actions that read like a document and edit in place. Every change goes
@@ -14,6 +52,7 @@ struct RecapEditor: View {
     @Environment(\.undoManager) private var undoManager
     let meeting: Meeting
     let document: RecapDocument?
+    let focus: RecapFocus
     let summary: Summary?
     let segmentStarts: [Int: TimeInterval]
     let canPlay: Bool
@@ -25,20 +64,20 @@ struct RecapEditor: View {
     var body: some View {
         ScrollView {
             if let summary, let document {
+                let editing = RecapEditing(document: document, undoManager: undoManager, focus: focus)
                 VStack(alignment: .leading, spacing: Space.l) {
                     ForEach(Array(summary.subjects.indices), id: \.self) { index in
                         SubjectView(
                             subject: summary.subjects[index],
                             index: index,
-                            document: document,
-                            undoManager: undoManager,
+                            editing: editing,
                             segmentStarts: segmentStarts,
                             canPlay: canPlay,
                             onSource: onSource
                         )
                     }
                     Button {
-                        change("Add subject", document) { $0.subjects.append(Subject(title: "New subject", bullets: [], actions: [])) }
+                        editing.edit("Add subject") { $0.subjects.append(Subject(title: "New subject", bullets: [], actions: [])) }
                     } label: {
                         Label("Add subject", systemImage: "plus")
                     }
@@ -58,11 +97,6 @@ struct RecapEditor: View {
                     .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private func change(_ actionName: String, _ document: RecapDocument, _ change: (inout Summary) -> Void) {
-        endFieldEditing()
-        document.edit(actionName, undoManager: undoManager, change)
     }
 
     private func footer(_ recap: Summary) -> some View {
@@ -87,8 +121,7 @@ struct RecapEditor: View {
 private struct SubjectView: View {
     let subject: Subject
     let index: Int
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
     let segmentStarts: [Int: TimeInterval]
     let canPlay: Bool
     let onSource: (Int) -> Void
@@ -103,11 +136,10 @@ private struct SubjectView: View {
                     text: subject.title,
                     placeholder: "Subject",
                     font: Theme.subject,
-                    document: document,
-                    undoManager: undoManager
+                    editing: editing
                 )
                 RemoveButton(label: "Remove subject", visible: hovering) {
-                    change("Remove subject") { $0.removeSubject(index) }
+                    editing.edit("Remove subject") { $0.removeSubject(index) }
                 }
             }
             .onHover { hovering = $0 }
@@ -116,8 +148,7 @@ private struct SubjectView: View {
                     bullet: subject.bullets[bullet],
                     subject: index,
                     index: bullet,
-                    document: document,
-                    undoManager: undoManager,
+                    editing: editing,
                     segmentStarts: segmentStarts,
                     canPlay: canPlay,
                     onSource: onSource
@@ -132,8 +163,7 @@ private struct SubjectView: View {
                         action: subject.actions[action],
                         subject: index,
                         index: action,
-                        document: document,
-                        undoManager: undoManager,
+                        editing: editing,
                         segmentStarts: segmentStarts,
                         canPlay: canPlay,
                         onSource: onSource
@@ -141,18 +171,13 @@ private struct SubjectView: View {
                 }
             }
             HStack(spacing: Space.m) {
-                Button("Add bullet") { change("Add bullet") { $0.addBullet(subject: index) } }
-                Button("Add action") { change("Add action") { $0.addAction(subject: index) } }
+                Button("Add bullet") { editing.edit("Add bullet") { $0.addBullet(subject: index) } }
+                Button("Add action") { editing.edit("Add action") { $0.addAction(subject: index) } }
             }
             .buttonStyle(.borderless)
             .font(Theme.interface)
             .foregroundStyle(Theme.secondaryText)
         }
-    }
-
-    private func change(_ actionName: String, _ change: (inout Summary) -> Void) {
-        endFieldEditing()
-        document.edit(actionName, undoManager: undoManager, change)
     }
 }
 
@@ -160,8 +185,7 @@ private struct BulletRow: View {
     let bullet: Bullet
     let subject: Int
     let index: Int
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
     let segmentStarts: [Int: TimeInterval]
     let canPlay: Bool
     let onSource: (Int) -> Void
@@ -180,14 +204,12 @@ private struct BulletRow: View {
                     text: bullet.text,
                     placeholder: "Bullet",
                     font: Theme.reading,
-                    document: document,
-                    undoManager: undoManager,
+                    editing: editing,
                     multiline: true
                 )
                 SourceMarks(sources: bullet.sources, segmentStarts: segmentStarts, canPlay: canPlay, onSource: onSource)
                 RemoveButton(label: "Remove bullet", visible: hovering) {
-                    endFieldEditing()
-                    document.edit("Remove bullet", undoManager: undoManager) { $0.removeBullet(subject: subject, index: index) }
+                    editing.edit("Remove bullet") { $0.removeBullet(subject: subject, index: index) }
                 }
             }
             if bullet.sources.isEmpty {
@@ -202,8 +224,7 @@ private struct ActionRow: View {
     let action: ActionPoint
     let subject: Int
     let index: Int
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
     let segmentStarts: [Int: TimeInterval]
     let canPlay: Bool
     let onSource: (Int) -> Void
@@ -222,29 +243,25 @@ private struct ActionRow: View {
                     text: action.text,
                     placeholder: "Action",
                     font: Theme.reading,
-                    document: document,
-                    undoManager: undoManager,
+                    editing: editing,
                     multiline: true
                 )
                 OwnerToken(
                     owner: action.owner,
                     hovering: hovering,
                     field: .actionOwner(subject, index),
-                    document: document,
-                    undoManager: undoManager
+                    editing: editing
                 )
                 DueToken(
                     due: action.due,
                     hovering: hovering,
                     subject: subject,
                     action: index,
-                    document: document,
-                    undoManager: undoManager
+                    editing: editing
                 )
                 SourceMarks(sources: action.sources, segmentStarts: segmentStarts, canPlay: canPlay, onSource: onSource)
                 RemoveButton(label: "Remove action", visible: hovering) {
-                    endFieldEditing()
-                    document.edit("Remove action", undoManager: undoManager) { $0.removeAction(subject: subject, index: index) }
+                    editing.edit("Remove action") { $0.removeAction(subject: subject, index: index) }
                 }
             }
             if action.sources.isEmpty {
@@ -255,11 +272,14 @@ private struct ActionRow: View {
     }
 }
 
-/// An icon button that appears while its row is hovered. It stays in the layout and the accessibility tree.
+/// An icon button that appears while its row is hovered or it has keyboard focus. It stays in the layout and the
+/// accessibility tree.
 private struct RemoveButton: View {
     let label: String
     let visible: Bool
     let action: () -> Void
+
+    @FocusState private var focused: Bool
 
     var body: some View {
         Button(action: action) {
@@ -267,7 +287,8 @@ private struct RemoveButton: View {
         }
         .buttonStyle(.borderless)
         .foregroundStyle(Theme.secondaryText)
-        .opacity(visible ? 1 : 0)
+        .focused($focused)
+        .opacity(visible || focused ? 1 : 0)
         .accessibilityLabel(label)
         .help(label)
     }
@@ -280,8 +301,7 @@ struct RecapTextField: View {
     let text: String
     let placeholder: String
     let font: Font
-    let document: RecapDocument
-    let undoManager: UndoManager?
+    let editing: RecapEditing
     var multiline = false
     var autofocus = false
     var onSubmit: () -> Void = {}
@@ -294,20 +314,24 @@ struct RecapTextField: View {
             .font(font)
             .focused($focused)
             .onChange(of: focused) { _, isFocused in
-                if !isFocused { document.endTyping(undoManager: undoManager) }
+                editing.focus.set(field, focused: isFocused)
+                if !isFocused { editing.endTyping() }
             }
             .onSubmit {
-                endFieldEditing()
+                editing.focus.resign()
                 onSubmit()
             }
             .onAppear { if autofocus { focused = true } }
-            .onDisappear { document.endTyping(undoManager: undoManager) }
+            .onDisappear {
+                editing.focus.set(field, focused: false)
+                editing.endTyping()
+            }
     }
 
     private var binding: Binding<String> {
         Binding(
             get: { text },
-            set: { value in document.type(field, undoManager: undoManager) { $0.set(field, to: value) } }
+            set: { value in editing.type(field) { $0.set(field, to: value) } }
         )
     }
 }
