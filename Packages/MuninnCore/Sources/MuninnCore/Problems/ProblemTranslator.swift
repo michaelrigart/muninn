@@ -27,9 +27,11 @@ public enum ProblemTranslator {
             let path = (nsError.userInfo[NSFilePathErrorKey] as? String) ?? url?.path
             let what = context.subject ?? "the meeting"
             let details = ProblemDetails(path: path)
-            return context.stage == .deletingMeeting
-                ? Problems.couldNotDelete(what: what, details: details)
-                : Problems.couldNotSave(what: what, details: details)
+            switch context.stage {
+            case .deletingMeeting: return Problems.couldNotDelete(what: what, details: details)
+            case .trashingMeeting: return Problems.couldNotMoveToTrash(what: what, details: details)
+            default: return Problems.couldNotSave(what: what, details: details)
+            }
         }
         return Problems.somethingWentWrong(stage: context.stage)
     }

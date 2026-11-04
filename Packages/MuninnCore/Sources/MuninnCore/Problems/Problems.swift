@@ -111,6 +111,10 @@ public enum Problems {
         Problem(severity: .problem, title: "Muninn couldn't delete \(what)", explanation: "Muninn may not be allowed to change that folder. Check the folder's permissions in Finder, then delete it again.", actions: [], details: details)
     }
 
+    public static func couldNotMoveToTrash(what: String, details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .problem, title: "Muninn couldn't move \(what) to the Trash", explanation: "Muninn may not be allowed to change that folder. Check the folder's permissions in Finder, then try again.", actions: [], details: details)
+    }
+
     public static func speechModelUnavailable(model: String, details: ProblemDetails = ProblemDetails()) -> Problem {
         Problem(severity: .problem, title: "The speech model couldn't be downloaded", explanation: "Muninn downloads \(model) the first time it's used. Check the network connection and that a firewall isn't blocking Muninn, then try again.", actions: [.tryAgain], details: details)
     }
