@@ -83,13 +83,14 @@ public struct TranscriptLayout: Sendable {
         flags: [Flag]
     ) -> TranscriptLayout {
         let flagged = Set(FlagCoverage.flaggedSegmentIDs(flags, in: transcript))
+        let cleanTexts = Dictionary((clean?.segments ?? []).map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
         var builder = Builder()
         var previousSpeaker: String?
         var segments: [SegmentLayout] = []
         var speakerLines: [SpeakerLine] = []
 
         for segment in transcript.segments {
-            let shown = shownText(for: segment, clean: clean, mode: mode)
+            let shown = shownText(for: segment, cleanText: cleanTexts[segment.id], mode: mode)
             guard !shown.text.allSatisfy(\.isWhitespace) else { continue }
 
             if segment.speaker != previousSpeaker {
@@ -189,20 +190,25 @@ public struct TranscriptLayout: Sendable {
     }
 
     /// The text shown for a segment, the word each of its tokens maps to, and which tokens are removed.
-    private static func shownText(for segment: Segment, clean: CleanTranscript?, mode: TranscriptMode) -> (text: String, tokenWords: [Int?], removed: [Bool]) {
+    private static func shownText(for segment: Segment, cleanText: String?, mode: TranscriptMode) -> (text: String, tokenWords: [Int?], removed: [Bool]) {
         let verbatimWords = WordAlignment.tokenWords(text: segment.text, words: segment.words)
         switch mode {
         case .verbatim:
-            return (segment.text, verbatimWords, [])
+            return (singleLine(segment.text), verbatimWords, [])
         case .changes:
-            let tokens = ChangeView.tokens(verbatim: segment.text, clean: clean?.text(for: segment) ?? segment.text)
+            let tokens = ChangeView.tokens(verbatim: segment.text, clean: cleanText ?? segment.text)
             return (tokens.map(\.text).joined(separator: " "), verbatimWords, tokens.map(\.removed))
         case .clean:
-            let text = clean?.text(for: segment) ?? segment.text
-            let alignment = ChangeView.alignment(verbatim: segment.text, clean: text)
+            guard let cleanText else { return (singleLine(segment.text), verbatimWords, []) }
+            let alignment = ChangeView.alignment(verbatim: segment.text, clean: cleanText)
             let words = alignment.map { verbatimIndex in verbatimIndex.flatMap { verbatimWords.indices.contains($0) ? verbatimWords[$0] : nil } }
-            return (text, words, [])
+            return (singleLine(cleanText), words, [])
         }
+    }
+
+    /// Every whitespace character, newlines and tabs included, becomes one space, so a segment is one line.
+    private static func singleLine(_ text: String) -> String {
+        String(text.map { $0.isWhitespace ? " " : $0 })
     }
 
     /// The UTF-16 range of each whitespace-separated token of `text`, which starts at `offset`.

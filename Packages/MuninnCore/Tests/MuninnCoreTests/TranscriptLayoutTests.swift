@@ -141,6 +141,34 @@ struct TranscriptLayoutTests {
         }
     }
 
+    @Test func whitespaceInShownTextCollapsesToOneLinePerSegment() {
+        let spread = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship\nFriday.\tOK"), CleanSegment(id: 1, text: "Sounds good."), CleanSegment(id: 2, text: "Next topic.")])
+        let layout = layout(.clean, clean: spread)
+        #expect(substring(layout, layout.segments[0].text) == "We ship Friday. OK")
+        #expect(layout.string.filter { $0 == "\n" }.count == 5)
+        #expect(layout.string.filter { $0 == "\t" }.count == 5)
+    }
+
+    @Test func segmentsStartingTogetherPickTheLaterInTheList() {
+        let together = Transcript(segments: [
+            Segment(id: 0, track: .mic, speaker: "you", start: 0, end: 5, text: "hello", words: []),
+            Segment(id: 1, track: .system, speaker: "S1", start: 0, end: 5, text: "hi there", words: []),
+        ], language: "en")
+        let layout = TranscriptLayout.make(transcript: together, clean: nil, mode: .verbatim, speakerNames: [:], userName: "Ann", flags: [])
+        #expect(layout.position(at: 2) == ReadAlongPosition(segment: 1, word: nil))
+    }
+
+    @Test func cleanModeWithoutCleanTextMapsTokensLikeVerbatim() {
+        let dots = Transcript(segments: [
+            Segment(id: 0, track: .mic, speaker: "you", start: 0, end: 3, text: "wait \u{2026} done",
+                    words: [Word(text: "wait", start: 0, end: 1), Word(text: "\u{2026}", start: 1, end: 2), Word(text: "done", start: 2, end: 3)]),
+        ], language: "en")
+        for clean in [nil, CleanTranscript(segments: [])] {
+            let layout = TranscriptLayout.make(transcript: dots, clean: clean, mode: .clean, speakerNames: [:], userName: "Ann", flags: [])
+            #expect(layout.segments[0].words.map { substring(layout, $0.range) } == ["wait", "\u{2026}", "done"])
+        }
+    }
+
     @Test func previousStartGoesBackWithinTheFirstSecond() {
         let timeline = SegmentTimeline(transcript: transcript)
         #expect(timeline.previousStart(before: 10.5) == 3)
