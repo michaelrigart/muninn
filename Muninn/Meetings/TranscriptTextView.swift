@@ -403,12 +403,14 @@ struct SpeakerRenameForm: View {
 }
 
 /// The scroll view around the transcript; it reports scrolling by the owner (wheel, trackpad, scroller, keys or find),
-/// never scrolling by the app: any move of the clip view's origin that the view didn't make itself.
+/// never scrolling by the app: any move of the clip view's origin outside `scrollingItself`. Tiling, resizing and the
+/// find bar showing or hiding move the origin too, so they run inside it.
 final class TranscriptScrollView: NSScrollView {
     var onUserScroll: (() -> Void)?
     var onLayout: (() -> Void)?
 
     private var isScrollingItself = false
+    /// The clip view's bounds as of the last change, kept current after every change the view makes itself.
     private var lastBounds = NSRect.zero
 
     override init(frame frameRect: NSRect) {
@@ -427,22 +429,37 @@ final class TranscriptScrollView: NSScrollView {
         onLayout?()
     }
 
+    override func tile() {
+        scrollingItself { super.tile() }
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        scrollingItself { super.resizeSubviews(withOldSize: oldSize) }
+    }
+
+    override var isFindBarVisible: Bool {
+        get { super.isFindBarVisible }
+        set { scrollingItself { super.isFindBarVisible = newValue } }
+    }
+
+    override func findBarViewDidChangeHeight() {
+        scrollingItself { super.findBarViewDidChangeHeight() }
+    }
+
     /// Runs `body` without reporting the scrolling it does.
     func scrollingItself(_ body: () -> Void) {
         let outer = isScrollingItself
         isScrollingItself = true
         body()
         isScrollingItself = outer
+        lastBounds = contentView.bounds
     }
 
-    /// A resize, or a shorter document pulling the origin back to its end, is not the owner scrolling.
     @objc private func boundsDidChange(_ notification: Notification) {
         let bounds = contentView.bounds
         let previous = lastBounds
         lastBounds = bounds
-        guard !isScrollingItself, bounds.size == previous.size, bounds.minY != previous.minY else { return }
-        let end = max(0, (documentView?.frame.height ?? 0) - bounds.height)
-        if previous.minY > end, abs(bounds.minY - end) < 0.5 { return }
+        guard !isScrollingItself, bounds.minY != previous.minY else { return }
         onUserScroll?()
     }
 }
