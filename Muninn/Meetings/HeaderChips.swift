@@ -10,32 +10,41 @@ struct ChipRow: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let origins = arrange(width: bounds.width, subviews).origins
-        for (subview, origin) in zip(subviews, origins) {
-            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        let arrangement = arrange(width: bounds.width, subviews)
+        for (index, subview) in subviews.enumerated() {
+            let origin = arrangement.origins[index]
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: arrangement.proposals[index])
         }
     }
 
-    private func arrange(width: CGFloat, _ subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
+    /// A chip wider than the row is proposed the row's width, so its label wraps instead of overflowing.
+    private func arrange(width: CGFloat, _ subviews: Subviews) -> (origins: [CGPoint], proposals: [ProposedViewSize], size: CGSize) {
         var origins: [CGPoint] = []
+        var proposals: [ProposedViewSize] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
         var widest: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            var proposal = ProposedViewSize.unspecified
+            var size = subview.sizeThatFits(proposal)
+            if size.width > width {
+                proposal = ProposedViewSize(width: width, height: nil)
+                size = subview.sizeThatFits(proposal)
+            }
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
             }
             origins.append(CGPoint(x: x, y: y))
+            proposals.append(proposal)
             x += size.width
             widest = max(widest, x)
             x += spacing
             rowHeight = max(rowHeight, size.height)
         }
-        return (origins, CGSize(width: widest, height: y + rowHeight))
+        return (origins, proposals, CGSize(width: widest, height: y + rowHeight))
     }
 }
 

@@ -50,7 +50,7 @@ struct Token: View {
                     .accessibilityHidden(true)
             }
             Text(label)
-                .lineLimit(1)
+                .multilineTextAlignment(.leading)
         }
         .font(Theme.meta)
         .foregroundStyle(foreground)
