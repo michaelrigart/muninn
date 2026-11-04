@@ -237,27 +237,44 @@ enum RecapNotifications {
     static func start(onOpen: @escaping (MeetingID) -> Void) {
         self.onOpen = onOpen
         guard available else { return }
-        let center = UNUserNotificationCenter.current()
-        center.delegate = delegate
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                logger.error("Notification authorization failed: \(String(describing: error), privacy: .public)")
-            } else if !granted {
-                logger.notice("Notifications are not allowed")
-            }
-        }
+        UNUserNotificationCenter.current().delegate = delegate
     }
 
     static func recapReady(_ meeting: Meeting) {
-        guard available else { return }
         let content = UNMutableNotificationContent()
         content.title = "Recap ready: \(meeting.title)"
-        content.sound = .default
         content.userInfo = ["meeting": meeting.id.rawValue]
-        let request = UNNotificationRequest(identifier: "recap-\(meeting.id.rawValue)", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { error in
+        post(content, id: "recap-\(meeting.id.rawValue)")
+    }
+
+    static func needsAttention(_ meeting: Meeting, reason: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Needs attention: \(meeting.title)"
+        content.body = reason
+        content.userInfo = ["meeting": meeting.id.rawValue]
+        post(content, id: "attention-\(meeting.id.rawValue)")
+    }
+
+    private static var requestedAuthorization = false
+
+    /// Asks for permission the first time there is something to say, not at launch.
+    private static func post(_ content: UNMutableNotificationContent, id: String) {
+        guard available else { return }
+        let center = UNUserNotificationCenter.current()
+        if !requestedAuthorization {
+            requestedAuthorization = true
+            center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                if let error {
+                    logger.error("Notification authorization failed: \(String(describing: error), privacy: .public)")
+                } else if !granted {
+                    logger.notice("Notifications are not allowed")
+                }
+            }
+        }
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
             if let error {
-                logger.error("Posting the recap notification failed: \(String(describing: error), privacy: .public)")
+                logger.error("Posting the notification failed: \(String(describing: error), privacy: .public)")
             }
         }
     }

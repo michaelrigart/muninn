@@ -73,8 +73,11 @@ final class AppModel: ObservableObject {
         didSet {
             recordingGate.value = isRecording
             if oldValue, !isRecording { resumeHeldProcessing() }
+            announceAttention()
         }
     }
+    /// Decides which meetings to announce; nil until the first load, so meetings already waiting at launch stay quiet.
+    private var attention: AttentionTracker?
     @Published var settings: Settings
     @Published var selectedMeetingID: MeetingID?
     /// Bumped to ask the always-alive menu bar label to open the Meetings, Activity or Settings window.
@@ -204,6 +207,7 @@ final class AppModel: ObservableObject {
             activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
+        attention = AttentionTracker(seed: meetings)
         refreshClaudeKey()
         SpeechModelActivity.shared.setObserver { [weak self] models in
             Task { @MainActor in self?.speechModels = models }
@@ -412,6 +416,17 @@ final class AppModel: ObservableObject {
             logger.error("Listing meetings failed: \(String(describing: error), privacy: .public)")
             activity.record(failure: error, in: ProblemContext(stage: .loadingMeetings))
         }
+        announceAttention()
+    }
+
+    private func announceAttention() {
+        guard var tracker = attention else { return }
+        let ids = tracker.update(meetings, isRecording: isRecording)
+        attention = tracker
+        for id in ids {
+            guard let meeting = meetings.first(where: { $0.id == id }) else { continue }
+            RecapNotifications.needsAttention(meeting, reason: ProcessingDisplay.attentionReason(meeting, api: settings.macbook.api) ?? "")
+        }
     }
 
     /// Every change to a meeting goes through here, so the move to `.ready` is seen whoever made it.
@@ -432,6 +447,7 @@ final class AppModel: ObservableObject {
             activity.log.record(entry)
         }
         if becameReady { recapReady(meeting) }
+        announceAttention()
     }
 
     private func recapReady(_ meeting: Meeting) {
