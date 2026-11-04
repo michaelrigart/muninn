@@ -1,6 +1,8 @@
 # Muninn UX pass, pull request 2: the Meetings window — Implementation Plan
 
-**Status:** In progress — [PR #4](https://github.com/michaelrigart/muninn/pull/4)
+**Status:** Implemented — [PR #4](https://github.com/michaelrigart/muninn/pull/4)
+
+> **Execution complete (2026-11-04).** All 19 tasks are implemented, with the final whole-branch review's fixes. Do not run this plan again. The "Manual acceptance" checks are done by hand on the owner's Mac.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -784,7 +786,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 ```
 
 - [x] **Step 2: Run** the full verification, all must pass, and record the totals as passed/total: the Core suite, the Platform suite, `mise exec -- xcodegen generate`, the app build, the searches from Tasks 10, 11, 15, 16 and 17, `rg -n 'localizedDescription|String\(describing: error\)' Muninn | rg -v 'logger\.'` (expect no output), and `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`.
-- [ ] **Step 3:** `rm -rf build/adhoc` (no ad hoc copy may outlive the run: see AGENTS.md on permissions).
+- [x] **Step 3:** `rm -rf build/adhoc` (no ad hoc copy may outlive the run: see AGENTS.md on permissions).
 - [x] **Step 4: Commit** — `Add the changelog entries for the Meetings window`
 
 ## Manual acceptance (the owner, on his Mac)
