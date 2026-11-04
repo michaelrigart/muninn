@@ -28,7 +28,7 @@ final class TranscriptController: ObservableObject {
     /// The playback time while read-along is on, else nil.
     private var time: TimeInterval?
     private var followRequested = false
-    /// The ranges that carry a temporary background now.
+    /// The ranges that carry a temporary background, and for the word a temporary foreground, now.
     private var marked: [NSRange] = []
 
     /// A new text view follows playback as soon as it is laid out; a rebuild of the same view follows only while playing,
@@ -38,7 +38,8 @@ final class TranscriptController: ObservableObject {
         tint = nil
         position = nil
         marked = []
-        textView.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
+        let whole = NSRange(location: 0, length: textView.textStorage?.length ?? 0)
+        for key in Self.markKeys { textView.layoutManager?.removeTemporaryAttribute(key, forCharacterRange: whole) }
         if self.textView !== textView { followRequested = following }
         self.textView = textView
         self.layout = layout
@@ -146,23 +147,28 @@ final class TranscriptController: ObservableObject {
         }
     }
 
-    /// Moves the temporary backgrounds: the reveal tint, then the read-along segment and word over it. Only the ranges
-    /// that change are redrawn, and nothing is laid out again.
+    private static let markKeys: [NSAttributedString.Key] = [.backgroundColor, .foregroundColor]
+
+    /// Moves the temporary backgrounds: the reveal tint, then the read-along segment and word over it. The word is in
+    /// primary text, so a removed word stays readable on its mark. Only the ranges that change are redrawn, and nothing
+    /// is laid out again.
     private func redrawMarks() {
         guard let textView, let layoutManager = textView.layoutManager, let layout else { return }
         let length = textView.textStorage?.length ?? 0
         for range in marked where NSMaxRange(range) <= length {
-            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+            for key in Self.markKeys { layoutManager.removeTemporaryAttribute(key, forCharacterRange: range) }
         }
-        var marks: [(range: NSRange, colour: NSColor)] = []
-        if let tint { marks.append((tint, Theme.AppKit.accentSoft)) }
+        var marks: [(range: NSRange, attributes: [NSAttributedString.Key: Any])] = []
+        if let tint { marks.append((tint, [.backgroundColor: Theme.AppKit.accentSoft])) }
         if let position, layout.segments.indices.contains(position.segment) {
-            marks.append((layout.segments[position.segment].text, Theme.AppKit.accentSoft))
-            if let word = wordRange(position, in: layout) { marks.append((word, Theme.AppKit.accentMid)) }
+            marks.append((layout.segments[position.segment].text, [.backgroundColor: Theme.AppKit.accentSoft]))
+            if let word = wordRange(position, in: layout) {
+                marks.append((word, [.backgroundColor: Theme.AppKit.accentMid, .foregroundColor: Theme.AppKit.primaryText]))
+            }
         }
         marks.removeAll { NSMaxRange($0.range) > length }
         for mark in marks {
-            layoutManager.addTemporaryAttribute(.backgroundColor, value: mark.colour, forCharacterRange: mark.range)
+            layoutManager.addTemporaryAttributes(mark.attributes, forCharacterRange: mark.range)
         }
         marked = marks.map(\.range)
     }
@@ -228,6 +234,7 @@ struct TranscriptTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         let controller = controller
         textView.onClick = { [weak coordinator] event in coordinator?.click(event) }
+        textView.renameAction = { [weak coordinator] event in coordinator?.renameAction(for: event) }
         scrollView.onUserScroll = { [weak controller] in controller?.userScrolled() }
         scrollView.onLayout = { [weak controller] in controller?.viewDidLayout() }
         coordinator.textView = textView
@@ -335,6 +342,18 @@ struct TranscriptTextView: NSViewRepresentable {
                 rename(line, in: textView)
             } else if let time = layout.seekTime(atOffset: offset) {
                 parent.onSeek(time)
+            }
+        }
+
+        /// For the context menu: renaming the speaker of the line under the pointer, or, off the text (as when VoiceOver
+        /// or the keyboard opens the menu), of the line holding the selection.
+        func renameAction(for event: NSEvent) -> (() -> Void)? {
+            guard let textView, let layout = parent.controller.layout else { return nil }
+            let offset = textView.characterIndex(at: event) ?? textView.selectedRange().location
+            guard let line = layout.speakerLine(atOffset: offset) else { return nil }
+            return { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.rename(line, in: textView)
             }
         }
 
@@ -472,6 +491,9 @@ final class TranscriptScrollView: NSScrollView {
 /// text with the layout manager's temporary attributes without laying it out again.
 final class TranscriptNSTextView: NSTextView {
     var onClick: ((NSEvent) -> Void)?
+    /// What "Rename speaker…" in the context menu does for this event, or nil when the menu has no such item.
+    var renameAction: ((NSEvent) -> (() -> Void)?)?
+    private var menuRename: (() -> Void)?
     /// The reading width plus the timestamp margin: the column is at most this wide, centred.
     var columnWidth = Theme.readingWidth + TranscriptStyle.minimumMargin {
         didSet {
@@ -517,6 +539,22 @@ final class TranscriptNSTextView: NSTextView {
         super.mouseDown(with: event)
         guard selectedRange().length == 0 else { return }
         onClick?(event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        menuRename = renameAction?(event)
+        guard menuRename != nil else { return menu }
+        let result = (menu?.copy() as? NSMenu) ?? NSMenu()
+        if !result.items.isEmpty { result.insertItem(.separator(), at: 0) }
+        let item = NSMenuItem(title: "Rename speaker…", action: #selector(renameSpeakerFromMenu), keyEquivalent: "")
+        item.target = self
+        result.insertItem(item, at: 0)
+        return result
+    }
+
+    @objc private func renameSpeakerFromMenu() {
+        menuRename?()
     }
 
     /// Sets the inset before the frame, so the container never keeps a width for the old inset.

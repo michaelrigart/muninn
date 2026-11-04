@@ -105,11 +105,11 @@ struct PresentationTests {
     }
 
     @Test func searchCoversEveryField() {
-        let found = meeting(title: "Budget review", client: "Acme", attendees: [Attendee(name: "Ann Example", email: "ann@example.com")])
+        let found = meeting(title: "Budget review", client: "Acme", attendees: [Attendee(name: "Ann Smith", email: "a.s@example.com")])
         #expect(MeetingSearch.matches(found, term: "budget", recapText: nil, transcriptText: nil))
         #expect(MeetingSearch.matches(found, term: "acme", recapText: nil, transcriptText: nil))
-        #expect(MeetingSearch.matches(found, term: "Ann", recapText: nil, transcriptText: nil))
-        #expect(MeetingSearch.matches(found, term: "ann@example.com", recapText: nil, transcriptText: nil))
+        #expect(MeetingSearch.matches(found, term: "smith", recapText: nil, transcriptText: nil))
+        #expect(MeetingSearch.matches(found, term: "a.s@example.com", recapText: nil, transcriptText: nil))
         #expect(MeetingSearch.matches(found, term: "roadmap", recapText: "The roadmap slips", transcriptText: nil))
         #expect(MeetingSearch.matches(found, term: "invoice", recapText: nil, transcriptText: "send the invoice"))
         #expect(MeetingSearch.matches(found, term: "  ", recapText: nil, transcriptText: nil))

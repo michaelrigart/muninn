@@ -200,6 +200,7 @@ public struct TranscriptLayout: Sendable {
             return (tokens.map(\.text).joined(separator: " "), verbatimWords, tokens.map(\.removed))
         case .clean:
             guard let cleanText else { return (singleLine(segment.text), verbatimWords, []) }
+            guard !segment.words.isEmpty else { return (singleLine(cleanText), [], []) }
             let alignment = ChangeView.alignment(verbatim: segment.text, clean: cleanText)
             let words = alignment.map { verbatimIndex in verbatimIndex.flatMap { verbatimWords.indices.contains($0) ? verbatimWords[$0] : nil } }
             return (singleLine(cleanText), words, [])

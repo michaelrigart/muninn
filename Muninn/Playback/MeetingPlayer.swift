@@ -62,6 +62,7 @@ final class MeetingPlayer: ObservableObject {
     private var pendingSeeks = 0
     private var startedIDs: Set<MeetingID> = []
     private var recordedFailures: Set<MeetingID> = []
+    private var recordedSkips: Set<MeetingID> = []
     private var lastSave = Date()
 
     init(positions: PlaybackPositions, store: MeetingStore, activity: ActivityCenter) {
@@ -153,6 +154,7 @@ final class MeetingPlayer: ObservableObject {
     func unload(_ id: MeetingID) {
         startedIDs.remove(id)
         recordedFailures.remove(id)
+        recordedSkips.remove(id)
         guard id == meetingID else { return }
         tearDown()
         meetingID = nil
@@ -164,6 +166,10 @@ final class MeetingPlayer: ObservableObject {
         guard let loaded, loaded.duration.isFinite, loaded.duration > 0 else {
             state = .unavailable
             return
+        }
+        if !loaded.skipped.isEmpty, recordedSkips.insert(id).inserted {
+            activity.record(.warning, .recording, "Part of the recording couldn't be played", meeting: meeting,
+                            details: ProblemDetails(stage: .playingRecording))
         }
         composition = loaded
         tracks = loaded.tracks

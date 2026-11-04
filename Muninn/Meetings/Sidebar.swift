@@ -8,6 +8,10 @@ struct Sidebar: View {
     @State private var searchText: [MeetingID: SearchText] = [:]
     @State private var textGeneration = 0
     @State private var matchedIDs: Set<MeetingID>?
+    /// The recap and transcript text has loaded since the search began.
+    @State private var searchTextLoaded = false
+    /// The `textGeneration` that `matchedIDs` was matched against.
+    @State private var matchedGeneration = -1
 
     private struct SearchText: Sendable {
         var recap: String
@@ -44,7 +48,7 @@ struct Sidebar: View {
                                 let reason = MeetingCommands.disabledReason(.moveToTrash, model.commandContext(for: meeting, includePreviousRecap: false))
                                 Button("Move to Trash…", role: .destructive) { model.trashMeeting(meeting.id) }
                                     .disabled(reason != nil)
-                                    .help(reason ?? "")
+                                    .help(ifPresent: reason)
                             }
                     }
                 }
@@ -52,8 +56,18 @@ struct Sidebar: View {
         }
         .overlay {
             if groups.isEmpty {
-                Text(emptyText)
+                if isSearching {
+                    HStack(spacing: Space.s) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Searching…")
+                    }
                     .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                } else {
+                    Text(emptyText)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -110,6 +124,11 @@ struct Sidebar: View {
         model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) }.count
     }
 
+    /// A query whose first text load, or the match against it, is still running.
+    private var isSearching: Bool {
+        !trimmedQuery.isEmpty && (!searchTextLoaded || matchedGeneration != textGeneration)
+    }
+
     private var emptyText: String {
         if !trimmedQuery.isEmpty { return "No matches" }
         return model.sidebarFilter == .needsAttention ? "Nothing needs attention" : "No meetings yet"
@@ -125,7 +144,10 @@ struct Sidebar: View {
     }
 
     private func loadSearchText() async {
-        guard !trimmedQuery.isEmpty else { return }
+        guard !trimmedQuery.isEmpty else {
+            searchTextLoaded = false
+            return
+        }
         let store = model.store
         let ids = model.meetings.map(\.id)
         let loaded = await offMain {
@@ -142,6 +164,7 @@ struct Sidebar: View {
         }
         guard !Task.isCancelled else { return }
         searchText = loaded
+        searchTextLoaded = true
         textGeneration += 1
     }
 
@@ -153,6 +176,7 @@ struct Sidebar: View {
         }
         let meetings = model.meetings
         let texts = searchText
+        let generation = textGeneration
         let matched = await offMain {
             var ids = Set<MeetingID>()
             for meeting in meetings {
@@ -164,6 +188,7 @@ struct Sidebar: View {
         }
         guard !Task.isCancelled else { return }
         matchedIDs = matched
+        matchedGeneration = generation
     }
 
     /// Runs `work` on a detached task that is cancelled with the caller, so `work` can stop early on `Task.isCancelled`.
@@ -245,7 +270,7 @@ private struct SidebarRow: View {
     private func note(_ text: String) -> some View {
         Text(text)
             .font(Theme.meta)
-            .rowSecondaryText(Theme.tertiaryText)
+            .rowSecondaryText()
             .lineLimit(1)
             .help(text)
             .accessibilityLabel(text)

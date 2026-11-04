@@ -120,6 +120,33 @@ struct RecapDocumentTests {
         #expect(document.summary == Self.summary())
     }
 
+    @Test func structuralEditInsideAnEventGroupIsItsOwnStep() {
+        let (document, undo, _) = Self.make()
+        undo.beginUndoGrouping()
+        document.type(.bulletText(0, 0), undoManager: undo) { $0.subjects[0].bullets[0].text = "Typed" }
+        document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 1) }
+        undo.endUndoGrouping()
+        undo.undo()
+        #expect(document.summary.subjects[0].bullets.count == 2)
+        #expect(document.summary.subjects[0].bullets[0].text == "Typed")
+        undo.undo()
+        #expect(document.summary == Self.summary())
+    }
+
+    @Test func typingEndedFirstInsideAnEventGroupIsItsOwnStep() {
+        let (document, undo, _) = Self.make()
+        undo.beginUndoGrouping()
+        document.type(.bulletText(0, 0), undoManager: undo) { $0.subjects[0].bullets[0].text = "Typed" }
+        document.endTyping(undoManager: undo)
+        document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 1) }
+        undo.endUndoGrouping()
+        undo.undo()
+        #expect(document.summary.subjects[0].bullets.count == 2)
+        #expect(document.summary.subjects[0].bullets[0].text == "Typed")
+        undo.undo()
+        #expect(document.summary == Self.summary())
+    }
+
     @Test func replaceClearsHistory() {
         let (document, undo, saves) = Self.make()
         document.edit("Remove bullet", undoManager: undo) { $0.subjects[0].bullets.remove(at: 0) }

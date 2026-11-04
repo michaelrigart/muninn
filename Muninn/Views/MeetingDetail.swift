@@ -80,6 +80,7 @@ struct MeetingDetail: View {
                 }
             }
         }
+        .background(Theme.contentBackground)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if meeting.status != .recording {
                 PlayerBar(meeting: meeting, lanes: lanes, speakerIndices: speakerIndices)
@@ -102,7 +103,9 @@ struct MeetingDetail: View {
         .onReceive(player.seeks) { _ in
             if player.meetingID == meeting.id { transcriptController.following = true }
         }
+        .onChange(of: tab) { recapFocus.resign() }
         .onDisappear {
+            recapFocus.resign()
             guard let document else { return }
             document.endTyping(undoManager: undoManager)
             undoManager?.removeAllActions(withTarget: document)
@@ -199,8 +202,10 @@ struct MeetingDetail: View {
         summary = updated
         do {
             try model.store.saveEditedSummary(updated, for: meeting.id)
-            if summaryUnsaved { saveError = nil }
-            model.unsavedSummaries[meeting.id] = nil
+            if summaryUnsaved {
+                saveError = nil
+                model.unsavedSummaries[meeting.id] = nil
+            }
         } catch {
             let failure = problem(for: error)
             model.unsavedSummaries[meeting.id] = UnsavedSummary(summary: updated, problem: failure)

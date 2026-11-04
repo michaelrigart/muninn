@@ -66,6 +66,7 @@ private func volume(of track: Track, in playback: PlaybackComposition, mix: Play
 
     let playback = try #require(try await PlaybackComposition.load(mic: mic, system: system))
     #expect(playback.tracks == [.mic, .system])
+    #expect(playback.skipped.isEmpty)
     let compositionTracks = playback.composition.tracks(withMediaType: .audio)
     #expect(compositionTracks.count == 2)
     for track in compositionTracks {
@@ -104,6 +105,7 @@ private func volume(of track: Track, in playback: PlaybackComposition, mix: Play
 
     let playback = try #require(try await PlaybackComposition.load(mic: mic, system: system))
     #expect(playback.tracks == [.system])
+    #expect(playback.skipped.isEmpty)
 }
 
 @Test func unreadableFileIsSkipped() async throws {
@@ -113,6 +115,7 @@ private func volume(of track: Track, in playback: PlaybackComposition, mix: Play
 
     let playback = try #require(try await PlaybackComposition.load(mic: mic, system: system))
     #expect(playback.tracks == [.system])
+    #expect(playback.skipped == [.mic])
 }
 
 @Test func allUnreadableThrows() async throws {

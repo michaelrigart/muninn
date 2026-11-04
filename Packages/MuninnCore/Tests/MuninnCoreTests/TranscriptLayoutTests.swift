@@ -111,6 +111,23 @@ struct TranscriptLayoutTests {
         #expect(layout.speakerLine(atOffset: layout.segments[1].timestamp.location) == nil)
     }
 
+    @Test func aLongUntimedSegmentLaysOutQuicklyInCleanMode() {
+        let verbatim = (0..<20_000).map { "w\($0)" }.joined(separator: " ")
+        let cleaned = (0..<19_000).map { "w\($0)" }.joined(separator: " ")
+        let long = Transcript(segments: [
+            Segment(id: 0, track: .system, speaker: "S1", start: 0, end: 5_400, text: verbatim, words: []),
+        ], language: "en")
+        let started = Date()
+        let layout = TranscriptLayout.make(
+            transcript: long, clean: CleanTranscript(segments: [CleanSegment(id: 0, text: cleaned)]),
+            mode: .clean, speakerNames: [:], userName: "Ann", flags: []
+        )
+        #expect(Date().timeIntervalSince(started) < 2)
+        #expect(layout.segments.count == 1)
+        #expect(layout.segments[0].words.isEmpty)
+        #expect(substring(layout, layout.segments[0].text) == cleaned)
+    }
+
     @Test func flaggedSegmentsCarryAMarker() {
         let layout = layout(.verbatim, flags: [Flag(offset: 11)])
         let segment = layout.segments[2]

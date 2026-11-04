@@ -46,11 +46,16 @@ public final class RecapDocument {
         save(after)
     }
 
+    /// Registers the run as one "Typing" step. Inside an enclosing group (the window's event group), that group is
+    /// sealed, so whatever registers next in the same event is a step of its own.
     public func endTyping(undoManager: UndoManager?) {
         guard let run = typingRun else { return }
         typingRun = nil
         guard summary != run.start else { return }
         registerUndo(restoring: run.start, actionName: "Typing", undoManager: undoManager)
+        guard let undoManager, undoManager.groupingLevel == 1, !undoManager.isUndoing, !undoManager.isRedoing else { return }
+        undoManager.endUndoGrouping()
+        undoManager.beginUndoGrouping()
     }
 
     public func replace(with summary: Summary, undoManager: UndoManager?) {

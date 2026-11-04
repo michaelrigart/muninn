@@ -151,7 +151,7 @@ private struct CopyAllButton: View {
     }
 }
 
-private extension View {
+extension View {
     /// A tooltip only when there is something to say, so an enabled control has none.
     @ViewBuilder
     func help(ifPresent reason: String?) -> some View {

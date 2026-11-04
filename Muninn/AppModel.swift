@@ -132,7 +132,8 @@ final class AppModel: ObservableObject {
     private var calendarTask: Task<Void, Never>?
     /// Meetings already announced this session; processing or regenerating one on request lets it announce again.
     private var notified: Set<MeetingID> = []
-    /// Meetings deleted this session. A pipeline callback that is still in flight for one of them is dropped.
+    /// Meetings deleted or moved to the Trash, cleared again when a reload lists them. A pipeline callback that is still
+    /// in flight for one of them is dropped.
     var deletedIDs: Set<MeetingID> = []
     /// Set once the "choose your vault" notice has been shown for auto-filing, so it appears once per session.
     var vaultNoticeShown = false
