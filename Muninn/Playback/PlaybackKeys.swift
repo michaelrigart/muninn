@@ -3,7 +3,8 @@ import MuninnCore
 import SwiftUI
 
 /// The playback keys for the window it is in: Space plays and pauses, ← and → skip 15 s, ⇧← and ⇧→ go to the previous
-/// and next segment. They leave text being edited alone, and any key with ⌘, ⌥ or ⌃.
+/// and next segment. They leave text being edited and keyboard-focused controls alone (lists excepted), and any key with
+/// ⌘, ⌥ or ⌃.
 struct PlaybackKeys: NSViewRepresentable {
     let player: MeetingPlayer
 
@@ -50,6 +51,7 @@ final class PlaybackKeyView: NSView {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard modifiers.isDisjoint(with: [.command, .option, .control]) else { return false }
         if let text = window.firstResponder as? NSTextView, text.isEditable { return false }
+        if let control = window.firstResponder as? NSControl, !(control is NSTableView) { return false }
         let shift = modifiers.contains(.shift)
 
         switch event.specialKey {

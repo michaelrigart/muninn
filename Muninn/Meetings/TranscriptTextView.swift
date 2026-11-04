@@ -25,16 +25,21 @@ final class TranscriptController: ObservableObject {
     private var tint: NSRange?
     private var tintToken = 0
     private var position: ReadAlongPosition?
+    /// The playback time while read-along is on, else nil.
+    private var time: TimeInterval?
     private var followRequested = false
     /// The ranges that carry a temporary background now.
     private var marked: [NSRange] = []
 
+    /// A new text view follows playback as soon as it is laid out; a rebuild of the same view follows only while playing,
+    /// so a rename or a mode switch while paused keeps the owner's place.
     func attach(_ textView: TranscriptNSTextView, layout: TranscriptLayout) {
         tintToken += 1
         tint = nil
         position = nil
         marked = []
         textView.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
+        if self.textView !== textView { followRequested = following }
         self.textView = textView
         self.layout = layout
         carryOutPendingReveal()
@@ -74,6 +79,7 @@ final class TranscriptController: ObservableObject {
 
     /// Marks the segment and word spoken at `time`, or nothing when `time` is nil; only a changed position redraws.
     func readAlong(at time: TimeInterval?) {
+        self.time = time
         let position = time.flatMap { layout?.position(at: $0) }
         guard position != self.position else { return }
         self.position = position
@@ -109,13 +115,22 @@ final class TranscriptController: ObservableObject {
         startTint(segment.text)
     }
 
-    /// Brings the current segment to the centre when it is outside the middle of the visible rect.
+    /// Brings the current segment to the centre when it is outside the middle of the visible rect; in a gap between
+    /// segments, the latest one that started, or the first one before any has.
     private func follow() {
-        guard following, let position, let layout, let textView, canScroll,
-              layout.segments.indices.contains(position.segment) else { return }
+        guard following, let time, let layout, let textView, canScroll else { return }
+        let index = position.map(\.segment) ?? Self.latestStarted(at: time, in: layout)
+        guard let index, layout.segments.indices.contains(index) else { return }
         followRequested = false
-        let segment = layout.segments[position.segment]
-        textView.keepInMiddle(segment.line, focus: wordRange(position, in: layout) ?? segment.line)
+        let segment = layout.segments[index]
+        let word = position.flatMap { wordRange($0, in: layout) }
+        textView.keepInMiddle(segment.line, focus: word ?? segment.line)
+    }
+
+    private static func latestStarted(at time: TimeInterval, in layout: TranscriptLayout) -> Int? {
+        let segments = layout.segments
+        let started = segments.indices.filter { segments[$0].start <= time }
+        return started.max { segments[$0].start < segments[$1].start } ?? segments.indices.min { segments[$0].start < segments[$1].start }
     }
 
     private func startTint(_ range: NSRange) {
@@ -278,9 +293,12 @@ struct TranscriptTextView: NSViewRepresentable {
                 flags: inputs.flags
             )
             let margin = TranscriptStyle.margin(for: layout)
-            textView.columnWidth = Theme.readingWidth + margin
-            textView.textStorage?.setAttributedString(TranscriptStyle.text(layout, colours: SpeakerColours.indices(for: inputs.transcript), margin: margin))
-            textView.restore(anchor, in: layout)
+            let text = TranscriptStyle.text(layout, colours: SpeakerColours.indices(for: inputs.transcript), margin: margin)
+            textView.scrollingItself {
+                textView.columnWidth = Theme.readingWidth + margin
+                textView.textStorage?.setAttributedString(text)
+                textView.restore(anchor, in: layout)
+            }
             parent.controller.attach(textView, layout: layout)
             if let player { readAlong(at: player.clock.time) }
         }
@@ -384,24 +402,24 @@ struct SpeakerRenameForm: View {
     }
 }
 
-/// The scroll view around the transcript; it reports scrolling by the owner (wheel, trackpad or scroller), never
-/// scrolling by the app.
+/// The scroll view around the transcript; it reports scrolling by the owner (wheel, trackpad, scroller, keys or find),
+/// never scrolling by the app: any move of the clip view's origin that the view didn't make itself.
 final class TranscriptScrollView: NSScrollView {
     var onUserScroll: (() -> Void)?
     var onLayout: (() -> Void)?
 
+    private var isScrollingItself = false
+    private var lastBounds = NSRect.zero
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        NotificationCenter.default.addObserver(self, selector: #selector(willStartLiveScroll), name: NSScrollView.willStartLiveScrollNotification, object: self)
+        contentView.postsBoundsChangedNotifications = true
+        lastBounds = contentView.bounds
+        NotificationCenter.default.addObserver(self, selector: #selector(boundsDidChange), name: NSView.boundsDidChangeNotification, object: contentView)
     }
 
     required init?(coder: NSCoder) {
         nil
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        super.scrollWheel(with: event)
-        onUserScroll?()
     }
 
     override func layout() {
@@ -409,7 +427,22 @@ final class TranscriptScrollView: NSScrollView {
         onLayout?()
     }
 
-    @objc private func willStartLiveScroll(_ notification: Notification) {
+    /// Runs `body` without reporting the scrolling it does.
+    func scrollingItself(_ body: () -> Void) {
+        let outer = isScrollingItself
+        isScrollingItself = true
+        body()
+        isScrollingItself = outer
+    }
+
+    /// A resize, or a shorter document pulling the origin back to its end, is not the owner scrolling.
+    @objc private func boundsDidChange(_ notification: Notification) {
+        let bounds = contentView.bounds
+        let previous = lastBounds
+        lastBounds = bounds
+        guard !isScrollingItself, bounds.size == previous.size, bounds.minY != previous.minY else { return }
+        let end = max(0, (documentView?.frame.height ?? 0) - bounds.height)
+        if previous.minY > end, abs(bounds.minY - end) < 0.5 { return }
         onUserScroll?()
     }
 }
@@ -514,7 +547,10 @@ final class TranscriptNSTextView: NSTextView {
         guard focusRect.maxY <= band.minY || focusRect.minY >= band.maxY else { return }
         let lineRect = boundingRect(forCharacters: line)
         let target = lineRect.height <= band.height ? lineRect : focusRect
-        scroll(toY: target.midY - clip.bounds.height / 2)
+        let y = target.midY - clip.bounds.height / 2
+        let clamped = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.minX, y: y), size: clip.bounds.size))
+        guard abs(clamped.minY - clip.bounds.minY) >= 0.5 else { return }
+        scroll(toY: y)
     }
 
     struct TopAnchor {
@@ -542,13 +578,24 @@ final class TranscriptNSTextView: NSTextView {
         scroll(toY: boundingRect(forCharacters: layout.segments[index].line).minY - anchor.offset)
     }
 
+    /// Runs `body` without the scroll view reporting the scrolling it does as the owner's.
+    func scrollingItself(_ body: () -> Void) {
+        if let scrollView = enclosingScrollView as? TranscriptScrollView {
+            scrollView.scrollingItself(body)
+        } else {
+            body()
+        }
+    }
+
     private func scroll(toY y: CGFloat) {
         guard let scrollView = enclosingScrollView else { return }
-        sizeToFit()
-        let clip = scrollView.contentView
-        let target = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.minX, y: y), size: clip.bounds.size))
-        clip.scroll(to: target.origin)
-        scrollView.reflectScrolledClipView(clip)
+        scrollingItself {
+            sizeToFit()
+            let clip = scrollView.contentView
+            let target = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.minX, y: y), size: clip.bounds.size))
+            clip.scroll(to: target.origin)
+            scrollView.reflectScrolledClipView(clip)
+        }
     }
 }
 
