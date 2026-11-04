@@ -61,8 +61,14 @@ struct EventChip: View {
         }
         .buttonStyle(.token)
         .disabled(changing || !canChange)
-        .help(canChange ? "Choose the calendar event for this meeting" : "The event can't be changed once a draft or note exists")
+        .help(helpText)
         .popover(isPresented: $showing, arrowEdge: .bottom) { chooser }
+    }
+
+    private var helpText: String {
+        if !canChange { return "The event can't be changed once a draft or note exists" }
+        if changing { return "Wait for the event change" }
+        return "Choose the calendar event for this meeting"
     }
 
     private var chip: Token {
@@ -93,7 +99,7 @@ struct EventChip: View {
             if loading {
                 ProgressView().controlSize(.small)
             } else if otherEvents.isEmpty && failures.isEmpty {
-                Text("No events within two hours of the start")
+                Text(meeting.candidateEvents.isEmpty ? "No events within two hours of the start" : "No other events within two hours of the start")
                     .font(Theme.interface)
                     .foregroundStyle(Theme.secondaryText)
             }
@@ -111,10 +117,12 @@ struct EventChip: View {
                     showInActivity: { model.showInActivity(failure) }
                 )
             }
-            Divider()
-            Button("No event", action: clearEvent)
-                .buttonStyle(.plain)
-                .font(Theme.interface)
+            if meeting.association != nil || !meeting.candidateEvents.isEmpty {
+                Divider()
+                Button("No event", action: clearEvent)
+                    .buttonStyle(.plain)
+                    .font(Theme.interface)
+            }
         }
         .padding(Space.m)
         .frame(minWidth: 280, maxWidth: 420, alignment: .leading)
@@ -237,7 +245,7 @@ struct DetailsChip: View {
         }
         .font(Theme.interface)
         .padding(Space.m)
-        .frame(width: 320)
+        .frame(minWidth: 320)
     }
 
     private var accountBinding: Binding<String?> {
@@ -266,7 +274,7 @@ struct DetailsChip: View {
             question = "Remove the account from this meeting?"
         }
         let eventAccount = meeting.association.map { association in
-            accounts.first(where: { $0.id == association.accountID })?.displayName ?? association.accountID
+            accounts.first(where: { $0.id == association.accountID })?.displayName ?? "a removed account"
         } ?? ""
         return Alerts.ask(
             question,

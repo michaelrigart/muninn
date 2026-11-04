@@ -97,3 +97,15 @@ func darkRoleTextMeetsAA(_ colour: RGB) {
     #expect(SpeakerColours.personIndex(name: "Bob Example", email: "") == 4)
     #expect(SpeakerColours.personIndex(name: "", email: "ann.example@example.com") == 3)
 }
+
+@Test func tertiaryAndAttentionTextMeetAAOnTheirChipFills() {
+    let lightNeutral = Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentLight)
+    let darkNeutral = Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentDark)
+    let lightAttention = Contrast.composite(Palette.attentionFillLight, alpha: Palette.softLight, over: Palette.contentLight)
+    let darkAttention = Contrast.composite(Palette.attentionDark, alpha: Palette.softDark, over: Palette.contentDark)
+
+    #expect(Contrast.ratio(Palette.tertiaryTextLight, lightNeutral) >= 4.5)
+    #expect(Contrast.ratio(Palette.tertiaryTextDark, darkNeutral) >= 4.5)
+    #expect(Contrast.ratio(Palette.attentionTextLight, lightAttention) >= 4.5)
+    #expect(Contrast.ratio(Palette.attentionDark, darkAttention) >= 4.5)
+}

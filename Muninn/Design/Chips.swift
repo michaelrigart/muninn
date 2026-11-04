@@ -56,7 +56,13 @@ struct Token: View {
         .foregroundStyle(foreground)
         .padding(.horizontal, Space.s)
         .padding(.vertical, Space.xs)
-        .background(background, in: RoundedRectangle(cornerRadius: Radius.chip))
+        .background {
+            let shape = RoundedRectangle(cornerRadius: Radius.chip)
+            ZStack {
+                shape.fill(Theme.contentBackground)
+                shape.fill(fill)
+            }
+        }
     }
 
     private var foreground: Color {
@@ -67,7 +73,7 @@ struct Token: View {
         }
     }
 
-    private var background: Color {
+    private var fill: Color {
         role == .attention ? Theme.attentionSoft : Theme.neutralSoft
     }
 }
