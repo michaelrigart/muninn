@@ -283,7 +283,7 @@ struct TranscriptTextView: NSViewRepresentable {
             )
             guard inputs != self.inputs else { return }
             self.inputs = inputs
-            let anchor = textView.topAnchor(in: parent.controller.layout)
+            let previous = parent.controller.layout
             let layout = TranscriptLayout.make(
                 transcript: inputs.transcript,
                 clean: inputs.clean,
@@ -295,6 +295,7 @@ struct TranscriptTextView: NSViewRepresentable {
             let margin = TranscriptStyle.margin(for: layout)
             let text = TranscriptStyle.text(layout, colours: SpeakerColours.indices(for: inputs.transcript), margin: margin)
             textView.scrollingItself {
+                let anchor = textView.topAnchor(in: previous)
                 textView.columnWidth = Theme.readingWidth + margin
                 textView.textStorage?.setAttributedString(text)
                 textView.restore(anchor, in: layout)
@@ -446,13 +447,16 @@ final class TranscriptScrollView: NSScrollView {
         scrollingItself { super.findBarViewDidChangeHeight() }
     }
 
-    /// Runs `body` without reporting the scrolling it does.
-    func scrollingItself(_ body: () -> Void) {
+    /// Runs `body` without reporting the scrolling it does, or the origin shifts that layout it forces makes.
+    @discardableResult
+    func scrollingItself<Result>(_ body: () -> Result) -> Result {
         let outer = isScrollingItself
         isScrollingItself = true
-        body()
-        isScrollingItself = outer
-        lastBounds = contentView.bounds
+        defer {
+            isScrollingItself = outer
+            lastBounds = contentView.bounds
+        }
+        return body()
     }
 
     @objc private func boundsDidChange(_ notification: Notification) {
@@ -534,19 +538,25 @@ final class TranscriptNSTextView: NSTextView {
         let point = convert(event.locationInWindow, from: nil)
         let origin = textContainerOrigin
         let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
-        let glyph = layoutManager.glyphIndex(for: local, in: textContainer)
-        let used = layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
-        guard used.contains(local) else { return nil }
-        return layoutManager.characterIndexForGlyph(at: glyph)
+        return scrollingItself { () -> Int? in
+            let glyph = layoutManager.glyphIndex(for: local, in: textContainer)
+            let used = layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+            guard used.contains(local) else { return nil }
+            return layoutManager.characterIndexForGlyph(at: glyph)
+        }
     }
 
-    /// The characters' bounding rectangle in the view's coordinates, laying out only that range.
+    /// The characters' bounding rectangle in the view's coordinates, laying out only that range. Laying out corrects
+    /// the estimated heights before it, and AppKit then moves the origin to keep the visible text still: that is the
+    /// view's own scrolling, not the owner's.
     func boundingRect(forCharacters range: NSRange) -> NSRect {
         guard let layoutManager, let textContainer else { return .zero }
-        layoutManager.ensureLayout(forCharacterRange: range)
-        let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-        return layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
-            .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        return scrollingItself {
+            layoutManager.ensureLayout(forCharacterRange: range)
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            return layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+        }
     }
 
     func centre(_ range: NSRange) {
@@ -558,11 +568,11 @@ final class TranscriptNSTextView: NSTextView {
     /// when the line is taller than that half.
     func keepInMiddle(_ line: NSRange, focus: NSRange) {
         guard let clip = enclosingScrollView?.contentView else { return }
+        let focusRect = boundingRect(forCharacters: focus)
+        let lineRect = boundingRect(forCharacters: line)
         let visible = clip.documentVisibleRect
         let band = visible.insetBy(dx: 0, dy: visible.height / 4)
-        let focusRect = boundingRect(forCharacters: focus)
         guard focusRect.maxY <= band.minY || focusRect.minY >= band.maxY else { return }
-        let lineRect = boundingRect(forCharacters: line)
         let target = lineRect.height <= band.height ? lineRect : focusRect
         let y = target.midY - clip.bounds.height / 2
         let clamped = clip.constrainBoundsRect(NSRect(origin: NSPoint(x: clip.bounds.minX, y: y), size: clip.bounds.size))
@@ -581,10 +591,13 @@ final class TranscriptNSTextView: NSTextView {
     func topAnchor(in layout: TranscriptLayout?) -> TopAnchor? {
         guard let layout, let layoutManager, let textContainer, window != nil,
               visibleRect.minY > 0, layoutManager.numberOfGlyphs > 0 else { return nil }
-        let top = NSPoint(x: 0, y: max(0, visibleRect.minY - textContainerOrigin.y))
-        let offset = layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: top, in: textContainer))
-        guard let segment = layout.segments.first(where: { NSMaxRange($0.line) >= offset }) else { return nil }
-        return TopAnchor(segmentID: segment.segmentID, start: segment.start, offset: boundingRect(forCharacters: segment.line).minY - visibleRect.minY)
+        return scrollingItself { () -> TopAnchor? in
+            let top = NSPoint(x: 0, y: max(0, visibleRect.minY - textContainerOrigin.y))
+            let offset = layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: top, in: textContainer))
+            guard let segment = layout.segments.first(where: { NSMaxRange($0.line) >= offset }) else { return nil }
+            let lineTop = boundingRect(forCharacters: segment.line).minY
+            return TopAnchor(segmentID: segment.segmentID, start: segment.start, offset: lineTop - visibleRect.minY)
+        }
     }
 
     /// Puts the anchor's segment back where it was; a segment this view doesn't show is replaced by the next one.
@@ -595,13 +608,11 @@ final class TranscriptNSTextView: NSTextView {
         scroll(toY: boundingRect(forCharacters: layout.segments[index].line).minY - anchor.offset)
     }
 
-    /// Runs `body` without the scroll view reporting the scrolling it does as the owner's.
-    func scrollingItself(_ body: () -> Void) {
-        if let scrollView = enclosingScrollView as? TranscriptScrollView {
-            scrollView.scrollingItself(body)
-        } else {
-            body()
-        }
+    /// Runs `body` without the scroll view reporting the scrolling it does, or the layout it forces, as the owner's.
+    @discardableResult
+    func scrollingItself<Result>(_ body: () -> Result) -> Result {
+        guard let scrollView = enclosingScrollView as? TranscriptScrollView else { return body() }
+        return scrollView.scrollingItself(body)
     }
 
     private func scroll(toY y: CGFloat) {
