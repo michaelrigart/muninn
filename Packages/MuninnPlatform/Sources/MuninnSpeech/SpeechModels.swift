@@ -17,6 +17,14 @@ public enum SpeechModelID: String, CaseIterable, Sendable {
         return .parakeetV3
     }
 
+    public var displayName: String {
+        switch self {
+        case .parakeetV3: "Parakeet v3"
+        case .parakeetUltra: "Parakeet Ultra"
+        case .whisperLargeV3Turbo: "Whisper large v3 turbo"
+        }
+    }
+
     var parakeetVersion: AsrModelVersion? {
         switch self {
         case .parakeetV3: .v3
@@ -84,7 +92,12 @@ enum ParakeetModels {
     private static let ctc = KeyedLoadOnce<String, CtcModels>()
 
     static func models(for version: AsrModelVersion) async throws -> AsrModels {
-        try await models.value(for: version) { try await AsrModels.downloadAndLoad(version: version) }
+        let name = SpeechModelID.allCases.first { $0.parakeetVersion == version }?.displayName ?? "the speech model"
+        return try await models.value(for: version) {
+            try await SpeechModelActivity.shared.run(name) { report in
+                try await AsrModels.downloadAndLoad(version: version, progressHandler: { report($0.fractionCompleted) })
+            }
+        }
     }
 
     static func manager(for version: AsrModelVersion) async throws -> AsrManager {
@@ -96,6 +109,8 @@ enum ParakeetModels {
     }
 
     static func ctcModels() async throws -> CtcModels {
-        try await ctc.value(for: "ctc110m") { try await CtcModels.downloadAndLoad() }
+        try await ctc.value(for: "ctc110m") {
+            try await SpeechModelActivity.shared.run("the vocabulary model") { _ in try await CtcModels.downloadAndLoad() }
+        }
     }
 }
