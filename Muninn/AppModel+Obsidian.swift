@@ -7,7 +7,7 @@ private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "
 extension AppModel {
     func exportToObsidian(_ id: MeetingID) {
         Task {
-            await perform(.filingNote, for: id) {
+            await perform(.filingNote, for: id, retry: .note) {
                 _ = try await export(id, askToOverwrite: true)
             }
         }
@@ -47,7 +47,7 @@ extension AppModel {
         case .file:
             break
         }
-        await perform(.filingNote, for: id) {
+        await perform(.filingNote, for: id, retry: .note) {
             if try await !export(id, askToOverwrite: false) {
                 logger.info("Not auto-filing \(id.rawValue, privacy: .public): a note already exists")
             }

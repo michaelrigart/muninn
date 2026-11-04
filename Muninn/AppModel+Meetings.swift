@@ -173,7 +173,7 @@ extension AppModel {
     func chooseEvent(_ ref: CalendarEventRef, for id: MeetingID) async {
         guard eventChangesInFlight.insert(id).inserted else { return }
         var applied = false
-        await perform(.changingEvent, for: id) {
+        await perform(.changingEvent, for: id, retry: nil) {
             guard !isDraftOrExportRunning(id) else { throw MeetingActionError.draftOrExportInProgress }
             guard let account = settings.accounts.first(where: { $0.id == ref.accountID }) else {
                 throw MeetingActionError.unknownAccount
@@ -225,7 +225,7 @@ extension AppModel {
     /// Creates the draft in Outlook with `subject`, or the usual recap subject when it is nil or blank.
     func createDraft(_ id: MeetingID, subject: String? = nil) async -> DraftOutcome {
         var outcome = DraftOutcome.failed
-        await perform(.creatingDraft, for: id) {
+        await perform(.creatingDraft, for: id, retry: .draft(subject: subject)) {
             guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
             let meeting = try store.load(id)
             guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
@@ -304,7 +304,8 @@ extension AppModel {
     }
 
     /// Runs one user-visible action per meeting at a time; a failure lands in `actionErrors` for the meeting's problem card.
-    func perform(_ stage: ProblemStage, for id: MeetingID, _ body: () async throws -> Void) async {
+    /// `retry` is what the problem card's "Try again" runs after a failure; nil leaves the card without one.
+    func perform(_ stage: ProblemStage, for id: MeetingID, retry: RetryableAction?, _ body: () async throws -> Void) async {
         let key = Self.actionKey(stage, id)
         guard actionsInFlight.insert(key).inserted else { return }
         defer { actionsInFlight.remove(key) }
@@ -316,12 +317,12 @@ extension AppModel {
             try await body()
         } catch {
             logger.error("Couldn't run \(stage.rawValue, privacy: .public) for \(id.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
-            report(error, stage: stage, for: id)
+            report(error, stage: stage, retry: retry, for: id)
         }
     }
 
     /// Shows what went wrong with a meeting's action as a problem card and records it. A cancellation is not a failure.
-    func report(_ error: Error, stage: ProblemStage, for id: MeetingID) {
+    func report(_ error: Error, stage: ProblemStage, retry: RetryableAction? = nil, for id: MeetingID) {
         guard !ActivityCenter.isCancellation(error) else { return }
         let meeting = meetings.first { $0.id == id }
         let context = ProblemContext(
@@ -331,16 +332,22 @@ extension AppModel {
         )
         let problem = ProblemTranslator.problem(for: error, in: context)
         actionErrors[id] = problem
-        failedActions[id] = [.creatingDraft, .filingNote].contains(stage) ? stage : nil
+        failedActions[id] = retry
         activity.record(problem, area: stage.area, meeting: meeting)
+    }
+
+    /// What a failed draft or export needs to run again.
+    enum RetryableAction: Equatable {
+        case draft(subject: String?)
+        case note
     }
 
     /// Runs the draft or the export that failed again.
     func retryAction(_ id: MeetingID) {
         switch failedActions[id] {
-        case .creatingDraft: Task { _ = await createDraft(id) }
-        case .filingNote: exportToObsidian(id)
-        default: break
+        case .draft(let subject): Task { _ = await createDraft(id, subject: subject) }
+        case .note: exportToObsidian(id)
+        case nil: break
         }
     }
 

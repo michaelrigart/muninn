@@ -89,8 +89,8 @@ final class AppModel: ObservableObject {
     @Published var actionNotices: [MeetingID: Problem] = [:]
     /// The last draft or filed note per meeting, shown as that meeting's success card until it is dismissed or another action starts.
     @Published var actionSuccesses: [MeetingID: ActionSuccess] = [:]
-    /// The stage of a failed draft or export, so the problem card can run it again.
-    @Published var failedActions: [MeetingID: ProblemStage] = [:]
+    /// What to run again for a failed draft or export, so the problem card can retry it.
+    @Published var failedActions: [MeetingID: RetryableAction] = [:]
     /// Recap edits that couldn't be saved, per meeting, kept until a save succeeds.
     @Published var unsavedSummaries: [MeetingID: UnsavedSummary] = [:]
     /// Accounts whose stored sign-in Microsoft rejected during the last calendar refresh.
