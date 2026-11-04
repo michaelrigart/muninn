@@ -107,16 +107,19 @@ public enum CaptureMode: Codable, Hashable, Sendable {
 
 public enum WaitReason: String, Codable, Hashable, Sendable {
     case studioUnreachable, studioNotConfigured, memoryPressure, claudeKeyMissing, recording
+    case thisMacUnreachable, claudeKeyUnreadable
+    /// The wait has cleared and the meeting is waiting its turn. The engine selector never returns it.
+    case queued
 }
 
 public enum ProcessingStatus: Codable, Hashable, Sendable {
     case recording, transcribing, diarizing, cleaning, summarizing
     case waiting(WaitReason)
     case ready
-    case failed(String)
+    case failed(Problem)
 
     private enum CodingKeys: String, CodingKey {
-        case type, reason, message
+        case type, reason, problem
     }
 
     public init(from decoder: Decoder) throws {
@@ -129,7 +132,7 @@ public enum ProcessingStatus: Codable, Hashable, Sendable {
         case "summarizing": self = .summarizing
         case "waiting": self = .waiting(try container.decode(WaitReason.self, forKey: .reason))
         case "ready": self = .ready
-        case "failed": self = .failed(try container.decode(String.self, forKey: .message))
+        case "failed": self = .failed((try? container.decode(Problem.self, forKey: .problem)) ?? Problems.legacyFailure())
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown status \(other)")
         }
@@ -147,9 +150,9 @@ public enum ProcessingStatus: Codable, Hashable, Sendable {
             try container.encode("waiting", forKey: .type)
             try container.encode(reason, forKey: .reason)
         case .ready: try container.encode("ready", forKey: .type)
-        case .failed(let message):
+        case .failed(let problem):
             try container.encode("failed", forKey: .type)
-            try container.encode(message, forKey: .message)
+            try container.encode(problem, forKey: .problem)
         }
     }
 }
@@ -221,7 +224,9 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
     public var speakerNames: [String: String]
     public var status: ProcessingStatus
     public var summaryEngine: EngineKind?
-    public var engineNotice: String?
+    public var engineNotice: Problem?
+    /// What went wrong with the transcript itself, such as speakers that couldn't be told apart.
+    public var transcriptNotice: Problem?
     public var exportedNotePath: String?
     public var draftWebLink: String?
     public var metrics: ProcessingMetrics
@@ -248,13 +253,14 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         speakerNames: [String: String],
         status: ProcessingStatus,
         summaryEngine: EngineKind?,
-        engineNotice: String?,
+        engineNotice: Problem?,
         exportedNotePath: String?,
         draftWebLink: String?,
         metrics: ProcessingMetrics,
         requestedEngine: EngineKind? = nil,
         draftID: String? = nil,
-        timeZone: String? = nil
+        timeZone: String? = nil,
+        transcriptNotice: Problem? = nil
     ) {
         self.id = id
         self.title = title
@@ -279,6 +285,7 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         self.requestedEngine = requestedEngine
         self.draftID = draftID
         self.timeZone = timeZone
+        self.transcriptNotice = transcriptNotice
     }
 
     public init(from decoder: Decoder) throws {
@@ -299,12 +306,50 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         speakerNames = try c.decode([String: String].self, forKey: .speakerNames)
         status = try c.decode(ProcessingStatus.self, forKey: .status)
         summaryEngine = try c.decodeIfPresent(EngineKind.self, forKey: .summaryEngine)
-        engineNotice = try c.decodeIfPresent(String.self, forKey: .engineNotice)
+        let storedTranscriptNotice = try? c.decodeIfPresent(Problem.self, forKey: .transcriptNotice)
+        let mode = captureMode
+        let legacy = (try? c.decodeIfPresent(String.self, forKey: .engineNotice)).map { Self.legacyNotices(from: $0, mode: mode) }
+        engineNotice = (try? c.decodeIfPresent(Problem.self, forKey: .engineNotice)) ?? legacy?.engine
+        transcriptNotice = storedTranscriptNotice ?? legacy?.transcript
         exportedNotePath = try c.decodeIfPresent(String.self, forKey: .exportedNotePath)
         draftWebLink = try c.decodeIfPresent(String.self, forKey: .draftWebLink)
         metrics = try c.decode(ProcessingMetrics.self, forKey: .metrics)
         requestedEngine = try c.decodeIfPresent(EngineKind.self, forKey: .requestedEngine)
         draftID = try c.decodeIfPresent(String.self, forKey: .draftID)
         timeZone = try? c.decodeIfPresent(String.self, forKey: .timeZone)
+    }
+}
+
+extension Meeting {
+    private static let callDiarisationSentence = "Couldn't tell the other speakers apart; the call side is one speaker."
+    private static let micDiarisationSentence = "Couldn't tell the speakers apart; the conversation is one speaker."
+
+    /// Splits a notice saved as text by an earlier version into the problems it stood for, keeping none of its words.
+    private static func legacyNotices(from text: String, mode: CaptureMode) -> (engine: Problem?, transcript: Problem?) {
+        var rest = text
+        var transcript: Problem?
+        for sentence in [callDiarisationSentence, micDiarisationSentence] where rest.contains(sentence) {
+            rest = rest.replacingOccurrences(of: sentence, with: "")
+            transcript = Problems.diarisationDegraded(mode: mode)
+        }
+        rest = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+        let engine: Problem?
+        if rest.isEmpty {
+            engine = nil
+        } else if rest.contains("summarized on This Mac") {
+            engine = Problems.writtenOnThisMac(because: rest.contains("not set up") ? .studioNotConfigured : .studioUnreachable)
+        } else {
+            engine = Problems.legacyEngineNotice()
+        }
+        return (engine, transcript)
+    }
+
+    /// True when the meeting is waiting on the user: it failed, it is held for something only they can fix, or its recap is stale.
+    public var needsAttention: Bool {
+        switch status {
+        case .failed: true
+        case .waiting(let reason): reason.needsYou
+        default: engineNotice?.severity == .problem
+        }
     }
 }

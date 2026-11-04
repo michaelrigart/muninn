@@ -112,6 +112,52 @@ struct SummaryTests {
         #expect(!request.user.contains("me@example.com"))
     }
 
+    private static let unsourcedReply = #"{"language":"en","subjects":[{"title":"Release","bullets":[{"text":"Ship Friday","sources":[99]}],"actions":[]}]}"#
+    private static let sourcedReply = #"{"language":"en","subjects":[{"title":"Release","bullets":[{"text":"Ship Friday","sources":[3]}],"actions":[]}]}"#
+
+    @Test func retryIsRecordedWithTheMeeting() async throws {
+        let client = ScriptedClient([.success(Self.unsourcedReply), .success(Self.sourcedReply)])
+        let activity = RecordingActivity()
+        let summarizer = LLMSummarizer(clientFor: { _ in client }, now: { Self.now }, activity: activity)
+        let scope = ActivityMeeting(id: MeetingID(rawValue: "m1"), title: "Sync")
+        _ = try await ActivityScope.$meeting.withValue(scope) {
+            try await summarizer.summarize(meeting: Self.meeting(), transcript: Self.transcript, clean: Self.clean, engine: .macbook)
+        }
+        let entry = try #require(activity.entries.first)
+        #expect(activity.entries.count == 1)
+        #expect(entry.level == .info)
+        #expect(entry.area == .recap)
+        #expect(entry.message == "Asked This Mac again: the first recap missed flagged moments or sources")
+        #expect(entry.meeting == scope)
+    }
+
+    @Test func failedRetryIsRecordedAndTheFirstRecapKept() async throws {
+        let failure = LLMError.http(status: 529, category: .overloaded, request: RequestFacts(method: "POST", path: "/v1/messages"))
+        let client = ScriptedClient([.success(Self.unsourcedReply), .failure(failure)])
+        let activity = RecordingActivity()
+        let summarizer = LLMSummarizer(clientFor: { _ in client }, now: { Self.now }, activity: activity)
+        _ = try await summarizer.summarize(meeting: Self.meeting(), transcript: Self.transcript, clean: Self.clean, engine: .claude)
+        #expect(activity.entries.map(\.message) == [
+            "Asked Claude again: the first recap missed flagged moments or sources",
+            "The second attempt failed; Muninn kept the first recap",
+        ])
+        let failed = try #require(activity.entries.last)
+        #expect(failed.level == .warning)
+        #expect(failed.area == .recap)
+        #expect(failed.meeting == nil)
+        #expect(failed.details?.httpStatus == 529)
+        #expect(failed.details?.stage == .writingRecap)
+        #expect(failed.details?.engine == .claude)
+    }
+
+    @Test func cleanRecapRecordsNothing() async throws {
+        let client = ScriptedClient([.success(Self.sourcedReply)])
+        let activity = RecordingActivity()
+        let summarizer = LLMSummarizer(clientFor: { _ in client }, now: { Self.now }, activity: activity)
+        _ = try await summarizer.summarize(meeting: Self.meeting(), transcript: Self.transcript, clean: Self.clean, engine: .macbook)
+        #expect(activity.entries.isEmpty)
+    }
+
     @Test func flaggedLine() {
         let meeting = Self.meeting(flags: [Flag(offset: 70), Flag(offset: 110)])
         let request = SummaryRequestBuilder.build(meeting: meeting, transcript: Self.transcript, clean: Self.clean)
@@ -209,7 +255,7 @@ struct SummaryTests {
     }
 
     @Test func parserThrowsOnProse() {
-        #expect(throws: SummaryParseError.notJSON("No JSON object in the reply")) {
+        #expect(throws: SummaryParseError.notJSON) {
             try SummaryParser.parse("I could not summarise this.", transcript: Self.transcript, flags: [], engine: .claude, now: Self.now)
         }
         do {

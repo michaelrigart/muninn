@@ -38,12 +38,14 @@ public struct LLMTranscriptCleaner: TranscriptCleaning {
     /// Once LLM cleanup has run this long (seconds), the remaining batches use the rule cleaner.
     let budget: TimeInterval
     let clock: @Sendable () -> Date
+    let activity: ActivityRecording
 
-    public init(client: LLMClient, batchSize: Int = 40, budget: TimeInterval = 180, clock: @escaping @Sendable () -> Date = { Date() }) {
+    public init(client: LLMClient, batchSize: Int = 40, budget: TimeInterval = 180, clock: @escaping @Sendable () -> Date = { Date() }, activity: ActivityRecording = NoActivity()) {
         self.client = client
         self.batchSize = max(1, batchSize)
         self.budget = budget
         self.clock = clock
+        self.activity = activity
     }
 
     private struct Reply: Decodable {
@@ -58,7 +60,10 @@ public struct LLMTranscriptCleaner: TranscriptCleaning {
         while start < transcript.segments.count {
             let batch = Array(transcript.segments[start..<min(start + batchSize, transcript.segments.count)])
             start += batch.count
-            if engineUsable, clock().timeIntervalSince(began) >= budget { engineUsable = false }
+            if engineUsable, clock().timeIntervalSince(began) >= budget {
+                engineUsable = false
+                record(.info, "Cleanup took too long; the rest used the rule cleaner")
+            }
             var proposed: [Int: String] = [:]
             if engineUsable {
                 if let reply = try await propose(batch) {
@@ -76,6 +81,10 @@ public struct LLMTranscriptCleaner: TranscriptCleaning {
             }
         }
         return CleanTranscript(segments: cleaned)
+    }
+
+    private func record(_ level: ActivityLevel, _ message: String, details: ProblemDetails? = nil) {
+        activity.record(ActivityEntry(time: clock(), level: level, area: .transcription, meeting: ActivityScope.meeting, message: message, details: details))
     }
 
     private static func accepts(_ text: String, verbatim: String, rules: String) -> Bool {
@@ -101,6 +110,8 @@ public struct LLMTranscriptCleaner: TranscriptCleaning {
         } catch where LLMTransport.isCancellation(error) {
             throw error
         } catch {
+            let details = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .cleaningUp)).details
+            record(.warning, "Cleanup fell back to the rule cleaner", details: details)
             return nil
         }
         guard let object = LLMTransport.outermostJSONObject(in: reply),

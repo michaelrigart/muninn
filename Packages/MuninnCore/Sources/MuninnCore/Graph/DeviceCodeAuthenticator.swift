@@ -3,8 +3,9 @@ import Foundation
 public enum GraphError: Error, Equatable {
     case notSignedIn
     case auth(String)
-    case http(Int, String)
-    case decoding(String)
+    case http(status: Int, code: String?, request: RequestFacts)
+    case connection(code: Int, request: RequestFacts)
+    case decoding
 }
 
 extension GraphError {
@@ -12,8 +13,8 @@ extension GraphError {
     public var isExpiredSignIn: Bool {
         switch self {
         case .auth, .notSignedIn: true
-        case .http(let status, _): status == 401
-        case .decoding: false
+        case .http(let status, _, _): status == 401
+        case .connection, .decoding: false
         }
     }
 }
@@ -23,8 +24,9 @@ extension GraphError: LocalizedError {
         switch self {
         case .notSignedIn: "Not signed in to this account. Sign in again in Settings."
         case .auth(let code): "Microsoft returned \(code)."
-        case .http(let status, let body): body.isEmpty ? "Microsoft Graph returned HTTP \(status)." : "Microsoft Graph returned HTTP \(status): \(body)"
-        case .decoding(let detail): "Unexpected response from Microsoft: \(detail)"
+        case .http(let status, _, _): "Microsoft Graph returned HTTP \(status)."
+        case .connection: "Microsoft can't be reached."
+        case .decoding: "Unexpected response from Microsoft."
         }
     }
 }
@@ -93,14 +95,24 @@ public struct DeviceCodeAuthenticator: Sendable {
         URL(string: "https://login.microsoftonline.com/\(tenant)/oauth2/v2.0/\(name)")!
     }
 
+    private func requestFacts(_ name: String) -> RequestFacts {
+        RequestFacts(method: "POST", path: "/{tenant}/oauth2/v2.0/\(name)", host: "login.microsoftonline.com")
+    }
+
     private func post(_ name: String, form: [(String, String)]) async throws -> (Data, Int) {
         var request = URLRequest(url: endpoint(name))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(GraphQuery.encode(form).utf8)
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code != .cancelled {
+            throw GraphError.connection(code: error.code.rawValue, request: requestFacts(name))
+        }
         guard let http = response as? HTTPURLResponse else {
-            throw GraphError.decoding("The response is not an HTTP response")
+            throw GraphError.decoding
         }
         return (data, http.statusCode)
     }
@@ -111,15 +123,15 @@ public struct DeviceCodeAuthenticator: Sendable {
         do {
             return try decoder.decode(type, from: data)
         } catch {
-            throw GraphError.decoding(String(describing: error))
+            throw GraphError.decoding
         }
     }
 
-    private func failure(_ data: Data, status: Int) -> GraphError {
+    private func failure(_ data: Data, status: Int, endpoint name: String) -> GraphError {
         if let error = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
-            return .auth(error.error)
+            return .auth(ProviderErrorClassifier.oauthCode(error.error))
         }
-        return .http(status, String(String(decoding: data, as: UTF8.self).prefix(500)))
+        return .http(status: status, code: ProviderErrorClassifier.graphCode(in: data), request: requestFacts(name))
     }
 
     public func start() async throws -> DeviceCodePrompt {
@@ -127,7 +139,7 @@ public struct DeviceCodeAuthenticator: Sendable {
             ("client_id", clientID),
             ("scope", Self.scopes.joined(separator: " ")),
         ])
-        guard (200..<300).contains(status) else { throw failure(data, status: status) }
+        guard (200..<300).contains(status) else { throw failure(data, status: status, endpoint: "devicecode") }
         let response = try decode(StartResponse.self, from: data)
         return DeviceCodePrompt(
             userCode: response.userCode,
@@ -157,7 +169,7 @@ public struct DeviceCodeAuthenticator: Sendable {
             case "slow_down":
                 interval += 5
             default:
-                throw failure(data, status: status)
+                throw failure(data, status: status, endpoint: "token")
             }
             await sleep(UInt64(interval) * 1_000_000_000)
         }
@@ -170,7 +182,7 @@ public struct DeviceCodeAuthenticator: Sendable {
             ("refresh_token", refreshToken),
             ("scope", Self.scopes.joined(separator: " ")),
         ])
-        guard (200..<300).contains(status) else { throw failure(data, status: status) }
+        guard (200..<300).contains(status) else { throw failure(data, status: status, endpoint: "token") }
         return try tokens(from: data, keeping: refreshToken)
     }
 

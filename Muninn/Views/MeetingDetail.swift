@@ -17,7 +17,7 @@ struct MeetingDetail: View {
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
     @State private var scrollTarget: Int?
-    @State private var saveError: String?
+    @State private var saveError: Problem?
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
 
@@ -30,14 +30,19 @@ struct MeetingDetail: View {
     var body: some View {
         VStack(spacing: 0) {
             if let saveError {
-                errorBanner("Couldn't save: \(saveError)", dismiss: { self.saveError = nil }, retry: saveRetry)
+                problemCard(saveError, tryAgain: saveRetry, onDismiss: { self.saveError = nil })
             }
             if let actionError = model.actionErrors[meeting.id] {
-                errorBanner(actionError, dismiss: { model.actionErrors[meeting.id] = nil }, retry: nil)
+                problemCard(
+                    actionError,
+                    tryAgain: model.failedActions[meeting.id] == nil ? nil : { model.retryAction(meeting.id) },
+                    onDismiss: { model.actionErrors[meeting.id] = nil }
+                )
             }
             if let notice = model.actionNotices[meeting.id] {
-                noticeBanner(notice, dismiss: { model.actionNotices[meeting.id] = nil })
+                problemCard(notice, onDismiss: { model.actionNotices[meeting.id] = nil })
             }
+            MeetingStatusCards(meeting: meeting)
             MeetingHeader(meeting: meeting, edit: edit, report: report)
             Divider()
             HStack(spacing: 12) {
@@ -66,12 +71,12 @@ struct MeetingDetail: View {
             let id = meeting.id
             if let unsaved = model.unsavedSummaries[id] {
                 summary = unsaved.summary
-                if saveError == nil { saveError = unsaved.error }
+                if saveError == nil { saveError = unsaved.problem }
             } else {
-                summary = try? store.loadSummary(id)
+                summary = model.loadFile("summary.json", for: meeting) { try store.loadSummary(id) }
             }
-            transcript = try? store.loadTranscript(id)
-            clean = try? store.loadClean(id)
+            transcript = model.loadFile("transcript.json", for: meeting) { try store.loadTranscript(id) }
+            clean = model.loadFile("transcript.clean.json", for: meeting) { try store.loadClean(id) }
         }
     }
 
@@ -84,7 +89,18 @@ struct MeetingDetail: View {
     }
 
     private func report(_ error: Error) {
-        saveError = error.localizedDescription
+        show(problem(for: error))
+    }
+
+    private func problem(for error: Error) -> Problem {
+        ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingEdits, subject: "your changes"))
+    }
+
+    private func show(_ problem: Problem) {
+        if saveError != problem {
+            model.activity.record(problem, area: .recap, meeting: meeting)
+        }
+        saveError = problem
     }
 
     private func saveSummary(_ updated: Summary) {
@@ -96,8 +112,9 @@ struct MeetingDetail: View {
             if summaryUnsaved { saveError = nil }
             model.unsavedSummaries[meeting.id] = nil
         } catch {
-            model.unsavedSummaries[meeting.id] = UnsavedSummary(summary: updated, error: error.localizedDescription)
-            report(error)
+            let failure = problem(for: error)
+            model.unsavedSummaries[meeting.id] = UnsavedSummary(summary: updated, problem: failure)
+            show(failure)
         }
     }
 
@@ -112,7 +129,8 @@ struct MeetingDetail: View {
                 report(error)
             } catch let reloadError {
                 summary = nil
-                saveError = "\(error.localizedDescription) \(reloadError.localizedDescription)"
+                model.activity.record(failure: reloadError, in: ProblemContext(stage: .loadingMeetings), meeting: meeting)
+                report(error)
             }
         }
     }
@@ -122,41 +140,15 @@ struct MeetingDetail: View {
         return { saveSummary(summary) }
     }
 
-    private func errorBanner(_ message: String, dismiss: @escaping () -> Void, retry: (() -> Void)?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-            Text(message)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
-            if let retry {
-                Button("Retry", action: retry)
-            }
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .help("Dismiss")
-        }
-        .padding(10)
-        .background(Color.red.opacity(0.12))
-    }
-
-    private func noticeBanner(_ message: String, dismiss: @escaping () -> Void) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "info.circle.fill")
-                .foregroundStyle(.secondary)
-            Text(message)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
-            Button(action: dismiss) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .help("Dismiss")
-        }
-        .padding(10)
-        .background(Color.secondary.opacity(0.12))
+    private func problemCard(_ problem: Problem, tryAgain: (() -> Void)? = nil, onDismiss: @escaping () -> Void) -> some View {
+        ProblemCard(
+            problem: problem,
+            role: problem.severity == .warning ? .attention : nil,
+            handlers: model.problemHandlers(tryAgain: tryAgain),
+            showInActivity: { model.showInActivity(problem, meeting: meeting.id) },
+            onDismiss: onDismiss
+        )
+        .inset()
     }
 
     private func show(segment id: Int) {
@@ -200,8 +192,12 @@ private struct MeetingHeader: View {
                 if let language = meeting.language {
                     Label(language.uppercased(), systemImage: "globe")
                 }
-                Label(meeting.status.label, systemImage: meeting.status.symbol ?? "checkmark.circle")
-                    .foregroundStyle(statusColor)
+                if ProcessingDisplay.needsAttention(meeting, snapshot: model.pipelineSnapshot) {
+                    Label("Needs attention", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(Theme.attentionText)
+                } else if let title = model.progress(for: meeting).title {
+                    Label(title, systemImage: "hourglass")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -256,12 +252,6 @@ private struct MeetingHeader: View {
         return formatter.string(from: end.timeIntervalSince(meeting.startedAt))
     }
 
-    private var statusColor: Color {
-        if case .failed = meeting.status { return .red }
-        if case .waiting = meeting.status { return .orange }
-        return .secondary
-    }
-
     private var accountBinding: Binding<String?> {
         Binding(
             get: { meeting.accountID },
@@ -314,7 +304,7 @@ private struct ChangeEventButton: View {
     @State private var showing = false
     @State private var loading = false
     @State private var events: [CalendarEvent] = []
-    @State private var failures: [String] = []
+    @State private var failures: [Problem] = []
 
     var body: some View {
         Button("Change Event…") { showing = true }
@@ -348,9 +338,12 @@ private struct ChangeEventButton: View {
                 .buttonStyle(.plain)
             }
             ForEach(failures, id: \.self) { failure in
-                Text(failure)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                ProblemCard(
+                    problem: failure,
+                    compact: true,
+                    handlers: failureHandlers,
+                    showInActivity: { model.showInActivity(failure) }
+                )
             }
             Divider()
             Button("No event") {
@@ -366,6 +359,15 @@ private struct ChangeEventButton: View {
         .padding(12)
         .frame(minWidth: 280, maxWidth: 420, alignment: .leading)
         .task { await load() }
+    }
+
+    private var failureHandlers: ProblemHandlers {
+        var handlers = model.problemHandlers(tryAgain: { Task { await load() } })
+        handlers.signInAgain = {
+            showing = false
+            model.showSettings(.accounts)
+        }
+        return handlers
     }
 
     private func isCurrent(_ event: CalendarEvent) -> Bool {

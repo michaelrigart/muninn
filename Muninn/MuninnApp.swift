@@ -79,7 +79,7 @@ struct MuninnApp: App {
                         .accessibilityLabel("Muninn")
                 }
             }
-            .modifier(MeetingsOpener(model: model))
+            .modifier(WindowOpener(model: model))
         }
         .menuBarExtraStyle(.menu)
 
@@ -91,10 +91,21 @@ struct MuninnApp: App {
 
         Window("Live transcript", id: "live-transcript") {
             LiveTranscriptWindow()
+                .environmentObject(model)
                 .environmentObject(recorder)
         }
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 420, height: 480)
+
+        Window("Activity", id: "activity") {
+            ActivityWindowHost()
+                .environmentObject(model)
+                .environmentObject(model.activity)
+                .frame(minWidth: 560, minHeight: 360)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 760, height: 520)
+        .commands { ActivityCommands() }
 
         Settings {
             SettingsView()

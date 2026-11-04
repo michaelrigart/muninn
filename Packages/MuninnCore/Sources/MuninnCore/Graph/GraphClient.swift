@@ -108,12 +108,19 @@ public struct GraphClient: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
         }
-        let (data, response) = try await session.data(for: request)
+        let facts = RequestFacts(method: method, url: url)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code != .cancelled {
+            throw GraphError.connection(code: error.code.rawValue, request: facts)
+        }
         guard let http = response as? HTTPURLResponse else {
-            throw GraphError.decoding("The response is not an HTTP response")
+            throw GraphError.decoding
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw GraphError.http(http.statusCode, String(String(decoding: data, as: UTF8.self).prefix(500)))
+            throw GraphError.http(status: http.statusCode, code: ProviderErrorClassifier.graphCode(in: data), request: facts)
         }
         return data
     }
@@ -122,7 +129,7 @@ public struct GraphClient: Sendable {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw GraphError.decoding(String(describing: error))
+            throw GraphError.decoding
         }
     }
 
@@ -195,7 +202,7 @@ public struct GraphClient: Sendable {
         if let dot = whole.firstIndex(of: ".") {
             let digits = whole[whole.index(after: dot)...]
             guard digits.count <= 7, digits.allSatisfy(\.isNumber), let value = Double("0." + digits) else {
-                throw GraphError.decoding("Unparseable date: \(text)")
+                throw GraphError.decoding
             }
             fraction = value
             whole = String(whole[..<dot])
@@ -205,7 +212,7 @@ public struct GraphClient: Sendable {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         guard let date = formatter.date(from: whole) else {
-            throw GraphError.decoding("Unparseable date: \(text)")
+            throw GraphError.decoding
         }
         return date.addingTimeInterval(fraction)
     }

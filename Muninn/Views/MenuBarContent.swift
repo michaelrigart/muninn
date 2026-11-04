@@ -1,3 +1,4 @@
+import MuninnCore
 import SwiftUI
 
 struct MenuBarContent: View {
@@ -7,8 +8,27 @@ struct MenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        let workLine = ProcessingDisplay.workLine(meetings: model.meetings, snapshot: model.pipelineSnapshot)
+        let attentionLine = ProcessingDisplay.attentionLine(count: model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) }.count)
+        if let workLine {
+            Text(workLine)
+        }
+        if let attentionLine {
+            Button(attentionLine) {
+                model.sidebarFilter = .needsAttention
+                openMeetings()
+            }
+        }
+        if workLine != nil || attentionLine != nil {
+            Divider()
+        }
         if let notice = recorder.notice {
-            Text(notice.message)
+            ForEach(notice.problems, id: \.title) { problem in
+                Text(problem.title)
+            }
+            if let failure = notice.problems.first(where: { $0.severity == .problem }) {
+                Button("Show in Activity") { model.showInActivity(failure) }
+            }
             Button("Dismiss") { recorder.notice = nil }
             Divider()
         }
@@ -37,6 +57,9 @@ struct MenuBarContent: View {
         Divider()
         Button("Open meetings…") { openMeetings() }
             .keyboardShortcut("o")
+        Button("Activity") {
+            WindowPresenter.present { openWindow(id: "activity") }
+        }
         Button("Settings…") {
             WindowPresenter.present { openSettings() }
         }
@@ -86,14 +109,22 @@ struct MenuBarContent: View {
     }
 }
 
-/// The menu content isn't alive while the menu is closed, so the menu bar label opens the Meetings window on request.
-struct MeetingsOpener: ViewModifier {
+/// The menu content isn't alive while the menu is closed, so the menu bar label opens the Meetings, Activity and Settings windows on request.
+struct WindowOpener: ViewModifier {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     func body(content: Content) -> some View {
-        content.onChange(of: model.openMeetingsRequest) {
-            WindowPresenter.present { openWindow(id: "meetings") }
-        }
+        content
+            .onChange(of: model.openMeetingsRequest) {
+                WindowPresenter.present { openWindow(id: "meetings") }
+            }
+            .onChange(of: model.openActivityRequest) {
+                WindowPresenter.present { openWindow(id: "activity") }
+            }
+            .onChange(of: model.openSettingsRequest) {
+                WindowPresenter.present { openSettings() }
+            }
     }
 }

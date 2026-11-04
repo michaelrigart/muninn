@@ -17,8 +17,6 @@ public enum RecoveryAction: Equatable, Sendable {
 }
 
 public enum LaunchRecovery {
-    public static let unreadableMessage = "The recording couldn't be read after the app quit unexpectedly."
-
     /// Deletes only when every existing track opened with length 0, so an unreadable file is never thrown away.
     public static func decide(_ tracks: [TrackProbe]) -> RecoveryAction {
         if tracks.contains(.unreadable) { return .markUnreadable }

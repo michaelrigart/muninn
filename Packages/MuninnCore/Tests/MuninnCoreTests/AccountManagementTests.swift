@@ -76,7 +76,7 @@ struct AccountManagementTests {
             meeting("c", account: "other", status: .transcribing),
             meeting("d", account: "work", status: .ready),
             meeting("e", account: "work", status: .waiting(.studioNotConfigured)),
-            meeting("f", account: "work", status: .failed("x")),
+            meeting("f", account: "work", status: .failed(Problems.legacyFailure())),
             meeting("g", account: nil, status: .recording),
         ]
         #expect(AccountManagement.busyMeetings(for: "work", in: meetings).map(\.id.rawValue) == ["a", "b"])
@@ -86,6 +86,6 @@ struct AccountManagementTests {
     }
 
     @Test func refusalNamesTheAccount() {
-        #expect(AccountManagement.removalRefusal(accountName: "Work") == "Work can't be removed while a meeting for it is recording or being processed.")
+        #expect(AccountManagement.removalRefusal(accountName: "Work") == "Work can't be removed while a meeting for it is recording or being processed")
     }
 }

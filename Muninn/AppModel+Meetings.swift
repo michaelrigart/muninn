@@ -4,12 +4,12 @@ import os
 
 private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "meetings")
 
-enum MeetingActionError: LocalizedError {
+enum MeetingActionError: ProblemConvertible {
     case eventUnsettled
     case notReady
     case noSummary
     case noRecipients
-    case unknownAccount(String)
+    case unknownAccount
     case vaultNotChosen
     case vaultMissing(String)
     case linkNotSaved(Error)
@@ -17,20 +17,36 @@ enum MeetingActionError: LocalizedError {
     case eventChangeInProgress
     case draftOrExportInProgress
 
-    var errorDescription: String? {
+    func problem(in context: ProblemContext) -> Problem {
         switch self {
-        case .eventUnsettled: "Choose the event first."
-        case .notReady: "The meeting isn't processed yet."
-        case .noSummary: "There is no summary yet."
-        case .noRecipients: "Choose an account and at least one recipient."
-        case .unknownAccount(let id): "Account \(id) is not in the settings."
-        case .vaultNotChosen: MeetingActions.vaultNotChosenNotice
-        case .vaultMissing(let path): "The Obsidian vault folder doesn't exist: \(path)"
-        case .unsavedEdits: "Save your summary edits first."
-        case .eventChangeInProgress: "The event is being changed. Try again in a moment."
-        case .draftOrExportInProgress: "A draft or an export is being made. Change the event once it has finished."
-        case .linkNotSaved(let error): "The draft was created, but saving its details failed: \(SignInFlow.describe(error))"
+        case .eventUnsettled:
+            return Self.warning("Choose the event first", "Muninn needs the calendar event before it can draft or file the recap.")
+        case .notReady:
+            return Self.warning("The meeting isn't processed yet", "Wait for the recap, then try again.")
+        case .noSummary:
+            return Self.warning("There's no recap yet", "Write the recap first.")
+        case .noRecipients:
+            return Self.warning("Choose an account and at least one recipient", "The draft needs an account to send from and someone to send to.")
+        case .unknownAccount:
+            return Self.warning("This meeting's account is no longer in Settings", "Choose another account for the meeting.")
+        case .vaultNotChosen:
+            return Problems.vaultNotChosen()
+        case .vaultMissing(let path):
+            return Self.warning("The Obsidian vault folder is missing", "Muninn can't find the vault folder. Choose it again in Obsidian settings.", ProblemDetails(path: path))
+        case .unsavedEdits:
+            return Self.warning("Save your recap edits first", "Muninn couldn't save your last changes. Save them, then try again.")
+        case .eventChangeInProgress:
+            return Self.warning("The event is being changed", "Try again in a moment.")
+        case .draftOrExportInProgress:
+            return Self.warning("A draft or note is being made", "Change the event once it has finished.")
+        case .linkNotSaved(let error):
+            let details = ProblemTranslator.problem(for: error, in: ProblemContext(stage: context.stage, accountName: context.accountName, subject: "the draft's link")).details
+            return Problem(severity: .problem, title: "The draft was created, but Muninn couldn't save its link", explanation: "Find the draft in Outlook's Drafts.", actions: [], details: details)
         }
+    }
+
+    private static func warning(_ title: String, _ explanation: String, _ details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .warning, title: title, explanation: explanation, actions: [], details: details)
     }
 }
 
@@ -71,12 +87,13 @@ extension AppModel {
         } catch {
             deletedIDs.remove(id)
             logger.error("Deleting \(id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            actionErrors[id] = "Couldn't delete the meeting: \(Self.describe(error))"
+            report(error, stage: .deletingMeeting, for: id)
             return
         }
         meetings.removeAll { $0.id == id }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        failedActions[id] = nil
         unsavedSummaries[id] = nil
         if selectedMeetingID == id { selectedMeetingID = nil }
     }
@@ -88,18 +105,20 @@ extension AppModel {
 
     /// The calendar events from two hours before to two hours after the meeting started, across the signed-in accounts.
     /// Accounts that couldn't be read are reported in `failures` instead of hiding the others' events.
-    func eventsAround(_ meeting: Meeting) async -> (events: [CalendarEvent], failures: [String]) {
+    func eventsAround(_ meeting: Meeting) async -> (events: [CalendarEvent], failures: [Problem]) {
         let from = meeting.startedAt.addingTimeInterval(-2 * 3600)
         let to = meeting.startedAt.addingTimeInterval(2 * 3600)
         var events: [CalendarEvent] = []
-        var failures: [String] = []
+        var failures: [Problem] = []
         for account in settings.accounts {
             guard let client = graph.signedInClient(for: account) else { continue }
             do {
                 events += try await client.events(from: from, to: to).filter { !$0.isCancelled && !$0.isAllDay }
             } catch {
                 logger.warning("Fetching events for \(account.id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                failures.append("\(account.displayName): \(Self.describe(error))")
+                guard !ActivityCenter.isCancellation(error) else { continue }
+                let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .readingCalendar, accountName: account.displayName))
+                failures.append(problem)
             }
         }
         events.sort { ($0.start, $0.accountID) < ($1.start, $1.accountID) }
@@ -111,10 +130,10 @@ extension AppModel {
     func chooseEvent(_ ref: CalendarEventRef, for id: MeetingID) async {
         guard eventChangesInFlight.insert(id).inserted else { return }
         var applied = false
-        await perform("load the calendar event", for: id) {
+        await perform(.changingEvent, for: id) {
             guard !isDraftOrExportRunning(id) else { throw MeetingActionError.draftOrExportInProgress }
             guard let account = settings.accounts.first(where: { $0.id == ref.accountID }) else {
-                throw MeetingActionError.unknownAccount(ref.accountID)
+                throw MeetingActionError.unknownAccount
             }
             let event = try await graph.client(for: account).event(id: ref.eventID)
             let accounts = settings.accounts
@@ -129,7 +148,7 @@ extension AppModel {
             if changed {
                 applied = true
             } else {
-                actionNotices[id] = MeetingActions.eventNotChangedNotice
+                actionNotices[id] = Problems.eventNotChanged()
             }
         }
         eventChangesInFlight.remove(id)
@@ -152,17 +171,17 @@ extension AppModel {
         if cleared {
             Task { await autoFile(id) }
         } else {
-            actionNotices[id] = MeetingActions.eventNotChangedNotice
+            actionNotices[id] = Problems.eventNotChanged()
         }
     }
 
     private func isDraftOrExportRunning(_ id: MeetingID) -> Bool {
-        actionsInFlight.contains("create the Outlook draft|\(id.rawValue)") || actionsInFlight.contains("export to Obsidian|\(id.rawValue)")
+        [ProblemStage.creatingDraft, .filingNote].contains { actionsInFlight.contains(Self.actionKey($0, id)) }
     }
 
     func createDraft(_ id: MeetingID) {
         Task {
-            await perform("create the Outlook draft", for: id) {
+            await perform(.creatingDraft, for: id) {
                 guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
                 let meeting = try store.load(id)
                 guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
@@ -171,7 +190,7 @@ extension AppModel {
                 guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
                 guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
                 guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
-                    throw MeetingActionError.unknownAccount(accountID)
+                    throw MeetingActionError.unknownAccount
                 }
                 if meeting.draftID != nil || meeting.draftWebLink != nil,
                    Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
@@ -183,6 +202,7 @@ extension AppModel {
                     html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
                     to: meeting.recipients.filter(\.included).map(\.attendee)
                 )
+                activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
                 var saveFailure: Error?
                 do {
                     try mutate(id) {
@@ -195,7 +215,7 @@ extension AppModel {
                 if let link = result.webLink {
                     NSWorkspace.shared.open(link)
                 } else {
-                    actionNotices[id] = "Draft created in Outlook. Graph returned no link; find it in Drafts."
+                    actionNotices[id] = Problems.draftWithoutLink()
                 }
                 if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
             }
@@ -226,22 +246,47 @@ extension AppModel {
         }
     }
 
-    /// Runs one user-visible action per meeting at a time; a failure lands in `actionErrors` for the meeting's banner.
-    func perform(_ action: String, for id: MeetingID, _ body: () async throws -> Void) async {
-        let key = "\(action)|\(id.rawValue)"
+    /// Runs one user-visible action per meeting at a time; a failure lands in `actionErrors` for the meeting's problem card.
+    func perform(_ stage: ProblemStage, for id: MeetingID, _ body: () async throws -> Void) async {
+        let key = Self.actionKey(stage, id)
         guard actionsInFlight.insert(key).inserted else { return }
         defer { actionsInFlight.remove(key) }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        failedActions[id] = nil
         do {
             try await body()
         } catch {
-            logger.error("Couldn't \(action, privacy: .public) for \(id.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
-            actionErrors[id] = "Couldn't \(action): \(Self.describe(error))"
+            logger.error("Couldn't run \(stage.rawValue, privacy: .public) for \(id.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
+            report(error, stage: stage, for: id)
         }
     }
 
-    static func describe(_ error: Error) -> String {
-        SignInFlow.describe(error)
+    /// Shows what went wrong with a meeting's action as a problem card and records it. A cancellation is not a failure.
+    func report(_ error: Error, stage: ProblemStage, for id: MeetingID) {
+        guard !ActivityCenter.isCancellation(error) else { return }
+        let meeting = meetings.first { $0.id == id }
+        let context = ProblemContext(
+            stage: stage,
+            accountName: meeting?.accountID.map(accountName),
+            subject: stage == .filingNote ? "the note" : nil
+        )
+        let problem = ProblemTranslator.problem(for: error, in: context)
+        actionErrors[id] = problem
+        failedActions[id] = [.creatingDraft, .filingNote].contains(stage) ? stage : nil
+        activity.record(problem, area: stage.area, meeting: meeting)
+    }
+
+    /// Runs the draft or the export that failed again.
+    func retryAction(_ id: MeetingID) {
+        switch failedActions[id] {
+        case .creatingDraft: createDraft(id)
+        case .filingNote: exportToObsidian(id)
+        default: break
+        }
+    }
+
+    private static func actionKey(_ stage: ProblemStage, _ id: MeetingID) -> String {
+        "\(stage.rawValue)|\(id.rawValue)"
     }
 }

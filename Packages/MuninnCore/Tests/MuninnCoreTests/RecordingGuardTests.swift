@@ -110,7 +110,7 @@ import Testing
         for status in [ProcessingStatus.recording, .transcribing, .diarizing, .cleaning, .summarizing] {
             #expect(!MeetingActions.canDelete(meeting(status)))
         }
-        for status in [ProcessingStatus.ready, .waiting(.studioUnreachable), .waiting(.recording), .failed("x")] {
+        for status in [ProcessingStatus.ready, .waiting(.studioUnreachable), .waiting(.recording), .failed(Problems.legacyFailure())] {
             #expect(MeetingActions.canDelete(meeting(status)))
         }
     }

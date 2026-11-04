@@ -1,16 +1,30 @@
 import MuninnCore
+import MuninnSpeech
 import SwiftUI
 
 struct LiveTranscriptWindow: View {
+    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var recorder: RecordingController
 
     var body: some View {
         Group {
             if recorder.isActive {
                 VStack(alignment: .leading, spacing: 14) {
+                    if let preparation = preparingModel {
+                        StatusCard(
+                            role: .progress,
+                            title: "Getting the speech model ready",
+                            explanation: preparation.fraction.map { "\(preparation.model) · \(Int($0 * 100))%" } ?? "This can take a few minutes the first time.",
+                            progress: preparation.fraction.map(StatusCard.Progress.fraction) ?? .indeterminate
+                        )
+                    }
                     if let status = recorder.liveStatus {
-                        Label(status, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.secondary)
+                        ProblemCard(
+                            problem: status,
+                            compact: true,
+                            handlers: model.problemHandlers(),
+                            showInActivity: { model.showInActivity(status) }
+                        )
                     }
                     LiveTrackSection(metrics: recorder.metrics, track: .mic, label: recorder.isConversation ? "Conversation" : "You")
                     if !recorder.isConversation {
@@ -23,6 +37,12 @@ struct LiveTranscriptWindow: View {
             }
         }
         .frame(minWidth: 360, minHeight: 300)
+    }
+
+    /// The live model's download or load, while it runs.
+    private var preparingModel: SpeechModelPreparation? {
+        let name = SpeechModelID.liveModel(named: model.settings.liveModel).displayName
+        return model.speechModels.first { $0.model == name }
     }
 }
 

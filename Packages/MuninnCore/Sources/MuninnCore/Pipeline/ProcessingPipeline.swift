@@ -1,28 +1,6 @@
 import Foundation
 
 public actor ProcessingPipeline {
-    static let studioFallbackNotice = "Network Mac unreachable — summarized on This Mac"
-    static let studioNotConfiguredFallbackNotice = "Network Mac not set up — summarized on This Mac"
-
-    static func keptSummaryNotice(_ reason: WaitReason) -> String {
-        switch reason {
-        case .studioUnreachable: "Network Mac unreachable — kept the existing summary"
-        case .studioNotConfigured: "Network Mac address not set — kept the existing summary"
-        case .memoryPressure: "Memory pressure too high — kept the existing summary"
-        case .claudeKeyMissing: "No Claude API key — kept the existing summary"
-        case .recording: "A recording is running — kept the existing summary"
-        }
-    }
-
-    static let callDiarizationNotice = "Couldn't tell the other speakers apart; the call side is one speaker."
-    static let micDiarizationNotice = "Couldn't tell the speakers apart; the conversation is one speaker."
-
-    private static func notice(_ new: String?, keeping existing: String?) -> String? {
-        let kept = [callDiarizationNotice, micDiarizationNotice].first { existing?.contains($0) == true }
-        let parts = [kept, new].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
-    }
-
     private enum PipelineError: Error {
         case missingCleanTranscript
     }
@@ -33,12 +11,14 @@ public actor ProcessingPipeline {
     }
 
     private final class Job: @unchecked Sendable {
+        let id: MeetingID
         var request: Request
         var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
         var finished = false
         var turn: CheckedContinuation<Void, Never>?
 
-        init(_ request: Request) {
+        init(_ id: MeetingID, _ request: Request) {
+            self.id = id
             self.request = request
         }
     }
@@ -54,8 +34,12 @@ public actor ProcessingPipeline {
     private let clock: @Sendable () -> Date
     private var queuedJobs: [MeetingID: Job] = [:]
     private var activeJobs: [MeetingID: Int] = [:]
-    private var busy = false
+    private var turnHolder: MeetingID?
     private var turnOrder: [Job] = []
+    private var currentWork: PipelineWork?
+    private var lastEnvironment: EngineEnvironment?
+    private var published = PipelineSnapshot.idle
+    private var onSnapshot: (@Sendable (PipelineSnapshot) -> Void)?
 
     public private(set) var onChange: (@Sendable (Meeting) -> Void)?
 
@@ -95,6 +79,27 @@ public actor ProcessingPipeline {
         onChange = handler
     }
 
+    /// The handler runs inside the pipeline, once per change of the snapshot, so it must be cheap and must not call back in.
+    public func setOnSnapshot(_ handler: (@Sendable (PipelineSnapshot) -> Void)?) {
+        onSnapshot = handler
+    }
+
+    public func snapshot() -> PipelineSnapshot {
+        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id))
+    }
+
+    private func publishIfChanged() {
+        let latest = snapshot()
+        guard latest != published else { return }
+        published = latest
+        onSnapshot?(latest)
+    }
+
+    private func begin(_ id: MeetingID, _ stage: PipelineStage, engine: EngineKind?, at startedAt: Date) {
+        currentWork = PipelineWork(meetingID: id, stage: stage, engine: engine, stageStartedAt: startedAt)
+        publishIfChanged()
+    }
+
     public func process(_ id: MeetingID) async {
         await submit(id, Request(forced: nil, regenerating: false))
     }
@@ -106,18 +111,61 @@ public actor ProcessingPipeline {
         await submit(id, Request(forced: engine, regenerating: true))
     }
 
+    /// Meetings waiting for one of `reasons` (all waiting meetings when nil), oldest first.
+    private func waitingMeetings(only reasons: Set<WaitReason>?) -> [(meeting: Meeting, reason: WaitReason)] {
+        ((try? store.list()) ?? [])
+            .sorted { $0.startedAt == $1.startedAt ? $0.id.rawValue < $1.id.rawValue : $0.startedAt < $1.startedAt }
+            .compactMap {
+                guard case .waiting(let reason) = $0.status, reasons?.contains(reason) ?? true else { return nil }
+                return ($0, reason)
+            }
+    }
+
     /// Resubmits held meetings oldest first. Every job is queued before any is awaited, so the
     /// order of the queue is the order of the meetings.
-    public func resumeWaiting() async {
-        let waiting = ((try? store.list()) ?? [])
-            .filter {
-                if case .waiting = $0.status { return true }
-                return false
-            }
-            .sorted { $0.startedAt == $1.startedAt ? $0.id.rawValue < $1.id.rawValue : $0.startedAt < $1.startedAt }
-        let jobs = waiting.map { enqueue($0.id, Request(forced: nil, regenerating: false)) }
+    public func resumeWaiting(only reasons: Set<WaitReason>? = nil) async {
+        let jobs = waitingMeetings(only: reasons).map { enqueue($0.meeting.id, Request(forced: nil, regenerating: false)) }
         for job in jobs {
             await wait(for: job)
+        }
+    }
+
+    /// Probes the engines once, outside the processing queue, stores on each waiting meeting why it waits now
+    /// (`.queued` once its wait has cleared) and queues the meetings that can now run, without awaiting the jobs.
+    /// A meeting whose job has started is left alone, and so is one held for a recording while a
+    /// recording runs: the recording's end releases it through `resumeWaiting`. With no recording running, a stored
+    /// recording hold has cleared: the meeting is queued and its job chooses the engine after transcribing.
+    public func requeueWaiting(only reasons: Set<WaitReason>? = nil) async {
+        guard !waitingMeetings(only: reasons).isEmpty else { return }
+        let settings = settings()
+        var environment = await probe.environment(settings: settings)
+        let recording = isRecording()
+        environment.isRecording = recording
+        for (meeting, stored) in waitingMeetings(only: reasons) {
+            let id = meeting.id
+            guard !(stored == .recording && recording), turnHolder != id else { continue }
+            let current: WaitReason
+            if stored == .recording {
+                current = .queued
+            } else {
+                switch EngineSelector.decide(preferred: settings.defaultEngine, forced: meeting.requestedEngine, environment: environment) {
+                case .run: current = .queued
+                case .wait(let reason): current = reason
+                }
+            }
+            if current != stored {
+                var wrote = false
+                let changed = try? update(id, notify: false) {
+                    guard $0.status == .waiting(stored) else { return }
+                    $0.status = .waiting(current)
+                    wrote = true
+                }
+                guard wrote, let changed else { continue }
+                onChange?(changed)
+            }
+            if current == .queued {
+                enqueue(id, Request(forced: nil, regenerating: false))
+            }
         }
     }
 
@@ -129,6 +177,7 @@ public actor ProcessingPipeline {
     /// already queued replaces the queued one, so the last request wins, except that a plain
     /// request never replaces a queued regeneration. Jobs run in tasks owned by the actor, so
     /// cancelling a caller only abandons that caller's wait.
+    @discardableResult
     private func enqueue(_ id: MeetingID, _ request: Request) -> Job {
         if let queued = queuedJobs[id] {
             if request.regenerating || !queued.request.regenerating {
@@ -136,10 +185,11 @@ public actor ProcessingPipeline {
             }
             return queued
         }
-        let job = Job(request)
+        let job = Job(id, request)
         queuedJobs[id] = job
         activeJobs[id, default: 0] += 1
         turnOrder.append(job)
+        publishIfChanged()
         Task(priority: .background) { await self.run(id, job) }
         return job
     }
@@ -147,7 +197,12 @@ public actor ProcessingPipeline {
     private func run(_ id: MeetingID, _ job: Job) async {
         await acquireTurn(job)
         queuedJobs[id] = nil
-        await execute(id, job.request)
+        let scope = (try? store.load(id)).map { ActivityMeeting(id: $0.id, title: $0.title) }
+        await ActivityScope.$meeting.withValue(scope) {
+            await execute(id, job.request)
+        }
+        currentWork = nil
+        publishIfChanged()
         if let remaining = activeJobs[id], remaining > 1 {
             activeJobs[id] = remaining - 1
         } else {
@@ -189,14 +244,15 @@ public actor ProcessingPipeline {
     }
 
     private func releaseTurn() {
-        busy = false
+        turnHolder = nil
         grantTurns()
     }
 
     private func grantTurns() {
-        while !busy, let next = turnOrder.first, let turn = next.turn {
-            busy = true
+        while turnHolder == nil, let next = turnOrder.first, let turn = next.turn {
+            turnHolder = next.id
             turnOrder.removeFirst()
+            publishIfChanged()
             next.turn = nil
             turn.resume()
         }
@@ -211,11 +267,31 @@ public actor ProcessingPipeline {
         }
 
         var metrics = current.metrics
+        lastEnvironment = nil
         do {
             try await stages(id, current: current, request: request, metrics: &metrics)
         } catch {
-            fail(id, fallback: current, message: Self.message(error), metrics: metrics)
+            fail(id, fallback: current, problem: problem(for: error), metrics: metrics)
         }
+    }
+
+    /// Describes the error in terms of the work in progress, or of no stage when the job failed before its first one.
+    private func problem(for error: Error) -> Problem {
+        ProblemTranslator.problem(for: error, in: problemContext())
+    }
+
+    private func problemContext() -> ProblemContext {
+        let claudeKeyPresent = lastEnvironment?.claudeKeyPresent ?? false
+        guard let work = currentWork else { return ProblemContext(stage: .other, claudeKeyPresent: claudeKeyPresent) }
+        let elapsed = max(0, clock().timeIntervalSince(work.stageStartedAt))
+        var context: ProblemContext
+        if let engine = work.engine {
+            context = .engine(engine, settings: settings(), stage: work.stage.problemStage, claudeKeyPresent: claudeKeyPresent, elapsed: elapsed)
+        } else {
+            context = ProblemContext(stage: work.stage.problemStage, claudeKeyPresent: claudeKeyPresent, elapsed: elapsed)
+        }
+        context.subject = work.stage.savedThing
+        return context
     }
 
     private func stages(_ id: MeetingID, current: Meeting, request: Request, metrics: inout ProcessingMetrics) async throws {
@@ -268,7 +344,9 @@ public actor ProcessingPipeline {
                         $0.status = .transcribing
                         $0.metrics = metrics
                     }
-                    began = clock()
+                    let startedAt = clock()
+                    began = startedAt
+                    begin(id, .transcribing, engine: nil, at: startedAt)
                 }
                 results[track] = try await transcriber.transcribe(audio: store.audioURL(id, track: track), track: track, vocabulary: settings.dictionary)
             }
@@ -282,9 +360,10 @@ public actor ProcessingPipeline {
                 $0.metrics = metrics
             }
             let started = clock()
+            begin(id, .identifyingSpeakers, engine: nil, at: started)
             var micTurns: [SpeakerTurn] = []
             var systemTurns: [SpeakerTurn] = []
-            var degradedNotice: String?
+            var degradedNotice: Problem?
             do {
                 switch meeting.captureMode {
                 case .call: systemTurns = try await diarizer.diarize(audio: store.audioURL(id, track: .system))
@@ -293,7 +372,8 @@ public actor ProcessingPipeline {
             } catch where Self.isCancellation(error) {
                 throw error
             } catch {
-                degradedNotice = meeting.captureMode == .micOnly ? Self.micDiarizationNotice : Self.callDiarizationNotice
+                let facts = error as NSError
+                degradedNotice = Problems.diarisationDegraded(mode: meeting.captureMode, details: ProblemDetails(errorDomain: facts.domain, errorCode: facts.code).redacted())
             }
             metrics.diarizeSeconds = clock().timeIntervalSince(started)
 
@@ -303,8 +383,8 @@ public actor ProcessingPipeline {
             let attributed = Transcript(segments: segments, language: meeting.language)
             try store.saveTranscript(attributed, for: id, speakerNames: meeting.speakerNames, userName: settings.userName)
             store.deleteTrackResults(id)
-            if degradedNotice != nil || Self.notice(nil, keeping: meeting.engineNotice) != nil {
-                meeting = try update(id) { $0.engineNotice = degradedNotice }
+            if degradedNotice != nil || meeting.transcriptNotice != nil {
+                meeting = try update(id) { $0.transcriptNotice = degradedNotice }
             }
             transcript = attributed
         }
@@ -312,6 +392,7 @@ public actor ProcessingPipeline {
         func decide() async -> EngineDecision {
             var environment = await probe.environment(settings: settings)
             environment.isRecording = isRecording()
+            lastEnvironment = environment
             return EngineSelector.decide(preferred: settings.defaultEngine, forced: forced, environment: environment)
         }
 
@@ -328,7 +409,10 @@ public actor ProcessingPipeline {
                     $0.status = .cleaning
                     $0.metrics = metrics
                 }
+                var cleaningEngine: EngineKind?
+                if settings.useLLMCleanup, case .run(let engine, _, _) = decision { cleaningEngine = engine }
                 let started = clock()
+                begin(id, .cleaningUp, engine: cleaningEngine, at: started)
                 let result = try await cleaner(settings, decision).clean(transcript)
                 metrics.cleanSeconds = clock().timeIntervalSince(started)
                 try store.saveClean(result, transcript: transcript, for: id, speakerNames: meeting.speakerNames, userName: settings.userName)
@@ -346,7 +430,7 @@ public actor ProcessingPipeline {
             try update(id) {
                 if request.regenerating, hasSummary {
                     $0.status = .ready
-                    $0.engineNotice = Self.notice(Self.keptSummaryNotice(reason), keeping: $0.engineNotice)
+                    $0.engineNotice = Problems.keptRecap(reason, api: settings.macbook.api, details: ProblemDetails(engine: forced))
                 } else {
                     $0.status = .waiting(reason)
                 }
@@ -358,13 +442,15 @@ public actor ProcessingPipeline {
                 $0.metrics = metrics
             }
             let started = clock()
+            begin(id, .writingRecap, engine: engine, at: started)
             let summary: Summary
             do {
                 summary = try await summarizer.summarize(meeting: meeting, transcript: transcript, clean: clean, engine: engine)
             } catch where request.regenerating && hasSummary {
+                let failure = Problems.regenerationFailed(problem(for: error))
                 try update(id) {
                     $0.status = .ready
-                    $0.engineNotice = Self.notice("\(engine.displayName) failed: \(Self.message(error)) — kept the existing summary", keeping: $0.engineNotice)
+                    $0.engineNotice = failure
                     if $0.requestedEngine == forced { $0.requestedEngine = nil }
                     $0.metrics = metrics
                 }
@@ -376,7 +462,7 @@ public actor ProcessingPipeline {
                 $0.status = .ready
                 $0.summaryEngine = engine
                 $0.language = summary.language
-                $0.engineNotice = Self.notice(fallbackFrom == .studio ? (because == .studioNotConfigured ? Self.studioNotConfiguredFallbackNotice : Self.studioFallbackNotice) : nil, keeping: $0.engineNotice)
+                $0.engineNotice = fallbackFrom == .studio ? Problems.writtenOnThisMac(because: because == .studioNotConfigured ? .studioNotConfigured : .studioUnreachable) : nil
                 if $0.requestedEngine == forced { $0.requestedEngine = nil }
                 $0.metrics = metrics
             }
@@ -393,14 +479,14 @@ public actor ProcessingPipeline {
     }
 
     /// Records a failure, unless the meeting's folder is gone: a deleted meeting is never written to or announced again.
-    private func fail(_ id: MeetingID, fallback: Meeting, message: String, metrics: ProcessingMetrics) {
+    private func fail(_ id: MeetingID, fallback: Meeting, problem: Problem, metrics: ProcessingMetrics) {
         guard store.exists(id) else { return }
         let meeting: Meeting
-        if let updated = try? store.update(id, { $0.status = .failed(message); $0.metrics = metrics }) {
+        if let updated = try? store.update(id, { $0.status = .failed(problem); $0.metrics = metrics }) {
             meeting = updated
         } else {
             var stored = fallback
-            stored.status = .failed(message)
+            stored.status = .failed(problem)
             stored.metrics = metrics
             try? store.save(stored)
             meeting = stored
@@ -411,12 +497,5 @@ public actor ProcessingPipeline {
 
     private static func isCancellation(_ error: Error) -> Bool {
         error is CancellationError || (error as? URLError)?.code == .cancelled
-    }
-
-    private static func message(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return description
-        }
-        return String(describing: error)
     }
 }

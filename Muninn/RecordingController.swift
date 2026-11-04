@@ -10,10 +10,14 @@ import os
 private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "recording")
 
 struct RecordingNotice: Equatable {
-    enum Kind { case error, warning }
+    var problems: [Problem]
 
-    var kind: Kind
-    var message: String
+    var isError: Bool { problems.contains { $0.severity == .problem } }
+}
+
+extension Track {
+    /// How a recording notice names the track.
+    var recordingName: String { self == .mic ? "microphone" : "call audio" }
 }
 
 @MainActor
@@ -28,10 +32,10 @@ final class RecordingController: ObservableObject {
     @Published private(set) var isPaused = false
     @Published private(set) var isStarting = false
     @Published private(set) var isFinishing = false
-    @Published private(set) var liveStatus: String?
+    @Published private(set) var liveStatus: Problem?
     @Published private(set) var flagCount = 0
     @Published private(set) var interruption: RecordingInterruption?
-    @Published private(set) var callAudioWarning: String?
+    @Published private(set) var callAudioWarning: Problem?
     /// Watched apps that are using the microphone right now, whether or not an offer was declined; the idle menu records them.
     @Published private(set) var activeCalls: [CallIdentity] = []
     @Published var notice: RecordingNotice? {
@@ -178,7 +182,7 @@ final class RecordingController: ObservableObject {
             flagCount += 1
         } catch {
             logger.error("Saving the flag failed: \(String(describing: error), privacy: .public)")
-            notice = RecordingNotice(kind: .error, message: "Couldn't save the flag: \(Self.describe(error))")
+            post(ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording, subject: "the flag")))
         }
     }
 
@@ -262,7 +266,7 @@ final class RecordingController: ObservableObject {
             do {
                 id = try await model.prepareMeeting(startedAt: Date(), mode: mode, appName: call?.appName).id
             } catch {
-                fail(error, meeting: nil, prefix: "Couldn't create the meeting")
+                fail(error, meeting: nil, doing: "creating the meeting")
                 return
             }
         }
@@ -299,34 +303,41 @@ final class RecordingController: ObservableObject {
                     send(.processTapFailed)
                 }
             } else {
-                fail(error, meeting: id, prefix: "Couldn't start recording")
+                fail(error, meeting: id, doing: "starting the recording")
             }
             return
         }
         guard !stopRequested else { return }
         didStart = true
+        model.activity.record(.info, .recording, "Recording started", meeting: meeting(id))
         startTicker()
         startLive(session)
     }
 
-    private func fail(_ error: Error, meeting id: MeetingID?, prefix: String) {
+    /// A recording that couldn't start: the meeting is marked failed, which records the problem once; when there is no meeting
+    /// to mark, or marking it fails, the notice records it instead.
+    private func fail(_ error: Error, meeting id: MeetingID?, doing activity: String) {
         cancelAutoStop()
-        let detail = Self.describe(error)
-        var message = "\(prefix): \(detail)"
+        logger.error("Failed \(activity, privacy: .public): \(String(describing: error), privacy: .public)")
+        let translated = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording))
+        let problem = id == nil && ProblemTranslator.isDiskWriteFailure(error)
+            ? translated
+            : Problems.recordingDidNotStart(details: translated.details)
+        var recorded = false
         if let id {
             do {
                 try model.mutate(id) {
-                    $0.status = .failed(detail)
+                    $0.status = .failed(problem)
                     $0.endedAt = Date()
                 }
+                recorded = true
             } catch {
-                message += " The meeting could not be marked as failed: \(Self.describe(error))"
+                logger.error("Marking \(id.rawValue, privacy: .public) as failed failed: \(String(describing: error), privacy: .public)")
             }
         }
-        logger.error("\(message, privacy: .public)")
         meetingID = nil
         session = nil
-        notice = RecordingNotice(kind: .error, message: message)
+        post(problem, record: !recorded, meeting: id)
         send(.stopped)
     }
 
@@ -335,21 +346,31 @@ final class RecordingController: ObservableObject {
             try model.store.delete(id)
         } catch {
             logger.error("Removing the unused meeting \(id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            post(RecordingNotice(kind: .error, message: "Couldn't remove the unused meeting \(id.rawValue): \(Self.describe(error))"))
+            post(ProblemTranslator.problem(for: error, in: ProblemContext(stage: .deletingMeeting)))
         }
         model.reloadMeetings()
     }
 
-    private func post(_ new: RecordingNotice) {
-        guard let current = notice else {
-            notice = new
-            return
+    /// Adds a problem to the notice and records it in Activity, unless one with the same title is already there.
+    private func post(_ problem: Problem, record: Bool = true, meeting id: MeetingID? = nil) {
+        let current = notice?.problems ?? []
+        guard !current.contains(where: { $0.title == problem.title }) else { return }
+        if record {
+            model.activity.record(problem, area: .recording, meeting: meeting(id ?? meetingID))
         }
-        guard !current.message.contains(new.message) else { return }
-        notice = RecordingNotice(
-            kind: current.kind == .error || new.kind == .error ? .error : .warning,
-            message: current.message + "\n" + new.message
-        )
+        notice = RecordingNotice(problems: current + [problem])
+    }
+
+    private func meeting(_ id: MeetingID?) -> Meeting? {
+        id.flatMap { id in model.meetings.first { $0.id == id } }
+    }
+
+    func showInActivity(_ problem: Problem) {
+        model.showInActivity(problem)
+    }
+
+    func showRecordingSettings() {
+        model.showSettings(.recording)
     }
 
     private func discardPending() {
@@ -392,9 +413,11 @@ final class RecordingController: ObservableObject {
     }
 
     private func liveFailed(_ error: Error, transcriber: ParakeetLiveTranscriber) {
-        guard !(error is CancellationError), transcriber === self.transcriber else { return }
+        guard !ActivityCenter.isCancellation(error), transcriber === self.transcriber else { return }
         logger.error("Live transcription unavailable: \(String(describing: error), privacy: .public)")
-        liveStatus = "Live transcript unavailable: \(error.localizedDescription)"
+        let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .liveTranscript))
+        model.activity.record(problem, area: .transcription, meeting: meeting(meetingID))
+        liveStatus = problem
     }
 
     // MARK: Stop
@@ -432,17 +455,16 @@ final class RecordingController: ObservableObject {
                     try model.mutate(id) { $0 = MeetingActions.finishRecording($0, endedAt: endedAt) }
                 } catch {
                     logger.error("Saving the meeting end failed: \(String(describing: error), privacy: .public)")
-                    post(RecordingNotice(kind: .error, message: "Couldn't save the end of the recording: \(Self.describe(error))"))
+                    post(ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording, subject: "the end of the recording")))
                 }
                 finished = id
+                let length = meeting(id).map { endedAt.timeIntervalSince($0.startedAt) } ?? 0
+                model.activity.record(.info, .recording, "Recording stopped · \(DurationText.short(length))", meeting: meeting(id))
                 if !writeErrors.isEmpty {
-                    let tracks = writeErrors.keys.map { $0 == .mic ? "microphone" : "call audio" }.sorted().joined(separator: " and ")
-                    let detail = writeErrors.values.first.map { ": \($0.localizedDescription)" } ?? ""
-                    logger.error("Write errors on \(tracks, privacy: .public)\(detail, privacy: .public)")
-                    post(RecordingNotice(
-                        kind: .warning,
-                        message: "The \(tracks) recording could not be fully written\(detail). The meeting was kept; its transcript may be incomplete."
-                    ))
+                    let tracks = writeErrors.keys.map(\.recordingName).sorted().joined(separator: " and ")
+                    logger.error("Write errors on \(tracks, privacy: .public): \(String(describing: writeErrors.values.first), privacy: .public)")
+                    let details = writeErrors.values.first.map { ProblemTranslator.problem(for: $0, in: ProblemContext(stage: .recording)).details }
+                    post(Problems.recordingPartlyUnsaved(tracks: tracks, details: details ?? ProblemDetails()))
                 }
             } else {
                 discard(id)
@@ -489,9 +511,10 @@ final class RecordingController: ObservableObject {
         if current != interruption { interruption = current }
         for failure in session.interruptions.values {
             guard case .writeFailed = failure, writeFailuresPosted.insert(failure.track).inserted else { continue }
-            let text = RecordingPillView.describe(failure)
-            logger.error("\(text, privacy: .public)")
-            post(RecordingNotice(kind: .error, message: "\(text). The rest of this recording will not be saved."))
+            if case .writeFailed(_, let reason) = failure {
+                logger.error("The \(failure.track.recordingName, privacy: .public) is no longer being saved: \(reason, privacy: .public)")
+            }
+            post(Problems.recordingTrackStopped(track: failure.track.recordingName))
         }
         guard monitorsCallAudio else { return }
         let silent = callAudioMonitor.update(
@@ -500,17 +523,13 @@ final class RecordingController: ObservableObject {
             systemDB: session.systemLevel,
             paused: isPaused
         )
-        let warning = silent ? Self.noCallAudioMessage(app: monitoredApp) : nil
+        let warning = silent ? Problems.noCallAudio(app: monitoredApp ?? "the call app") : nil
         if warning != callAudioWarning { callAudioWarning = warning }
         if let warning, !noCallAudioPosted {
             noCallAudioPosted = true
-            logger.warning("\(warning, privacy: .public)")
-            post(RecordingNotice(kind: .warning, message: warning))
+            logger.warning("No call audio for a minute")
+            post(warning)
         }
-    }
-
-    private static func noCallAudioMessage(app: String?) -> String {
-        "No call audio for a minute — check that \(app ?? "the call app") plays through this Mac and that Muninn may record system audio."
     }
 
     private static func normalise(_ db: Float) -> Float {
@@ -614,13 +633,20 @@ final class RecordingController: ObservableObject {
             model.hotkeyError = nil
         } catch {
             logger.error("Registering the flag hotkey failed: \(String(describing: error), privacy: .public)")
-            let message = "The flag hotkey \(HotkeyText.format(setting)) couldn't be registered (\(Self.describe(error))). Another app may be using it."
-            model.hotkeyError = message
-            post(RecordingNotice(kind: .error, message: message))
+            let keys = HotkeyText.format(setting)
+            var details = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .recording)).details
+            if case HotkeyError.status(let status) = error {
+                details.errorDomain = "OSStatus"
+                details.errorCode = Int(status)
+            }
+            let problem: Problem
+            if case HotkeyError.unsupported = error {
+                problem = Problems.hotkeyUnsupported(keys: keys, details: details)
+            } else {
+                problem = Problems.hotkeyInUse(keys: keys, details: details)
+            }
+            model.hotkeyError = problem
+            post(problem)
         }
-    }
-
-    private static func describe(_ error: Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }

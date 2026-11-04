@@ -50,13 +50,9 @@ public enum MeetingActions {
     }
 
     /// Why a manual export can't write anywhere, or nil when it can proceed.
-    public static func exportRefusal(settings: Settings) -> String? {
-        settings.hasVault ? nil : vaultNotChosenNotice
+    public static func exportRefusal(settings: Settings) -> Problem? {
+        settings.hasVault ? nil : Problems.vaultNotChosen()
     }
-
-    public static let vaultNotChosenNotice = "Choose your Obsidian vault in Settings first"
-
-    public static let eventNotChangedNotice = "The event wasn't changed because a draft or note already exists."
 
     /// Applies an event fetched for the meeting, judged against the meeting as it is now: a draft or note created while the
     /// event was being fetched keeps the old event, and the change is dropped (nil).

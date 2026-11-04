@@ -8,18 +8,18 @@ enum SettingsValidation {
         if trimmed.isEmpty { return nil }
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https", let host = url.host, !host.isEmpty else {
-            return "Enter an http or https URL, or leave it empty."
+            return "Enter an http or https URL, or leave it empty"
         }
         return nil
     }
 
     static func notePattern(_ text: String) -> String? {
-        text.contains("{title}") ? nil : "The pattern must contain {title}."
+        text.contains("{title}") ? nil : "The pattern must contain {title}"
     }
 
     static func hotkey(_ text: String) -> String? {
         guard let hotkey = HotkeyText.parse(text), HotkeyParser.carbon(hotkey) != nil else {
-            return "Use modifiers and a key, for example control+option+command+F. At least one of control, option or command is required."
+            return "Use a key with control, option or command, for example control+option+command+F"
         }
         return nil
     }
@@ -139,10 +139,7 @@ struct DebouncedText: View {
                     .onSubmit(apply)
             }
             if let error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+                ProblemCard(problem: .notice(error), role: .attention, compact: true, handlers: ProblemHandlers())
             }
         }
         .onChange(of: text) {
@@ -233,9 +230,7 @@ struct ClientDomainsEditor: View {
                         .help("Remove this domain")
                     }
                     if let message = issue(for: row) {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(message.hasPrefix("Duplicate") ? .orange : .red)
+                        ProblemCard(problem: .notice(message), role: .attention, compact: true, handlers: ProblemHandlers())
                     }
                 }
             }
@@ -251,10 +246,10 @@ struct ClientDomainsEditor: View {
 
     private func issue(for row: Row) -> String? {
         if row.isBlank { return nil }
-        if !row.isComplete { return "Enter both a domain and a client. This row is not saved." }
+        if !row.isComplete { return "Enter both a domain and a client, or this row isn't saved" }
         let duplicates = rows.filter { $0.isComplete && $0.normalisedDomain == row.normalisedDomain }
         if duplicates.count > 1, duplicates.last?.id != row.id {
-            return "Duplicate domain: the last row for \(row.normalisedDomain) is used."
+            return "Duplicate domain: the last row for \(row.normalisedDomain) is used"
         }
         return nil
     }

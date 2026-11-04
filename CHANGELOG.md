@@ -18,5 +18,17 @@ whether it is compatible with the one before. Each section says what changed.
   updates.
 - An app icon, and a Muninn raven in the menu bar in place of the waveform.
 - Muninn has a Dock icon and opens its windows in front.
+- An Activity window lists what Muninn did and what went wrong, with Copy diagnostics for bug
+  reports. Open it from the menu bar or the Help menu.
+- Meetings show their processing step, their place in the queue and speech model downloads, and
+  the sidebar and the menu bar show work in progress.
+- A "Needs attention" list, and a notification, for meetings you have to act on.
+
+### Changed
+
+- Errors say what happened and what to do next, with the technical details one click away.
+- When Ollama isn't running on This Mac, a meeting waits instead of failing, and carries on
+  within about 15 seconds of starting it.
+- Muninn asks for permission to send notifications the first time it has one to send.
 
 [Unreleased]: https://github.com/michaelrigart/muninn/commits/main

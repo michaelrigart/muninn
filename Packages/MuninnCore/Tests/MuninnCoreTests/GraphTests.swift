@@ -4,8 +4,9 @@ import Testing
 
 final class GraphStubProtocol: URLProtocol, @unchecked Sendable {
     struct Reply {
-        var status: Int
-        var body: String
+        var status = 0
+        var body = ""
+        var failure: URLError?
     }
 
     private static let lock = NSLock()
@@ -58,6 +59,10 @@ final class GraphStubProtocol: URLProtocol, @unchecked Sendable {
         Self.lock.lock()
         let reply = Self.replies.isEmpty ? Reply(status: 500, body: "no stubbed reply") : Self.replies.removeFirst()
         Self.lock.unlock()
+        if let failure = reply.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
@@ -261,11 +266,12 @@ struct GraphTests {
     @Test func onlyRejectedSignInsCountAsExpired() {
         #expect(GraphError.auth("invalid_grant").isExpiredSignIn)
         #expect(GraphError.notSignedIn.isExpiredSignIn)
-        #expect(GraphError.http(401, "InvalidAuthenticationToken").isExpiredSignIn)
-        #expect(!GraphError.http(403, "").isExpiredSignIn)
-        #expect(!GraphError.http(429, "").isExpiredSignIn)
-        #expect(!GraphError.http(500, "").isExpiredSignIn)
-        #expect(!GraphError.decoding("x").isExpiredSignIn)
+        #expect(GraphError.http(status: 401, code: "InvalidAuthenticationToken", request: Self.graphRequest).isExpiredSignIn)
+        #expect(!GraphError.http(status: 403, code: nil, request: Self.graphRequest).isExpiredSignIn)
+        #expect(!GraphError.http(status: 429, code: nil, request: Self.graphRequest).isExpiredSignIn)
+        #expect(!GraphError.http(status: 500, code: nil, request: Self.graphRequest).isExpiredSignIn)
+        #expect(!GraphError.connection(code: -1009, request: Self.graphRequest).isExpiredSignIn)
+        #expect(!GraphError.decoding.isExpiredSignIn)
     }
 
     @Test func calendarViewMapsAnHTTP401ToAnExpiredSignIn() async throws {
@@ -517,22 +523,99 @@ struct GraphTests {
     @Test func graphErrorsHaveReadableDescriptions() {
         #expect(GraphError.notSignedIn.localizedDescription == "Not signed in to this account. Sign in again in Settings.")
         #expect(GraphError.auth("invalid_grant").localizedDescription == "Microsoft returned invalid_grant.")
-        #expect(GraphError.http(403, "denied").localizedDescription == "Microsoft Graph returned HTTP 403: denied")
-        #expect(GraphError.http(500, "").localizedDescription == "Microsoft Graph returned HTTP 500.")
-        #expect(GraphError.decoding("bad").localizedDescription == "Unexpected response from Microsoft: bad")
+        #expect(GraphError.http(status: 403, code: "ErrorAccessDenied", request: Self.graphRequest).localizedDescription == "Microsoft Graph returned HTTP 403.")
+        #expect(GraphError.decoding.localizedDescription == "Unexpected response from Microsoft.")
+        #expect(GraphError.connection(code: -1009, request: Self.graphRequest).localizedDescription == "Microsoft can't be reached.")
     }
+
+    static let graphRequest = RequestFacts(method: "GET", path: "/v1.0/me/people", host: "graph.microsoft.com")
 
     @Test func graphHTTPError() async throws {
         GraphStubProtocol.reset([.init(status: 403, body: "denied")])
-        await #expect(throws: GraphError.http(403, "denied")) { try await Self.client().searchPeople("x") }
+        await #expect(throws: GraphError.http(status: 403, code: nil, request: Self.graphRequest)) { try await Self.client().searchPeople("x") }
+    }
+
+    @Test(arguments: [
+        (#"{"error":{"code":"ErrorAccessDenied","message":"\#(SEED)"}}"#, "ErrorAccessDenied" as String?),
+        (#"{"error":{"code":"ConfidentialAcquisition","message":"\#(SEED)"}}"#, "other"),
+        (#"{"error":{"code":"Access denied \#(SEED)"}}"#, "other"),
+        (#"{"error":{"message":"\#(SEED)"}}"#, nil),
+        ("<html>\(SEED)</html>", nil),
+    ])
+    func graphHTTPErrorKeepsOnlyAKnownCode(body: String, code: String?) async {
+        GraphStubProtocol.reset([.init(status: 403, body: body)])
+        let draft = RequestFacts(method: "POST", path: "/v1.0/me/messages", host: "graph.microsoft.com")
+        let error = await #expect(throws: GraphError.self) {
+            try await Self.client().createDraft(subject: "s", html: "h", to: [])
+        }
+        #expect(error == .http(status: 403, code: code, request: draft))
+        #expect(!String(reflecting: error!).contains("Henderson"))
+    }
+
+    @Test(arguments: ["weird_code", SEED])
+    func authFailureKeepsOnlyAKnownOAuthCode(code: String) async {
+        GraphStubProtocol.reset([.init(status: 400, body: #"{"error":"\#(code)"}"#)])
+        await #expect(throws: GraphError.auth("unrecognised")) { try await Self.authenticator().refresh("rt1") }
+    }
+
+    @Test func authFailureWithoutAnOAuthErrorKeepsOnlyTheStatus() async {
+        GraphStubProtocol.reset([.init(status: 502, body: "<html>\(SEED)</html>")])
+        let error = await #expect(throws: GraphError.self) { try await Self.authenticator().refresh("rt1") }
+        #expect(error == .http(
+            status: 502, code: nil, request: RequestFacts(method: "POST", path: "/{tenant}/oauth2/v2.0/token", host: "login.microsoftonline.com")
+        ))
+    }
+
+    @Test func requestFactsHideLongIdentifiers() async {
+        GraphStubProtocol.reset([.init(status: 404, body: #"{"error":{"code":"ErrorItemNotFound"}}"#)])
+        let error = await #expect(throws: GraphError.self) {
+            try await Self.client().event(id: String(repeating: "A", count: 60))
+        }
+        guard case .http(_, _, let request) = error else {
+            Issue.record("expected an HTTP error, got \(String(describing: error))")
+            return
+        }
+        #expect(request.path == "/v1.0/me/events/{id}")
+    }
+
+    @Test func graphConnectionFailureCarriesCodeAndRequest() async {
+        GraphStubProtocol.reset([.init(failure: URLError(.notConnectedToInternet))])
+        let error = await #expect(throws: GraphError.self) { try await Self.client().searchPeople("x") }
+        #expect(error == .connection(code: -1009, request: Self.graphRequest))
+    }
+
+    @Test func oauthConnectionFailureCarriesCodeAndRequest() async {
+        GraphStubProtocol.reset([.init(failure: URLError(.timedOut))])
+        let error = await #expect(throws: GraphError.self) { try await Self.authenticator().refresh("rt1") }
+        #expect(error == .connection(
+            code: -1001, request: RequestFacts(method: "POST", path: "/{tenant}/oauth2/v2.0/token", host: "login.microsoftonline.com")
+        ))
+    }
+
+    @Test func graphCancellationStaysACancellation() async {
+        GraphStubProtocol.reset([.init(failure: URLError(.cancelled))])
+        let error = await #expect(throws: URLError.self) { try await Self.client().searchPeople("x") }
+        #expect(error?.code == .cancelled)
+    }
+
+    @Test func unparseableDatesKeepNoText() {
+        let error = #expect(throws: GraphError.self) { try GraphClient.parseUTC("March \(SEED)") }
+        #expect(error == .decoding)
+    }
+
+    @Test func knownCodesAreRecognisedAndOthersCollapse() {
+        #expect(ProviderErrorClassifier.graphCode(in: Data(#"{"error":{"code":"ErrorQuotaExceeded"}}"#.utf8)) == "ErrorQuotaExceeded")
+        #expect(ProviderErrorClassifier.graphCode(in: Data(#"{"error":{"code":"nope"}}"#.utf8)) == "other")
+        #expect(ProviderErrorClassifier.graphCode(in: Data("[]".utf8)) == nil)
+        #expect(ProviderErrorClassifier.oauthCode("slow_down") == "slow_down")
+        #expect(ProviderErrorClassifier.oauthCode("nope") == "unrecognised")
+        #expect(ProviderErrorClassifier.oauthCode(nil) == "unrecognised")
     }
 
     @Test func graphDecodingError() async throws {
-        GraphStubProtocol.reset([.init(status: 200, body: "not json")])
-        do {
-            _ = try await Self.client().me()
-            Issue.record("Expected an error")
-        } catch GraphError.decoding {
-        }
+        GraphStubProtocol.reset([.init(status: 200, body: "not json \(SEED)")])
+        let error = await #expect(throws: GraphError.self) { try await Self.client().me() }
+        #expect(error == .decoding)
+        #expect(!String(reflecting: error!).contains("Henderson"))
     }
 }

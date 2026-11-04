@@ -67,7 +67,7 @@ public struct OllamaClient: LLMClient {
         if let schema = request.jsonSchema {
             body["format"] = schema
         }
-        let data = try await LLMTransport.post(LLMTransport.url(base: baseURL, path: "api/chat"), headers: [:], body: .object(body), session: session)
+        let data = try await LLMTransport.post(LLMTransport.url(base: baseURL, path: "api/chat"), headers: [:], body: .object(body), provider: .ollama, session: session)
         let response = try LLMTransport.decode(Response.self, from: data)
         if Self.isTruncated(promptEvalCount: response.promptEvalCount, evalCount: response.evalCount, contextSize: numCtx) {
             throw LLMError.promptTruncated(model: model, contextTokens: numCtx)

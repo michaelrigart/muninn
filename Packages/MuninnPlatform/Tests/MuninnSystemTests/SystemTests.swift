@@ -73,7 +73,9 @@ import MuninnCore
     defer { try? secrets.delete(key) }
     do {
         #expect(try secrets.get(key) == nil)
+        #expect(try !secrets.contains(key))
         try secrets.set("first", for: key)
+        #expect(try secrets.contains(key))
         #expect(try secrets.get(key) == "first")
         try secrets.set("second", for: key)
         #expect(try secrets.get(key) == "second")
@@ -93,6 +95,7 @@ import MuninnCore
 
         try secrets.delete(key)
         #expect(try secrets.get(key) == nil)
+        #expect(try !secrets.contains(key))
     } catch KeychainError.status(let status)
         where status == errSecInteractionNotAllowed || status == errSecNotAvailable
             || status == errSecAuthFailed || status == errSecMissingEntitlement
@@ -125,10 +128,37 @@ private struct StubSecrets: SecretsReading {
     }
 }
 
+private final class ResponseGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var held: [() -> Void] = []
+
+    func whenOpen(_ run: @escaping () -> Void) {
+        lock.lock()
+        if isOpen {
+            lock.unlock()
+            run()
+        } else {
+            held.append(run)
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        isOpen = true
+        let released = held
+        held = []
+        lock.unlock()
+        released.forEach { $0() }
+    }
+}
+
 private final class StubProtocol: URLProtocol, @unchecked Sendable {
     enum Reply {
         case status(Int)
         case failure(URLError.Code)
+        case heldFailure(URLError.Code, ResponseGate)
     }
 
     private static let lock = NSLock()
@@ -165,6 +195,10 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
+        case .heldFailure(let code, let gate):
+            gate.whenOpen { [self] in
+                client?.urlProtocol(self, didFailWithError: URLError(code))
+            }
         case nil:
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
         }
@@ -173,10 +207,27 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-private func probe(secrets: Result<String?, Error> = .success(nil)) -> LiveEnvironmentProbe {
+private final class StubActivity: ActivityRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [ActivityEntry] = []
+
+    var entries: [ActivityEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func record(_ entry: ActivityEntry) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(entry)
+    }
+}
+
+private func probe(secrets: Result<String?, Error> = .success(nil), activity: ActivityRecording = NoActivity()) -> LiveEnvironmentProbe {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubProtocol.self]
-    return LiveEnvironmentProbe(secrets: StubSecrets(result: secrets), session: URLSession(configuration: configuration))
+    return LiveEnvironmentProbe(secrets: StubSecrets(result: secrets), activity: activity, session: URLSession(configuration: configuration))
 }
 
 private func settings(api: EndpointAPI, base: String) -> Settings {
@@ -245,6 +296,148 @@ func probeClaudeKeyPresence(secrets: Result<String?, Error>, present: Bool) asyn
     #expect(environment.claudeKeyPresent == present)
 }
 
+@Test func probeReportsThisMacDown() async {
+    let host = "down.thismac.test"
+    StubProtocol.register(host: host, reply: .failure(.cannotConnectToHost))
+    var settings = Settings.defaults
+    settings.macbook = EngineEndpoint(api: .ollama, baseURL: "http://\(host):11434", model: "m", keepAlive: "0")
+    let environment = await probe().environment(settings: settings)
+    #expect(!environment.thisMacReachable)
+    #expect(StubProtocol.paths(host: host) == ["GET  /api/tags"])
+}
+
+@Test func probeReportsThisMacUp() async {
+    let host = "up.thismac.test"
+    StubProtocol.register(host: host, reply: .status(200))
+    var settings = Settings.defaults
+    settings.macbook = EngineEndpoint(api: .openAICompatible, baseURL: "http://\(host):1234", model: "m", keepAlive: "0")
+    let environment = await probe().environment(settings: settings)
+    #expect(environment.thisMacReachable)
+    #expect(StubProtocol.paths(host: host) == ["GET  /v1/models"])
+}
+
+@Test func probeTreatsAnUnparseableThisMacAddressAsReachableAndUntracked() async {
+    var settings = Settings.defaults
+    settings.macbook = EngineEndpoint(api: .ollama, baseURL: "not an address", model: "m", keepAlive: "0")
+    let activity = StubActivity()
+    let probe = probe(activity: activity)
+    let environment = await probe.environment(settings: settings)
+    #expect(environment.thisMacReachable)
+    _ = await probe.environment(settings: settings)
+    #expect(activity.entries.isEmpty)
+}
+
+@Test func probeDoesNotTrackThisMacWhenClaudeIsTheDefaultEngine() async {
+    let host = "claude-default.thismac.test"
+    StubProtocol.register(host: host, reply: .failure(.cannotConnectToHost))
+    var settings = Settings.defaults
+    settings.defaultEngine = .claude
+    settings.macbook = EngineEndpoint(api: .ollama, baseURL: "http://\(host):11434", model: "m", keepAlive: "0")
+    let activity = StubActivity()
+    let environment = await probe(activity: activity).environment(settings: settings)
+    #expect(!environment.thisMacReachable)
+    #expect(activity.entries.isEmpty)
+}
+
+@Test func anOlderOverlappingProbeNeverRecordsAfterANewerOne() async throws {
+    let host = "overlap.thismac.test"
+    let gate = ResponseGate()
+    StubProtocol.register(host: host, reply: .heldFailure(.cannotConnectToHost, gate))
+    var settings = Settings.defaults
+    settings.macbook = EngineEndpoint(api: .ollama, baseURL: "http://\(host):11434", model: "m", keepAlive: "0")
+    let activity = StubActivity()
+    let probe = probe(activity: activity)
+
+    let older = Task { await probe.environment(settings: settings) }
+    while StubProtocol.paths(host: host).isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    StubProtocol.register(host: host, reply: .status(200))
+    let newer = await probe.environment(settings: settings)
+    gate.open()
+    let olderResult = await older.value
+
+    #expect(newer.thisMacReachable)
+    #expect(!olderResult.thisMacReachable)
+    #expect(activity.entries.isEmpty)
+}
+
+@Test func keychainReadFailureIsUnreadableNotMissing() async {
+    let environment = await probe(secrets: .failure(KeychainError.status(-25308))).environment(settings: settings(api: .ollama, base: ""))
+    #expect(environment.claudeKeyUnreadable)
+    #expect(!environment.claudeKeyPresent)
+}
+
+@Test(arguments: [Result<String?, Error>.success(nil), .success(""), .success("sk-ant-test")])
+func aReadableKeyIsNeverUnreadable(secrets: Result<String?, Error>) async {
+    let environment = await probe(secrets: secrets).environment(settings: settings(api: .ollama, base: ""))
+    #expect(!environment.claudeKeyUnreadable)
+}
+
+@Test func probeRecordsTransitionsOnce() async {
+    let host = "transitions.thismac.test"
+    StubProtocol.register(host: host, reply: .failure(.cannotConnectToHost))
+    var settings = Settings.defaults
+    settings.macbook = EngineEndpoint(api: .ollama, baseURL: "http://\(host):11434", model: "m", keepAlive: "0")
+    let activity = StubActivity()
+    let probe = probe(secrets: .failure(KeychainError.status(-25308)), activity: activity)
+
+    _ = await probe.environment(settings: settings)
+    _ = await probe.environment(settings: settings)
+    #expect(activity.entries.map(\.message) == ["Ollama isn't running on This Mac", "Muninn couldn't read its saved key"])
+    #expect(activity.entries.allSatisfy { $0.level == .warning && $0.area == .engines })
+
+    StubProtocol.register(host: host, reply: .status(200))
+    _ = await probe.environment(settings: settings)
+    #expect(activity.entries.map(\.message).suffix(1) == ["Ollama on This Mac is answering again"])
+    #expect(activity.entries.count == 3)
+}
+
+@Test func probeRecordsTheNetworkMacOnlyWhenConfigured() async {
+    let host = "down.networkmac.test"
+    StubProtocol.register(host: host, reply: .failure(.timedOut))
+    let activity = StubActivity()
+    let probe = probe(activity: activity)
+    _ = await probe.environment(settings: settings(api: .ollama, base: ""))
+    #expect(!activity.entries.contains { $0.message.contains("Network Mac") })
+    _ = await probe.environment(settings: settings(api: .ollama, base: "http://\(host)"))
+    #expect(activity.entries.contains { $0.message == "The Network Mac isn't answering" })
+}
+
+@Test func keychainErrorBecomesAnUnreadableKey() {
+    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .writingRecap))
+    #expect(problem.title == "Muninn couldn't read its saved key" && problem.details.errorCode == -25308)
+    #expect(problem.details.errorDomain == "Keychain")
+}
+
+@Test func invalidKeychainDataBecomesAnUnreadableKeyWithoutACode() {
+    let problem = ProblemTranslator.problem(for: KeychainError.invalidData, in: ProblemContext(stage: .writingRecap))
+    #expect(problem.title == "Muninn couldn't read its saved key")
+    #expect(problem.details.errorDomain == "Keychain" && problem.details.errorCode == nil)
+}
+
+@Test func aKeychainErrorWhileSavingSettingsIsUnwritable() {
+    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .savingSettings))
+    #expect(problem.title == "Muninn couldn't save to the Keychain")
+    #expect(problem.details.errorDomain == "Keychain" && problem.details.errorCode == -25308)
+}
+
+@Test func aKeychainErrorWhileUsingAnAccountOffersSigningInAgain() {
+    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .readingCalendar, accountName: "Work"))
+    #expect(problem.title == "Muninn couldn't read the sign-in for Work")
+    #expect(problem.actions == [.signInAgain])
+    #expect(problem.details.account == "Work")
+    #expect(problem.details.errorDomain == "Keychain" && problem.details.errorCode == -25308)
+}
+
+@Test func aKeychainErrorWhileUsingAnAccountWithoutANameFallsBack() {
+    let problem = ProblemTranslator.problem(for: KeychainError.invalidData, in: ProblemContext(stage: .signingIn))
+    #expect(problem.title == "Muninn couldn't read the sign-in for your Microsoft account")
+}
+
+@Test func aKeychainErrorElsewhereKeepsTheEngineSettingsAction() {
+    let problem = ProblemTranslator.problem(for: KeychainError.status(-25308), in: ProblemContext(stage: .writingRecap))
+    #expect(problem.actions == [.engineSettings])
+}
+
 @Test func engineClientsBuildEndpointClientsFromSettings() throws {
     var settings = Settings.defaults
     settings.studio = EngineEndpoint(api: .openAICompatible, baseURL: "http://studio.local:1234", model: "m", keepAlive: "0")
@@ -266,6 +459,4 @@ func probeClaudeKeyPresence(secrets: Result<String?, Error>, present: Bool) asyn
     #expect(throws: EngineClientError.invalidBaseURL(.studio)) {
         try EngineClients.endpointClient(blank, engine: .studio)
     }
-    #expect(EngineClientError.invalidBaseURL(.studio).errorDescription == "Invalid Network Mac engine URL")
-    #expect(EngineClientError.missingClaudeKey.errorDescription == "No Claude API key saved")
 }

@@ -7,7 +7,7 @@ private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "
 extension AppModel {
     func exportToObsidian(_ id: MeetingID) {
         Task {
-            await perform("export to Obsidian", for: id) {
+            await perform(.filingNote, for: id) {
                 _ = try await export(id, askToOverwrite: true)
             }
         }
@@ -31,19 +31,23 @@ extension AppModel {
         case .skip:
             return
         case .unsourced(let count):
-            actionNotices[id] = "Not filed automatically: \(Self.unsourcedPhrase(count))"
+            let notice = Problems.notFiledAutomatically(unsourced: count)
+            actionNotices[id] = notice
+            activity.record(notice, area: .obsidian, meeting: meeting)
             return
         case .vaultNotChosen(let showNotice):
             if showNotice {
                 vaultNoticeShown = true
-                actionNotices[id] = MeetingActions.vaultNotChosenNotice
+                let notice = Problems.vaultNotChosen()
+                actionNotices[id] = notice
+                activity.record(notice, area: .obsidian, meeting: meeting)
             }
             logger.info("Not auto-filing \(id.rawValue, privacy: .public): no vault chosen")
             return
         case .file:
             break
         }
-        await perform("export to Obsidian", for: id) {
+        await perform(.filingNote, for: id) {
             if try await !export(id, askToOverwrite: false) {
                 logger.info("Not auto-filing \(id.rawValue, privacy: .public): a note already exists")
             }
@@ -122,6 +126,7 @@ extension AppModel {
             outcome = try await run(overwrite: true)
         }
         guard case .written = outcome else { return false }
+        activity.record(.info, .obsidian, "Filed in Obsidian", meeting: meeting)
         try mutate(id) { $0.exportedNotePath = path }
         return true
     }

@@ -40,7 +40,7 @@ public struct OpenAICompatibleClient: LLMClient {
             headers["Authorization"] = "Bearer \(apiKey)"
         }
         let url = LLMTransport.url(base: baseURL, path: "v1/chat/completions")
-        let data = try await LLMTransport.post(url, headers: headers, body: .object(body), session: session)
+        let data = try await LLMTransport.post(url, headers: headers, body: .object(body), provider: .openAICompatible, session: session)
         let response = try LLMTransport.decode(Response.self, from: data)
         guard let content = response.choices?.first?.message?.content, !content.isEmpty else { throw LLMError.emptyResponse }
         return content

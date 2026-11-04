@@ -119,8 +119,24 @@ private struct FakeDiarizer: Diarizing {
 private final class FakeProbe: EnvironmentProbing, @unchecked Sendable {
     let environment = Locked(EngineEnvironment(studioConfigured: true, studioReachable: true, memoryPressure: .normal, claudeKeyPresent: true))
 
+    let calls = Locked(0)
+    let gateNext = Locked<Milestone?>(nil)
+    let gated = Milestone()
+
+    /// Returns the environment as it was when the call began. When `gateNext` is set, the next call suspends until the gate is reached.
     func environment(settings: Settings) async -> EngineEnvironment {
-        environment.get()
+        calls.update { $0 += 1 }
+        let result = environment.get()
+        var gate: Milestone?
+        gateNext.update {
+            gate = $0
+            $0 = nil
+        }
+        if let gate {
+            gated.reach()
+            try? await gate.wait()
+        }
+        return result
     }
 }
 
@@ -129,6 +145,7 @@ private struct SummarizerFailure: Error {}
 private final class FakeSummarizer: Summarizing, @unchecked Sendable {
     let engines = Locked<[EngineKind]>([])
     let meetings = Locked<[String]>([])
+    let scopes = Locked<[ActivityMeeting?]>([])
     let failure = Locked<Error?>(nil)
     let onSummarize = Locked<(@Sendable () -> Void)?>(nil)
     let gate = Locked<Milestone?>(nil)
@@ -141,6 +158,7 @@ private final class FakeSummarizer: Summarizing, @unchecked Sendable {
         let isFirst = engines.get().isEmpty
         engines.update { $0.append(engine) }
         meetings.update { $0.append(meeting.id.rawValue) }
+        scopes.update { $0.append(ActivityScope.meeting) }
         let hook = onSummarize.get()
         let held = gate.get()
         entered.reach()
@@ -261,8 +279,8 @@ private struct Harness {
 }
 
 private extension EngineEnvironment {
-    static func make(studioReachable: Bool = true, memoryPressure: MemoryPressureLevel = .normal, claudeKeyPresent: Bool = true) -> EngineEnvironment {
-        EngineEnvironment(studioConfigured: true, studioReachable: studioReachable, memoryPressure: memoryPressure, claudeKeyPresent: claudeKeyPresent)
+    static func make(studioReachable: Bool = true, memoryPressure: MemoryPressureLevel = .normal, claudeKeyPresent: Bool = true, thisMacReachable: Bool = true) -> EngineEnvironment {
+        EngineEnvironment(studioConfigured: true, studioReachable: studioReachable, memoryPressure: memoryPressure, claudeKeyPresent: claudeKeyPresent, thisMacReachable: thisMacReachable)
     }
 }
 
@@ -443,7 +461,10 @@ struct PipelineTests {
         await h.pipeline.process(h.id)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Couldn't tell the other speakers apart; the call side is one speaker.")
+        #expect(meeting.engineNotice == nil)
+        let notice = try #require(meeting.transcriptNotice)
+        #expect(notice.title == "Couldn't tell the other speakers apart" && notice.severity == .warning)
+        #expect(notice.details.errorDomain?.contains("DiarizerFailure") == true && notice.details.errorCode != nil)
         let transcript = try #require(try h.store.loadTranscript(h.id))
         #expect(transcript.segments.map(\.speaker) == [Transcript.youSpeaker, "S1"])
         #expect(transcript.segments.map(\.text) == ["Hello there", "Good morning"])
@@ -460,7 +481,8 @@ struct PipelineTests {
         await h.pipeline.resumeWaiting()
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Couldn't tell the other speakers apart; the call side is one speaker.")
+        #expect(meeting.engineNotice == nil)
+        #expect(meeting.transcriptNotice?.title == "Couldn't tell the other speakers apart")
     }
 
     @Test func jobsRunAtBackgroundPriority() async throws {
@@ -669,6 +691,13 @@ struct PipelineTests {
         #expect(previous.engine == .macbook)
     }
 
+    @Test func workRunsInTheMeetingsActivityScope() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        #expect(h.summarizer.scopes.get() == [ActivityMeeting(id: h.id, title: "Acme sync")])
+    }
+
     @Test func meetingLanguageFollowsTheSummary() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
@@ -761,12 +790,81 @@ struct PipelineTests {
         defer { h.cleanUp() }
         h.summarizer.failure.set(SummarizerFailure())
         await h.pipeline.process(h.id)
-        guard case .failed(let message) = try h.meetingNow().status else {
+        guard case .failed(let problem) = try h.meetingNow().status else {
             Issue.record("expected failed, got \(try h.meetingNow().status)")
             return
         }
-        #expect(message.contains("SummarizerFailure"))
+        #expect(problem.title == "Something went wrong while writing the recap")
+        #expect(!problem.explanation.contains("SummarizerFailure"))
         #expect(h.changes.get().last.map { if case .failed = $0 { true } else { false } } == true)
+    }
+
+    @Test func failureCarriesTheStageAndEngine() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let request = RequestFacts(method: "POST", path: "/api/chat", host: "127.0.0.1")
+        h.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await h.pipeline.process(h.id)
+        guard case .failed(let problem) = try h.meetingNow().status else {
+            Issue.record("expected failed, got \(try h.meetingNow().status)")
+            return
+        }
+        #expect(problem.title == "Ollama isn't running on This Mac")
+        #expect(problem.details.stage == .writingRecap && problem.details.engine == .macbook)
+        #expect(problem.details.elapsedSeconds != nil)
+    }
+
+    @Test func aFailureBeforeAnyStageStartsHasNoStage() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try Data("not json".utf8).write(to: h.store.directory(h.id).appendingPathComponent("transcript.json"))
+        await h.pipeline.process(h.id)
+        guard case .failed(let problem) = try h.meetingNow().status else {
+            Issue.record("expected failed, got \(try h.meetingNow().status)")
+            return
+        }
+        #expect(problem.details.stage == .other)
+    }
+
+    @Test func theFailureKnowsWhetherAClaudeKeyIsSaved() async throws {
+        let withKey = try await Harness()
+        defer { withKey.cleanUp() }
+        let request = RequestFacts(method: "POST", path: "/api/chat", host: "127.0.0.1")
+        withKey.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await withKey.pipeline.process(withKey.id)
+        guard case .failed(let problem) = try withKey.meetingNow().status else { Issue.record("expected failed"); return }
+        #expect(problem.actions.contains(.writeWithClaude))
+
+        let without = try await Harness()
+        defer { without.cleanUp() }
+        without.probe.environment.set(.make(claudeKeyPresent: false))
+        without.summarizer.failure.set(LLMError.connection(code: -1004, request: request))
+        await without.pipeline.process(without.id)
+        guard case .failed(let other) = try without.meetingNow().status else { Issue.record("expected failed"); return }
+        #expect(!other.actions.contains(.writeWithClaude))
+    }
+
+    @Test func diarisationNoticeSurvivesAFailedRegeneration() async throws {
+        let h = try await Harness(diarizerFailure: DiarizerFailure())
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        let before = try #require(try h.meetingNow().transcriptNotice)
+        h.summarizer.failure.set(SummarizerFailure())
+        await h.pipeline.regenerate(h.id, engine: .claude)
+        let meeting = try h.meetingNow()
+        #expect(meeting.status == .ready)
+        #expect(meeting.transcriptNotice == before)
+        #expect(meeting.engineNotice?.severity == .problem)
+    }
+
+    @Test func aSuccessfulDiarisationClearsAStaleTranscriptNotice() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        var meeting = try h.meetingNow()
+        meeting.transcriptNotice = Problems.diarisationDegraded(mode: meeting.captureMode)
+        try h.store.save(meeting)
+        await h.pipeline.process(h.id)
+        #expect(try h.meetingNow().transcriptNotice == nil)
     }
 
     @Test func resumeSkipsCompletedTranscription() async throws {
@@ -829,8 +927,8 @@ struct PipelineTests {
         var m = Harness.meeting("m", mode: .micOnly, status: .recording)
         #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .transcribing)
         #expect(MeetingActions.finishRecording(m, endedAt: endedAt).endedAt == endedAt)
-        m.status = .failed("x")
-        #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .failed("x"))
+        m.status = .failed(Problems.legacyFailure())
+        #expect(MeetingActions.finishRecording(m, endedAt: endedAt).status == .failed(Problems.legacyFailure()))
     }
 
     @Test func fallbackNoticeSet() async throws {
@@ -844,7 +942,7 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac unreachable — summarized on This Mac")
+        #expect(meeting.engineNotice == Problems.writtenOnThisMac(because: .studioUnreachable))
     }
 
     @Test func fallbackNoticeSaysWhenTheNetworkMacIsNotSetUp() async throws {
@@ -858,7 +956,7 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac not set up — summarized on This Mac")
+        #expect(meeting.engineNotice == Problems.writtenOnThisMac(because: .studioNotConfigured))
     }
 
     @Test func regenerateWaitKeepsTheSummaryWhenTheNetworkMacIsNotSetUp() async throws {
@@ -869,7 +967,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Network Mac address not set — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioNotConfigured, api: .ollama, details: ProblemDetails(engine: .studio)))
     }
 
     @Test func llmCleanupSkippedWhenGateWaits() async throws {
@@ -974,7 +1072,7 @@ struct PipelineTests {
         var meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Network Mac unreachable — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama, details: ProblemDetails(engine: .studio)))
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.summarizer.engines.get() == [.macbook])
@@ -983,7 +1081,7 @@ struct PipelineTests {
         await h.pipeline.regenerate(h.id, engine: .claude)
         meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "No Claude API key — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.claudeKeyMissing, api: .ollama, details: ProblemDetails(engine: .claude)))
     }
 
     @Test func requestedEngineSurvivesResume() async throws {
@@ -1073,7 +1171,7 @@ struct PipelineTests {
         let h = try await Harness()
         defer { h.cleanUp() }
         var meeting = try h.meetingNow()
-        meeting.engineNotice = "old notice"
+        meeting.engineNotice = Problems.keptRecap(.memoryPressure, api: .ollama)
         try h.store.save(meeting)
         await h.pipeline.process(h.id)
         #expect(try h.meetingNow().engineNotice == nil)
@@ -1163,14 +1261,14 @@ struct PipelineTests {
         try FileManager.default.removeItem(at: directory.appendingPathComponent("transcript.json"))
         try FileManager.default.removeItem(at: directory.appendingPathComponent("transcript.clean.json"))
         var failed = try h.meetingNow()
-        failed.status = .failed("earlier problem")
+        failed.status = .failed(Problems.legacyFailure())
         try h.store.save(failed)
 
         h.probe.environment.set(.make(studioReachable: false))
         await h.pipeline.regenerate(h.id, engine: .studio)
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
-        #expect(meeting.engineNotice == "Network Mac unreachable — kept the existing summary")
+        #expect(meeting.engineNotice == Problems.keptRecap(.studioUnreachable, api: .ollama, details: ProblemDetails(engine: .studio)))
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
         #expect(h.transcriber.calls.get().count == 4)
     }
@@ -1186,9 +1284,40 @@ struct PipelineTests {
         let meeting = try h.meetingNow()
         #expect(meeting.status == .ready)
         #expect(meeting.summaryEngine == .macbook)
-        #expect(meeting.engineNotice == "Claude failed: SummarizerFailure() — kept the existing summary")
+        #expect(meeting.engineNotice?.severity == .problem)
+        #expect(meeting.engineNotice?.explanation.hasSuffix("Muninn kept the recap you had.") == true)
+        #expect(meeting.engineNotice?.details.engine == .claude)
         #expect(meeting.requestedEngine == nil)
         #expect(try h.store.loadSummary(h.id) == summaryBefore)
+    }
+
+    @Test func aFailedRegenerationOnThisMacRemembersThatEngineNotTheDefault() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        var settings = h.settings.get()
+        settings.defaultEngine = .claude
+        h.settings.set(settings)
+
+        h.summarizer.failure.set(SummarizerFailure())
+        await h.pipeline.regenerate(h.id, engine: .macbook)
+        let meeting = try h.meetingNow()
+        #expect(meeting.engineNotice?.severity == .problem)
+        #expect(meeting.engineNotice?.details.engine == .macbook)
+        #expect(meeting.requestedEngine == nil)
+    }
+
+    @Test func aRegenerationHeldByAWaitRemembersTheForcedEngine() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        h.probe.environment.set(.make(studioReachable: false))
+        await h.pipeline.regenerate(h.id, engine: .studio)
+        #expect(try h.meetingNow().engineNotice?.details.engine == .studio)
+
+        h.probe.environment.set(.make(memoryPressure: .warning, claudeKeyPresent: false))
+        await h.pipeline.regenerate(h.id, engine: .claude)
+        #expect(try h.meetingNow().engineNotice?.details.engine == .claude)
     }
 
     @Test func failedSaveStillNotifiesWithFailedMeeting() async throws {
@@ -1276,5 +1405,385 @@ struct PipelineTests {
         #expect(h.summarizer.engines.get() == [.macbook, .claude])
         #expect(duringSecond, "hasJob is false while the second job for the meeting is running")
         #expect(!(await h.pipeline.hasJob(for: h.id)))
+    }
+
+    private func recordSnapshots(_ h: Harness) async -> Locked<[PipelineSnapshot]> {
+        let seen = Locked<[PipelineSnapshot]>([])
+        await h.pipeline.setOnSnapshot { snapshot in seen.update { $0.append(snapshot) } }
+        return seen
+    }
+
+    @Test(.timeLimit(.minutes(1))) func snapshotListsQueuedMeetingsInOrder() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        let c = MeetingID(rawValue: "m3")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x")))
+        try h.store.create(Harness.meeting("m3", mode: .call(appBundleID: "x")))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let seen = await recordSnapshots(h)
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        let second = Task { await pipeline.process(b) }
+        await waitUntil { await pipeline.snapshot().queued == [b] }
+        let third = Task { await pipeline.process(c) }
+        await waitUntil { await pipeline.snapshot().queued == [b, c] }
+
+        let snapshot = await pipeline.snapshot()
+        #expect(snapshot.current?.meetingID == a)
+        #expect(snapshot.current?.stage == .writingRecap)
+        #expect(snapshot.queued == [b, c])
+
+        h.summarizer.released.reach()
+        await first.value
+        await second.value
+        await third.value
+        #expect(await pipeline.snapshot() == .idle)
+
+        var queues: [[MeetingID]] = []
+        for queue in seen.get().map(\.queued) where queues.last != queue {
+            queues.append(queue)
+        }
+        var expected: ArraySlice<[MeetingID]> = [[b], [b, c], [c], []][...]
+        for queue in queues where queue == expected.first {
+            expected.removeFirst()
+        }
+        #expect(expected.isEmpty, "the handler never saw these queues in order: \(expected); saw \(queues)")
+        // A meeting leaves the queue the moment it gets its turn, before its first stage starts.
+        let snapshots = seen.get()
+        let firstStageOfB = try #require(snapshots.firstIndex { $0.current?.meetingID == b })
+        #expect(snapshots[firstStageOfB - 1].current == nil)
+        #expect(snapshots[firstStageOfB - 1].queued == [c])
+    }
+
+    @Test func snapshotFollowsTheStages() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_792_000_500)
+        let h = try await Harness(clock: { startedAt })
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+
+        let snapshots = seen.get()
+        var stages: [PipelineStage] = []
+        for stage in snapshots.compactMap(\.current?.stage) where stages.last != stage {
+            stages.append(stage)
+        }
+        #expect(stages == [.transcribing, .identifyingSpeakers, .cleaningUp, .writingRecap])
+        #expect(snapshots.compactMap(\.current).allSatisfy { $0.meetingID == h.id && $0.stageStartedAt == startedAt })
+        #expect(snapshots.compactMap(\.current).filter { $0.stage == .writingRecap }.allSatisfy { $0.engine == .macbook })
+        #expect(snapshots.compactMap(\.current).filter { $0.stage != .writingRecap && $0.stage != .cleaningUp }.allSatisfy { $0.engine == nil })
+        #expect(snapshots.last == .idle)
+        for (earlier, later) in zip(snapshots, snapshots.dropFirst()) {
+            #expect(earlier != later, "the handler was called with an unchanged snapshot")
+        }
+    }
+
+    @Test func ruleCleanupHasNoEngine() async throws {
+        let h = try await Harness(useLLMCleanup: false)
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        let cleaning = seen.get().compactMap(\.current).filter { $0.stage == .cleaningUp }
+        #expect(!cleaning.isEmpty)
+        #expect(cleaning.allSatisfy { $0.engine == nil })
+    }
+
+    @Test func languageModelCleanupNamesItsEngine() async throws {
+        let h = try await Harness(useLLMCleanup: true)
+        defer { h.cleanUp() }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        let cleaning = seen.get().compactMap(\.current).filter { $0.stage == .cleaningUp }
+        #expect(!cleaning.isEmpty)
+        #expect(cleaning.allSatisfy { $0.engine == .macbook })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aMeetingQueuedTwiceAppearsOnce() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x")))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        let second = Task { await pipeline.process(b) }
+        await waitForQueuedJob(pipeline, b, callers: 1, engine: nil)
+        let third = Task { await pipeline.process(b) }
+        await waitForQueuedJob(pipeline, b, callers: 2, engine: nil)
+        #expect(await pipeline.snapshot().queued == [b])
+
+        h.summarizer.released.reach()
+        await first.value
+        await second.value
+        await third.value
+    }
+
+    @Test func aFailedJobLeavesTheSnapshotIdle() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.summarizer.failure.set(SummarizerFailure())
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        #expect(seen.get().compactMap(\.current?.stage).last == .writingRecap)
+        #expect(seen.get().last == .idle)
+        #expect(await h.pipeline.snapshot() == .idle)
+    }
+
+    @Test func aJobHeldForARecordingLeavesTheSnapshotIdle() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let recording = h.recording
+        h.transcriber.afterTranscribe.set { track in
+            if track == .mic { recording.set(true) }
+        }
+        let seen = await recordSnapshots(h)
+        await h.pipeline.process(h.id)
+        #expect(try h.meetingNow().status == .waiting(.recording))
+        #expect(seen.get().compactMap(\.current?.stage) == [.transcribing])
+        #expect(seen.get().last == .idle)
+        #expect(await h.pipeline.snapshot() == .idle)
+    }
+
+    private func setStatus(_ h: Harness, _ id: String, _ status: ProcessingStatus) throws {
+        _ = try h.store.update(MeetingID(rawValue: id)) { $0.status = status }
+    }
+
+    private func status(_ h: Harness, _ id: MeetingID) throws -> ProcessingStatus {
+        try h.store.load(id).status
+    }
+
+    private func waits(_ h: Harness) -> [ProcessingStatus] {
+        h.changes.get().filter {
+            if case .waiting = $0 { return true }
+            return false
+        }
+    }
+
+    @Test func resumeWaitingCanBeLimitedToReasons() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try setStatus(h, "m1", .waiting(.thisMacUnreachable))
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.claudeKeyMissing)))
+        await h.pipeline.resumeWaiting(only: [.thisMacUnreachable])
+        #expect(try status(h, h.id) == .ready)
+        #expect(try status(h, b) == .waiting(.claudeKeyMissing))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func requeueingProbesWhileAnotherMeetingRuns() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.thisMacUnreachable)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+
+        let probesBefore = h.probe.calls.get()
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(h.probe.calls.get() >= probesBefore + 2)
+        #expect(await pipeline.snapshot().queued == [b])
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(try !h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.queued)])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aWaitThatHasNotClearedKeepsItsReason() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.thisMacUnreachable)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        h.probe.environment.set(.make(thisMacReachable: false))
+
+        await pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(await pipeline.snapshot().queued.isEmpty)
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+        #expect(waits(h).isEmpty)
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aWaitThatChangesReasonStoresTheNewReason() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.memoryPressure)))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+
+        h.probe.environment.set(.make(thisMacReachable: false))
+        await pipeline.requeueWaiting()
+        #expect(try status(h, b) == .waiting(.thisMacUnreachable))
+        #expect(try h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.thisMacUnreachable)])
+        #expect(await pipeline.snapshot().queued.isEmpty)
+
+        h.probe.environment.set(.make())
+        await pipeline.requeueWaiting()
+        #expect(await pipeline.snapshot().queued == [b])
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(try !h.store.load(b).needsAttention)
+        #expect(waits(h) == [.waiting(.thisMacUnreachable), .waiting(.queued)])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aStartedJobIsNotOverwritten() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = h.id
+        try setStatus(h, "m1", .waiting(.memoryPressure))
+        h.summarizer.holdFirstCall.set(true)
+        let pipeline = h.pipeline
+        let gate = Milestone()
+        h.probe.gateNext.set(gate)
+        let requeue = Task { await pipeline.requeueWaiting() }
+        try await h.probe.gated.wait()
+
+        let job = Task { await pipeline.process(b) }
+        try await h.summarizer.entered.wait()
+        #expect(try status(h, b) == .summarizing)
+        gate.reach()
+        await requeue.value
+
+        #expect(try status(h, b) == .summarizing)
+        #expect(waits(h).isEmpty)
+        #expect(await pipeline.snapshot().queued.isEmpty)
+        h.summarizer.released.reach()
+        await job.value
+        #expect(try status(h, b) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aJobThatHasItsTurnButHasNotWrittenYetIsNotOverwritten() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.probe.environment.set(.make(memoryPressure: .warning))
+        await h.pipeline.process(h.id)
+        #expect(try status(h, h.id) == .waiting(.memoryPressure))
+        h.probe.environment.set(.make())
+
+        let pipeline = h.pipeline
+        let gate = Milestone()
+        h.probe.gateNext.set(gate)
+        let job = Task { await pipeline.process(h.id) }
+        try await h.probe.gated.wait()
+
+        await pipeline.requeueWaiting()
+        #expect(try status(h, h.id) == .waiting(.memoryPressure))
+        #expect(waits(h) == [.waiting(.memoryPressure)])
+
+        gate.reach()
+        await job.value
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test func aMeetingHeldForARecordingIsLeftToTheRecordingsEnd() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.recording))
+        h.recording.set(true)
+        var settings = h.settings.get()
+        settings.defaultEngine = .claude
+        h.settings.set(settings)
+        await h.pipeline.requeueWaiting(only: nil)
+        #expect(try status(h, h.id) == .waiting(.recording))
+        #expect(h.changes.get().isEmpty)
+        #expect(await h.pipeline.snapshot().queued.isEmpty)
+        #expect(await !h.pipeline.hasJob(for: h.id))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aRecordingHoldIsReleasedWhenNoRecordingRuns() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.recording))
+        h.recording.set(false)
+        await h.pipeline.requeueWaiting(only: nil)
+        await waitUntil { await !h.pipeline.hasJob(for: h.id) }
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aRecordingHoldAfterARelaunchIsQueuedWithoutConsultingTheEngines() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x"), status: .waiting(.recording)))
+        h.summarizer.holdFirstCall.set(true)
+        h.recording.set(false)
+        let pipeline = h.pipeline
+        let a = h.id
+        let first = Task { await pipeline.process(a) }
+        try await h.summarizer.entered.wait()
+        h.probe.environment.set(.make(thisMacReachable: false))
+
+        await pipeline.requeueWaiting()
+        #expect(try status(h, b) == .waiting(.queued))
+        #expect(await pipeline.snapshot().queued == [b])
+
+        h.summarizer.released.reach()
+        await first.value
+        await waitUntil { await !pipeline.hasJob(for: b) }
+    }
+
+    @Test func requeueingWithNothingWaitingDoesNotProbe() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let before = h.probe.calls.get()
+        await h.pipeline.requeueWaiting()
+        await h.pipeline.requeueWaiting(only: WaitRetry.quickReasons)
+        #expect(h.probe.calls.get() == before)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aQueuedWaitRunsAfterARelaunch() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        try setStatus(h, "m1", .waiting(.queued))
+        await h.pipeline.requeueWaiting(only: WaitRetry.reasons(forTick: 1))
+        await waitUntil { await !h.pipeline.hasJob(for: h.id) }
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test func startingTheServerClearsTheWait() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        h.probe.environment.set(.make(thisMacReachable: false))
+        await h.pipeline.process(h.id)
+        #expect(try status(h, h.id) == .waiting(.thisMacUnreachable))
+
+        h.probe.environment.set(.make())
+        await h.pipeline.resumeWaiting(only: WaitRetry.reasons(forTick: 1))
+        #expect(try status(h, h.id) == .ready)
+    }
+
+    @Test func waitRetryCadence() {
+        #expect(WaitRetry.reasons(forTick: 0) == nil && WaitRetry.reasons(forTick: 4) == nil)
+        #expect(WaitRetry.reasons(forTick: 1) == [.thisMacUnreachable, .studioUnreachable, .queued])
+        #expect(!WaitReason.queued.needsYou)
+        #expect(WaitRetry.interval == .seconds(15))
     }
 }

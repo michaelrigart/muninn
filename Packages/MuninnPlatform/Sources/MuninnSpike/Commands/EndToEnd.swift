@@ -117,7 +117,8 @@ struct EndToEnd: AsyncParsableCommand {
         print("Summarize:   \(format(metrics.summarizeSeconds))")
         print("Total:       \(Spike.seconds(total)) (hang-up to draft, wall clock)")
         print("Status:      \(meeting.status)")
-        if let notice = meeting.engineNotice { print("Notice:      \(notice)") }
+        if let notice = meeting.engineNotice { print("Notice:      \(notice.title)") }
+        if let notice = meeting.transcriptNotice { print("Notice:      \(notice.title)") }
         print("Output:      \(store.directory(meeting.id).path)")
         sampler.printSummary()
         print("Load:        \(directory.path)/load.csv")

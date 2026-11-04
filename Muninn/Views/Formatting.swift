@@ -2,39 +2,14 @@ import Foundation
 import MuninnCore
 import SwiftUI
 
-extension WaitReason {
-    var text: String {
+extension MeetingProgress {
+    /// What Muninn is doing with the meeting, in a few words; nil when it is doing nothing or the meeting waits or failed.
+    var title: String? {
         switch self {
-        case .studioUnreachable: "Waiting for the Network Mac"
-        case .studioNotConfigured: "Set the network Mac's address in Settings"
-        case .memoryPressure: "Waiting: memory pressure"
-        case .claudeKeyMissing: "Waiting: no Claude API key"
-        case .recording: "Waiting for the recording to end"
-        }
-    }
-}
-
-extension ProcessingStatus {
-    var label: String {
-        switch self {
-        case .recording: "Recording"
-        case .transcribing: "Transcribing"
-        case .diarizing: "Identifying speakers"
-        case .cleaning: "Cleaning up"
-        case .summarizing: "Summarising"
-        case .waiting(let reason): reason.text
-        case .ready: "Ready"
-        case .failed: "Failed"
-        }
-    }
-
-    var symbol: String? {
-        switch self {
-        case .recording: "record.circle"
-        case .transcribing, .diarizing, .cleaning, .summarizing: "hourglass"
-        case .waiting: "pause.circle"
-        case .ready: nil
-        case .failed: "exclamationmark.triangle"
+        case .working(let work): work.stage.title
+        case .queued: "Waiting its turn"
+        case .preparingSpeechModel: "Getting the speech model ready"
+        case .none, .waiting, .failed: nil
         }
     }
 }

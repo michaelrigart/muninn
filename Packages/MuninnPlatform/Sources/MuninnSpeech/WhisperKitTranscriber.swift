@@ -36,7 +36,11 @@ extension WhisperKitTranscriber {
         func recognise(_ audio: URL, vocabulary: [String]) async throws -> [SegmentBuilder.Piece] {
             let model = model
             let kit = try await Self.kits.value(for: model) {
-                try await WhisperKit(WhisperKitConfig(model: model, verbose: false, logLevel: .none, load: true, download: true))
+                try await SpeechModelActivity.shared.run(SpeechModelID.whisperLargeV3Turbo.displayName) { report in
+                    let folder = try await WhisperKit.download(variant: model, progressCallback: { report($0.fractionCompleted) })
+                    report(nil)
+                    return try await WhisperKit(WhisperKitConfig(model: model, modelFolder: folder.path, verbose: false, logLevel: .none, load: true, download: false))
+                }
             }
             var options = DecodingOptions(
                 task: .transcribe,

@@ -5,29 +5,19 @@ public protocol LLMClient: Sendable {
 }
 
 public enum LLMError: Error, Equatable {
-    case http(Int, String)
+    case http(status: Int, category: ProviderErrorCategory, request: RequestFacts)
+    case connection(code: Int, request: RequestFacts)
     case refused(String?)
     case emptyResponse
     case truncated
-    case decoding(String)
+    case decoding
     case promptTruncated(model: String, contextTokens: Int)
-}
-
-extension LLMError: LocalizedError {
-    public var errorDescription: String? {
-        switch self {
-        case .promptTruncated(let model, let contextTokens):
-            "The transcript is too long for \(model)'s context (\(contextTokens) tokens) and was cut off; use the Network Mac or Claude"
-        default:
-            nil
-        }
-    }
 }
 
 enum LLMTransport {
     static let timeout: TimeInterval = 300
 
-    static func post(_ url: URL, headers: [String: String], body: JSONValue, session: URLSession) async throws -> Data {
+    static func post(_ url: URL, headers: [String: String], body: JSONValue, provider: Provider, session: URLSession) async throws -> Data {
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -35,12 +25,23 @@ enum LLMTransport {
             request.setValue(value, forHTTPHeaderField: name)
         }
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await session.data(for: request)
+        let facts = RequestFacts(method: "POST", url: url)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code != .cancelled {
+            throw LLMError.connection(code: error.code.rawValue, request: facts)
+        }
         guard let http = response as? HTTPURLResponse else {
-            throw LLMError.decoding("The response is not an HTTP response")
+            throw LLMError.decoding
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw LLMError.http(http.statusCode, String(String(decoding: data, as: UTF8.self).prefix(500)))
+            throw LLMError.http(
+                status: http.statusCode,
+                category: ProviderErrorClassifier.category(status: http.statusCode, body: data, provider: provider),
+                request: facts
+            )
         }
         return data
     }
@@ -62,7 +63,7 @@ enum LLMTransport {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw LLMError.decoding(String(describing: error))
+            throw LLMError.decoding
         }
     }
 

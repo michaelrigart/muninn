@@ -10,19 +10,21 @@ final class SignInFlow: ObservableObject {
         case waiting(DeviceCodePrompt)
         case finishing
         case done([String])
-        case failed(String)
+        case failed(Problem)
     }
 
     @Published private(set) var phase = Phase.starting
 
     private let account: AccountSettings
     private let secrets: KeychainSecrets
+    private let activity: ActivityCenter
     private let onAddresses: ([String]) -> Void
     private var task: Task<Void, Never>?
 
-    init(account: AccountSettings, secrets: KeychainSecrets, onAddresses: @escaping ([String]) -> Void) {
+    init(account: AccountSettings, secrets: KeychainSecrets, activity: ActivityCenter, onAddresses: @escaping ([String]) -> Void) {
         self.account = account
         self.secrets = secrets
+        self.activity = activity
         self.onAddresses = onAddresses
     }
 
@@ -58,7 +60,7 @@ final class SignInFlow: ObservableObject {
         do {
             try TokenAccess.signIn(tokens, account: account.id, store: KeychainTokenStore(secrets: secrets))
         } catch {
-            fail(error, prefix: "Couldn't store the tokens in the Keychain")
+            fail(error) { Problems.keychainUnwritable(details: $0.details) }
             return
         }
         let accessToken = tokens.accessToken
@@ -66,30 +68,20 @@ final class SignInFlow: ObservableObject {
             let addresses = try await GraphClient(account: account.id, token: { accessToken }).me()
             onAddresses(addresses)
             phase = .done(addresses)
+            activity.record(.info, .accounts, "Signed in to \(account.displayName)", details: ProblemDetails(account: account.displayName))
         } catch {
-            fail(error, prefix: "Signed in, but reading your profile failed")
+            fail(error) { Problems.signedInProfileUnreadable(account: account.displayName, details: $0.details) }
         }
     }
 
-    private func fail(_ error: Error, prefix: String? = nil) {
-        if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
-        let detail = Self.describe(error)
-        phase = .failed(prefix.map { "\($0): \(detail)" } ?? detail)
-    }
-
-    static func keychainMessage(_ action: String, _ error: Error) -> String {
-        "Couldn't \(action) the Keychain: \(describe(error))"
-    }
-
-    nonisolated static func describe(_ error: Error) -> String {
-        switch error {
-        case KeychainError.status(let status):
-            return "Keychain status \(status)."
-        case KeychainError.invalidData:
-            return "The stored data is unreadable."
-        default:
-            return error.localizedDescription
-        }
+    /// Shows what went wrong and records it. A cancellation is not a failure. `refine` swaps the translated problem for a
+    /// more specific one that keeps its details.
+    private func fail(_ error: Error, refine: (Problem) -> Problem = { $0 }) {
+        guard !Task.isCancelled, !ActivityCenter.isCancellation(error) else { return }
+        let translated = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .signingIn, accountName: account.displayName))
+        let problem = refine(translated)
+        activity.record(problem, area: .accounts)
+        phase = .failed(problem)
     }
 }
 
@@ -98,9 +90,9 @@ struct SignInSheet: View {
     @StateObject private var flow: SignInFlow
     @Environment(\.dismiss) private var dismiss
 
-    init(account: AccountSettings, secrets: KeychainSecrets, onAddresses: @escaping ([String]) -> Void) {
+    init(account: AccountSettings, secrets: KeychainSecrets, activity: ActivityCenter, onAddresses: @escaping ([String]) -> Void) {
         self.account = account
-        _flow = StateObject(wrappedValue: SignInFlow(account: account, secrets: secrets, onAddresses: onAddresses))
+        _flow = StateObject(wrappedValue: SignInFlow(account: account, secrets: secrets, activity: activity, onAddresses: onAddresses))
     }
 
     var body: some View {
@@ -115,7 +107,6 @@ struct SignInSheet: View {
                     Button("Done") { dismiss() }
                         .keyboardShortcut(.defaultAction)
                 case .failed:
-                    Button("Try again") { flow.retry() }
                     Button("Close") { dismiss() }
                         .keyboardShortcut(.cancelAction)
                 default:
@@ -167,11 +158,11 @@ struct SignInSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        case .failed(let message):
-            Text(message)
-                .foregroundStyle(.red)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+        case .failed(let problem):
+            ProblemCard(
+                problem: problem,
+                handlers: ProblemHandlers(tryAgain: { flow.retry() }, signInAgain: { flow.retry() })
+            )
         }
     }
 

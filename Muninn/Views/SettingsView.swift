@@ -6,22 +6,47 @@ import MuninnSystem
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
-        TabView {
-            EnginesTab()
-                .tabItem { Label("Engines", systemImage: "cpu") }
-            AccountsTab()
-                .tabItem { Label("Accounts", systemImage: "person.crop.circle") }
-            ObsidianTab()
-                .tabItem { Label("Obsidian", systemImage: "folder") }
-            RecordingTab()
-                .tabItem { Label("Recording", systemImage: "record.circle") }
-            DictionaryTab()
-                .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
-            PermissionsTab()
-                .tabItem { Label("Permissions", systemImage: "lock.shield") }
+        VStack(spacing: 0) {
+            if let problem = model.settingsProblem {
+                ProblemCard(
+                    problem: problem,
+                    compact: true,
+                    handlers: model.problemHandlers(tryAgain: model.failedSettings.map { failed in { model.saveSettings(failed) } }),
+                    showInActivity: { model.showInActivity(problem) },
+                    onDismiss: { model.dismissSettingsProblem() }
+                )
+                .padding(.horizontal, Space.m)
+                .padding(.top, Space.s)
+            }
+            tabs
         }
         .frame(width: 560, height: 520)
+    }
+
+    private var tabs: some View {
+        TabView(selection: $model.settingsTab) {
+            EnginesTab()
+                .tabItem { Label("Engines", systemImage: "cpu") }
+                .tag(SettingsTab.engines)
+            AccountsTab()
+                .tabItem { Label("Accounts", systemImage: "person.crop.circle") }
+                .tag(SettingsTab.accounts)
+            ObsidianTab()
+                .tabItem { Label("Obsidian", systemImage: "folder") }
+                .tag(SettingsTab.obsidian)
+            RecordingTab()
+                .tabItem { Label("Recording", systemImage: "record.circle") }
+                .tag(SettingsTab.recording)
+            DictionaryTab()
+                .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
+                .tag(SettingsTab.dictionary)
+            PermissionsTab()
+                .tabItem { Label("Permissions", systemImage: "lock.shield") }
+                .tag(SettingsTab.permissions)
+        }
     }
 }
 
@@ -83,8 +108,7 @@ private struct EndpointSection: View {
 private struct ClaudeSection: View {
     @EnvironmentObject private var model: AppModel
     @State private var apiKey = ""
-    @State private var hasKey = false
-    @State private var error: String?
+    @State private var issue: SettingsIssue?
 
     private static let efforts = ["low", "medium", "high", "xhigh", "max"]
 
@@ -97,10 +121,10 @@ private struct ClaudeSection: View {
             Picker("Effort", selection: model.settingsBinding(\.claudeEffort)) {
                 ForEach(Self.efforts.contains(effort) ? Self.efforts : Self.efforts + [effort], id: \.self) { Text($0) }
             }
-            SecureField("API key", text: $apiKey, prompt: Text(hasKey ? "Replace the saved key" : "sk-ant-..."))
+            SecureField("API key", text: $apiKey, prompt: Text(model.claudeKeyPresent ? "Replace the saved key" : "sk-ant-..."))
                 .onSubmit(save)
             HStack {
-                if hasKey {
+                if model.claudeKeyPresent {
                     Label("Key saved", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 }
@@ -108,22 +132,13 @@ private struct ClaudeSection: View {
                 Button("Save", action: save)
                     .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Remove", role: .destructive, action: remove)
-                    .disabled(!hasKey)
+                    .disabled(!model.claudeKeyPresent)
             }
-            if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
+            if let issue {
+                SettingsIssueCard(issue: issue, dismiss: { self.issue = nil })
             }
         }
-        .onAppear(perform: refresh)
-    }
-
-    private func refresh() {
-        do {
-            hasKey = !(try model.secrets.get(LiveEnvironmentProbe.claudeKeyName) ?? "").isEmpty
-            error = nil
-        } catch {
-            self.error = SignInFlow.keychainMessage("read", error)
-        }
+        .onAppear(perform: model.refreshClaudeKey)
     }
 
     private func save() {
@@ -132,10 +147,10 @@ private struct ClaudeSection: View {
         do {
             try model.secrets.set(key, for: LiveEnvironmentProbe.claudeKeyName)
             apiKey = ""
-            error = nil
-            hasKey = true
+            issue = nil
+            model.refreshClaudeKey()
         } catch {
-            self.error = SignInFlow.keychainMessage("save the key in", error)
+            issue = .keychainWrite(error, area: .engines, activity: model.activity, retry: save)
         }
     }
 
@@ -143,11 +158,47 @@ private struct ClaudeSection: View {
         do {
             try model.secrets.delete(LiveEnvironmentProbe.claudeKeyName)
             apiKey = ""
-            error = nil
-            hasKey = false
+            issue = nil
+            model.refreshClaudeKey()
         } catch {
-            self.error = SignInFlow.keychainMessage("remove the key from", error)
+            issue = .keychainWrite(error, area: .engines, activity: model.activity, retry: remove)
         }
+    }
+}
+
+/// A problem a Settings pane shows under its fields, with what runs the action again.
+private struct SettingsIssue {
+    let problem: Problem
+    var retry: (() -> Void)?
+
+    static func notice(_ title: String) -> SettingsIssue {
+        SettingsIssue(problem: .notice(title))
+    }
+
+    /// A Keychain write that failed, recorded in Activity.
+    @MainActor
+    static func keychainWrite(_ error: Error, area: ActivityArea, activity: ActivityCenter, retry: @escaping () -> Void) -> SettingsIssue {
+        let details = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingSettings)).details
+        let problem = Problems.keychainUnwritable(details: details)
+        activity.record(problem, area: area)
+        return SettingsIssue(problem: problem, retry: retry)
+    }
+}
+
+private struct SettingsIssueCard: View {
+    @EnvironmentObject private var model: AppModel
+    let issue: SettingsIssue
+    let dismiss: () -> Void
+
+    var body: some View {
+        ProblemCard(
+            problem: issue.problem,
+            role: issue.problem.severity == .warning ? .attention : nil,
+            compact: true,
+            handlers: model.problemHandlers(tryAgain: issue.retry),
+            showInActivity: { model.showInActivity(issue.problem) },
+            onDismiss: dismiss
+        )
     }
 }
 
@@ -157,13 +208,17 @@ private struct AccountsTab: View {
     @EnvironmentObject private var model: AppModel
     @State private var signingIn: SigningIn?
     @State private var statuses: [String: SignInStatus] = [:]
-    @State private var error: String?
+    @State private var issue: SettingsIssue?
     @State private var flusher = FieldFlusher()
 
     private enum SignInStatus: Equatable {
         case signedIn
         case signedOut
-        case unreadable(String)
+        case unreadable(Problem)
+
+        var isUnreadable: Bool {
+            if case .unreadable = self { true } else { false }
+        }
     }
 
     private struct SigningIn: Identifiable {
@@ -205,21 +260,35 @@ private struct AccountsTab: View {
                     ) { text in
                         update(account.id) { $0.selfAddresses = SettingsValidation.commaList(text) }
                     }
+                    if case .unreadable(let problem) = status {
+                        ProblemCard(
+                            problem: problem,
+                            compact: true,
+                            handlers: model.problemHandlers(tryAgain: refresh),
+                            showInActivity: { model.showInActivity(problem) }
+                        )
+                    }
+                    let signInExpired = status == .signedIn && model.signInNeeded.contains(account.id)
+                    if signInExpired {
+                        let problem = Problems.signInExpired(account: account.displayName)
+                        ProblemCard(
+                            problem: problem,
+                            compact: true,
+                            handlers: signInHandlers(account.id),
+                            showInActivity: { model.showInActivity(problem) }
+                        )
+                    }
                     HStack {
                         switch status {
-                        case .signedIn where model.signInNeeded.contains(account.id):
-                            Label("Sign-in expired: sign in again", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                        case .signedIn where signInExpired:
+                            EmptyView()
                         case .signedIn:
                             Label("Signed in", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
                         case .signedOut:
                             Text("Not signed in").foregroundStyle(.secondary)
-                        case .unreadable(let message):
-                            Text(message)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
+                        case .unreadable:
+                            EmptyView()
                         }
                         Spacer()
                         if status == .signedIn {
@@ -238,15 +307,15 @@ private struct AccountsTab: View {
             Section {
                 Button("Add Account", action: add)
             }
-            if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
+            if let issue {
+                SettingsIssueCard(issue: issue, dismiss: { self.issue = nil })
             }
         }
         .formStyle(.grouped)
         .onAppear(perform: refresh)
         .sheet(item: $signingIn, onDismiss: refresh) { request in
             let account = request.account
-            SignInSheet(account: account, secrets: model.secrets) { addresses in
+            SignInSheet(account: account, secrets: model.secrets, activity: model.activity) { addresses in
                 update(account.id) { $0.selfAddresses = Self.merge($0.selfAddresses, addresses) }
                 model.signInNeeded.remove(account.id)
                 model.refreshCalendar()
@@ -262,14 +331,14 @@ private struct AccountsTab: View {
         )
         let account = AccountSettings(id: id, displayName: name, vaultArea: name, tenant: "organizations", clientID: "", selfAddresses: [])
         model.updateSettings { $0.accounts.append(account) }
-        error = nil
+        issue = nil
         refresh()
     }
 
     private func remove(_ account: AccountSettings) {
         flusher.flushAll()
         guard AccountManagement.busyMeetings(for: account.id, in: model.meetings).isEmpty else {
-            error = AccountManagement.removalRefusal(accountName: account.displayName)
+            issue = .notice(AccountManagement.removalRefusal(accountName: account.displayName))
             return
         }
         let answer = Alerts.ask(
@@ -282,7 +351,7 @@ private struct AccountsTab: View {
         do {
             try TokenAccess.signOut(account: account.id, store: KeychainTokenStore(secrets: model.secrets))
         } catch {
-            self.error = SignInFlow.keychainMessage("remove the tokens of \(account.displayName) from", error)
+            issue = .keychainWrite(error, area: .accounts, activity: model.activity) { remove(account) }
             refresh()
             return
         }
@@ -290,7 +359,7 @@ private struct AccountsTab: View {
         model.calendar.forget(account.id)
         model.signInNeeded.remove(account.id)
         model.refreshCalendar()
-        error = nil
+        issue = nil
         refresh()
     }
 
@@ -316,14 +385,20 @@ private struct AccountsTab: View {
         }
     }
 
+    private func signInHandlers(_ id: String) -> ProblemHandlers {
+        var handlers = model.problemHandlers()
+        handlers.signInAgain = { signIn(id) }
+        return handlers
+    }
+
     private func signIn(_ id: String) {
         flusher.flushAll()
         guard let account = model.settings.accounts.first(where: { $0.id == id }) else { return }
         guard !account.clientID.isEmpty, !account.tenant.isEmpty else {
-            error = "Enter a client ID and tenant for \(account.displayName) first."
+            issue = .notice("Enter a client ID and tenant for \(account.displayName) first")
             return
         }
-        error = nil
+        issue = nil
         signingIn = SigningIn(account: account)
     }
 
@@ -334,7 +409,12 @@ private struct AccountsTab: View {
             do {
                 result[account.id] = try store.load(account: account.id) == nil ? .signedOut : .signedIn
             } catch {
-                result[account.id] = .unreadable(SignInFlow.keychainMessage("read", error))
+                let context = ProblemContext(stage: .signingIn, accountName: account.displayName)
+                let problem = ProblemTranslator.problem(for: error, in: context).with(actions: [.tryAgain])
+                if statuses[account.id]?.isUnreadable != true {
+                    model.activity.record(problem, area: .accounts)
+                }
+                result[account.id] = .unreadable(problem)
             }
         }
         statuses = result
@@ -344,9 +424,10 @@ private struct AccountsTab: View {
         do {
             try TokenAccess.signOut(account: account.id, store: KeychainTokenStore(secrets: model.secrets))
             model.signInNeeded.remove(account.id)
-            error = nil
+            model.activity.record(.info, .accounts, "Signed out of \(account.displayName)", details: ProblemDetails(account: account.displayName))
+            issue = nil
         } catch {
-            self.error = SignInFlow.keychainMessage("remove the tokens of \(account.displayName) from", error)
+            issue = .keychainWrite(error, area: .accounts, activity: model.activity) { signOut(account) }
         }
         refresh()
     }
@@ -433,10 +514,12 @@ private struct RecordingTab: View {
                     model.updateSettings { $0.flagHotkey = hotkey }
                 }
                 if let hotkeyError = model.hotkeyError {
-                    Text(hotkeyError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
+                    ProblemCard(
+                        problem: hotkeyError,
+                        compact: true,
+                        handlers: ProblemHandlers(),
+                        showInActivity: { model.showInActivity(hotkeyError) }
+                    )
                 }
                 Toggle("Show the recording pill", isOn: model.settingsBinding(\.showPill))
             }
@@ -511,7 +594,7 @@ private struct PermissionsTab: View {
         Form {
             Section("Microphone") {
                 LabeledContent("Status") {
-                    Text(Self.describe(microphone))
+                    Text(Self.statusText(microphone))
                         .foregroundStyle(microphone == .authorized ? .green : .secondary)
                 }
                 Button("Open Microphone settings") {
@@ -536,7 +619,7 @@ private struct PermissionsTab: View {
         microphone = AVCaptureDevice.authorizationStatus(for: .audio)
     }
 
-    private static func describe(_ status: AVAuthorizationStatus) -> String {
+    private static func statusText(_ status: AVAuthorizationStatus) -> String {
         switch status {
         case .authorized: "Allowed"
         case .denied: "Denied"

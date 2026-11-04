@@ -87,17 +87,37 @@ struct MainWindow: View {
         }
         .overlay {
             if groups.isEmpty {
-                Text(trimmedQuery.isEmpty ? "No meetings yet" : "No matches")
+                Text(emptyText)
                     .foregroundStyle(.secondary)
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Picker("Show", selection: $model.sidebarFilter) {
+                Text("All").tag(SidebarFilter.all)
+                Text("Needs attention (\(attentionCount))").tag(SidebarFilter.needsAttention)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, Space.s)
+            .padding(.vertical, Space.s)
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
     }
 
+    private var attentionCount: Int {
+        model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) }.count
+    }
+
+    private var emptyText: String {
+        if !trimmedQuery.isEmpty { return "No matches" }
+        return model.sidebarFilter == .needsAttention ? "Nothing needs attention" : "No meetings yet"
+    }
+
     private var filtered: [Meeting] {
         let term = trimmedQuery
-        guard !term.isEmpty else { return model.meetings }
-        return model.meetings.filter { meeting in
+        let meetings = model.sidebarFilter == .needsAttention ? model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) } : model.meetings
+        guard !term.isEmpty else { return meetings }
+        return meetings.filter { meeting in
             meeting.title.localizedStandardContains(term)
                 || (meeting.client?.localizedStandardContains(term) ?? false)
                 || meeting.attendees.contains { $0.name.localizedStandardContains(term) || $0.email.localizedStandardContains(term) }
@@ -125,6 +145,7 @@ struct MainWindow: View {
 }
 
 private struct SidebarRow: View {
+    @EnvironmentObject private var model: AppModel
     let meeting: Meeting
 
     var body: some View {
@@ -133,16 +154,50 @@ private struct SidebarRow: View {
                 Text(meeting.title)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                if let symbol = meeting.status.symbol {
-                    Image(systemName: symbol)
-                        .foregroundStyle(.secondary)
-                        .help(meeting.status.label)
-                }
+                sign
             }
             Text(meeting.startedAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var sign: some View {
+        let progress = model.progress(for: meeting)
+        switch progress {
+        case .working(let work):
+            ring(step: work.stage.step, label: progress.title)
+        case .preparingSpeechModel:
+            ring(step: 1, label: progress.title)
+        case .queued:
+            ProgressView()
+                .controlSize(.mini)
+                .help("Waiting its turn")
+                .accessibilityLabel("Waiting its turn")
+        default:
+            if meeting.needsAttention {
+                Circle()
+                    .fill(Theme.attentionFill)
+                    .frame(width: 8, height: 8)
+                    .help("Needs attention")
+                    .accessibilityElement()
+                    .accessibilityLabel("Needs attention")
+            } else if meeting.status == .recording {
+                Image(systemName: "record.circle")
+                    .foregroundStyle(Theme.recording)
+                    .help("Recording")
+                    .accessibilityLabel("Recording")
+            }
+        }
+    }
+
+    private func ring(step: Int, label: String?) -> some View {
+        ProgressView(value: Double(step) / 4)
+            .progressViewStyle(.circular)
+            .controlSize(.mini)
+            .help(label ?? "")
+            .accessibilityLabel(label ?? "")
     }
 }

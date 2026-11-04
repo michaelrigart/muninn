@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import MuninnCore
 
@@ -126,5 +127,49 @@ struct CleanupTests {
         #expect(Tokenizer.normalize("-well") == "well")
         #expect(Tokenizer.normalize("5-6") == "5-6")
         #expect(Tokenizer.normalize("%") == "")
+    }
+
+    @Test func cleanupFallbackIsRecordedOnce() async throws {
+        let request = RequestFacts(method: "POST", path: "/api/chat")
+        let client = ScriptedClient([.failure(LLMError.connection(code: -1004, request: request)), .failure(LLMError.connection(code: -1004, request: request))])
+        let activity = RecordingActivity()
+        let scope = ActivityMeeting(id: MeetingID(rawValue: "m1"), title: "Sync")
+        let transcript = LLMTranscriptCleanerTests.transcript(["um one", "um two"])
+        _ = try await ActivityScope.$meeting.withValue(scope) {
+            try await LLMTranscriptCleaner(client: client, batchSize: 1, activity: activity).clean(transcript)
+        }
+        let entry = try #require(activity.entries.first)
+        #expect(activity.entries.count == 1)
+        #expect(entry.level == .warning)
+        #expect(entry.area == .transcription)
+        #expect(entry.message == "Cleanup fell back to the rule cleaner")
+        #expect(entry.meeting == scope)
+        #expect(entry.details?.stage == .cleaningUp)
+        #expect(entry.details?.request == request)
+    }
+
+    @Test func cleanupBudgetRunningOutIsRecordedOnce() async throws {
+        final class SlowClient: LLMClient, @unchecked Sendable {
+            let now = LockedBox(Date(timeIntervalSince1970: 0))
+            func complete(_ request: LLMRequest) async throws -> String {
+                now.update { $0 = $0.addingTimeInterval(200) }
+                return #"{"segments":[]}"#
+            }
+        }
+        let client = SlowClient()
+        let now = client.now
+        let activity = RecordingActivity()
+        let transcript = LLMTranscriptCleanerTests.transcript(["um one", "um two", "um three"])
+        _ = try await LLMTranscriptCleaner(client: client, batchSize: 1, budget: 180, clock: { now.get() }, activity: activity).clean(transcript)
+        #expect(activity.entries.map(\.message) == ["Cleanup took too long; the rest used the rule cleaner"])
+        #expect(activity.entries.first?.level == .info)
+        #expect(activity.entries.first?.area == .transcription)
+    }
+
+    @Test func cleanupThatFinishesInTimeRecordsNothing() async throws {
+        let activity = RecordingActivity()
+        let transcript = LLMTranscriptCleanerTests.transcript(["um hello there"])
+        _ = try await LLMTranscriptCleaner(client: ScriptedClient([.success(#"{"segments":[{"id":1,"text":"Hello there."}]}"#)]), activity: activity).clean(transcript)
+        #expect(activity.entries.isEmpty)
     }
 }

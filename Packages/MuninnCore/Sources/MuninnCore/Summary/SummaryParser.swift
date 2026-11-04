@@ -14,8 +14,8 @@ public struct SummaryParseResult {
 }
 
 public enum SummaryParseError: Error, Equatable {
-    case notJSON(String)
-    case schemaMismatch(String)
+    case notJSON
+    case schemaMismatch
 }
 
 public enum SummaryParser {
@@ -41,17 +41,17 @@ public enum SummaryParser {
 
     public static func parse(_ text: String, transcript: Transcript, flags: [Flag], engine: EngineKind, now: Date) throws -> SummaryParseResult {
         guard let object = LLMTransport.outermostJSONObject(in: text) else {
-            throw SummaryParseError.notJSON("No JSON object in the reply")
+            throw SummaryParseError.notJSON
         }
         let data = Data(object.utf8)
         guard (try? JSONSerialization.jsonObject(with: data)) != nil else {
-            throw SummaryParseError.notJSON("The reply is not valid JSON")
+            throw SummaryParseError.notJSON
         }
         let payload: Payload
         do {
             payload = try JSONDecoder().decode(Payload.self, from: data)
         } catch {
-            throw SummaryParseError.schemaMismatch(String(describing: error))
+            throw SummaryParseError.schemaMismatch
         }
 
         let known = Set(transcript.segments.map(\.id))

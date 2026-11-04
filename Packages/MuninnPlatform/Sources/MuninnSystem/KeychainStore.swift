@@ -7,6 +7,21 @@ public enum KeychainError: Error, Equatable {
     case invalidData
 }
 
+extension KeychainError: ProblemConvertible {
+    public func problem(in context: ProblemContext) -> Problem {
+        var details = ProblemDetails(errorDomain: "Keychain")
+        if case .status(let status) = self { details.errorCode = Int(status) }
+        switch context.stage {
+        case .savingSettings:
+            return Problems.keychainUnwritable(details: details)
+        case .signingIn, .creatingDraft, .readingCalendar, .searchingPeople, .changingEvent:
+            return Problems.signInUnreadable(account: context.accountName ?? "your Microsoft account", details: details)
+        default:
+            return Problems.keychainUnreadable(details: details)
+        }
+    }
+}
+
 protocol SecretsReading: Sendable {
     func get(_ key: String) throws -> String?
 }
@@ -31,6 +46,17 @@ public struct KeychainSecrets: SecretsReading {
             throw KeychainError.invalidData
         }
         return value
+    }
+
+    /// Whether an item exists, without reading its data: reading the data of an item another build created can wait on a Keychain access prompt.
+    public func contains(_ key: String) throws -> Bool {
+        var query = baseQuery(key)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess else { throw KeychainError.status(status) }
+        return true
     }
 
     public func set(_ v: String, for key: String) throws {
