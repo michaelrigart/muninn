@@ -18,8 +18,9 @@ enum Radius {
 
 enum Theme {
     static let accent = dynamic(light: Palette.accentLight, dark: Palette.accentDark)
-    static let accentSoft = dynamic(light: Palette.accentLight, lightAlpha: Palette.softLight, dark: Palette.accentDark, darkAlpha: Palette.softDark)
-    static let attentionText = dynamic(light: Palette.attentionTextLight, dark: Palette.attentionDark)
+    static let accentSoft = Color(nsColor: AppKit.accentSoft)
+    static let accentMid = Color(nsColor: AppKit.accentMid)
+    static let attentionText = Color(nsColor: AppKit.attentionText)
     static let attentionFill = dynamic(light: Palette.attentionFillLight, dark: Palette.attentionDark)
     static let attentionSoft = dynamic(light: Palette.attentionFillLight, lightAlpha: Palette.softLight, dark: Palette.attentionDark, darkAlpha: Palette.softDark)
     static let problem = dynamic(light: Palette.problemLight, dark: Palette.problemDark)
@@ -29,10 +30,15 @@ enum Theme {
     static let neutralSoft = dynamic(light: Palette.neutral, lightAlpha: Palette.neutralSoftAlpha, dark: Palette.neutral, darkAlpha: Palette.neutralSoftAlpha)
     static let recording = dynamic(light: Palette.recording, dark: Palette.recording)
 
-    static let primaryText = Color(nsColor: .labelColor)
-    static let secondaryText = dynamic(light: Palette.secondaryTextLight, dark: Palette.secondaryTextDark)
-    static let tertiaryText = dynamic(light: Palette.tertiaryTextLight, dark: Palette.tertiaryTextDark)
+    static let primaryText = Color(nsColor: AppKit.primaryText)
+    static let secondaryText = Color(nsColor: AppKit.secondaryText)
+    static let tertiaryText = Color(nsColor: AppKit.tertiaryText)
     static let contentBackground = Color(nsColor: .textBackgroundColor)
+
+    /// The colour for a speaker index; indices wrap around the palette.
+    static func speaker(_ index: Int) -> Color {
+        Color(nsColor: AppKit.speaker(index))
+    }
 
     static let meetingTitle = Font.system(size: 27, weight: .semibold, design: .serif)
     static let subject = Font.system(size: 19, weight: .semibold, design: .serif)
@@ -44,13 +50,34 @@ enum Theme {
 
     static let readingWidth: CGFloat = 760
 
+    /// The same colours as `NSColor`, for the transcript's text view. The SwiftUI colours above wrap these.
+    enum AppKit {
+        static let primaryText = NSColor.labelColor
+        static let secondaryText = dynamic(light: Palette.secondaryTextLight, dark: Palette.secondaryTextDark)
+        static let tertiaryText = dynamic(light: Palette.tertiaryTextLight, dark: Palette.tertiaryTextDark)
+        static let attentionText = dynamic(light: Palette.attentionTextLight, dark: Palette.attentionDark)
+        static let accentSoft = dynamic(light: Palette.accentLight, lightAlpha: Palette.softLight, dark: Palette.accentDark, darkAlpha: Palette.softDark)
+        static let accentMid = dynamic(light: Palette.accentLight, lightAlpha: Palette.midLight, dark: Palette.accentDark, darkAlpha: Palette.midDark)
+
+        static func speaker(_ index: Int) -> NSColor {
+            let slot = ((index % SpeakerColours.count) + SpeakerColours.count) % SpeakerColours.count
+            return dynamic(light: Palette.speakerLight[slot], dark: Palette.speakerDark[slot])
+        }
+    }
+
     private static func dynamic(light: RGB, lightAlpha: Double = 1, dark: RGB, darkAlpha: Double = 1) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
+        Color(nsColor: AppKit.dynamic(light: light, lightAlpha: lightAlpha, dark: dark, darkAlpha: darkAlpha))
+    }
+}
+
+private extension Theme.AppKit {
+    static func dynamic(light: RGB, lightAlpha: Double = 1, dark: RGB, darkAlpha: Double = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
             if appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
                 return NSColor(dark, alpha: darkAlpha)
             }
             return NSColor(light, alpha: lightAlpha)
-        })
+        }
     }
 }
 
