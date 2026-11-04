@@ -61,7 +61,7 @@ struct MeetingToolbar: ToolbarContent {
                 Text(engineName)
             }
             .disabled(regenerate != nil)
-            .help(regenerate ?? (engineName == "Write recap" ? "Write the recap with another engine" : "Write the recap again with another engine"))
+            .help(regenerate ?? ((summary?.engine ?? meeting.summaryEngine) == nil ? "Write the recap with another engine" : "Write the recap again with another engine"))
 
             Button(action: openDraft) {
                 Label("Outlook draft", systemImage: "envelope")

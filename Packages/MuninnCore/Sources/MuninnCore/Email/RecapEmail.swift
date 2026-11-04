@@ -73,7 +73,8 @@ public enum RecapEmail {
         return out.joined(separator: "\n")
     }
 
-    private static func dueDate(_ iso: String) -> String? {
+    /// A due date as the email shows it (dd/MM), or nil when `iso` is not a valid yyyy-MM-dd date.
+    public static func dueDate(_ iso: String) -> String? {
         let parts = iso.split(separator: "-")
         guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
               let month = Int(parts[1]), let day = Int(parts[2]),

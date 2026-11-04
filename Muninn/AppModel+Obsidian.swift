@@ -127,8 +127,8 @@ extension AppModel {
         }
         guard case .written = outcome else { return false }
         activity.record(.info, .obsidian, "Filed in Obsidian", meeting: meeting)
-        try mutate(id) { $0.exportedNotePath = path }
         actionSuccesses[id] = .filed(vault.appendingPathComponent(path))
+        try mutate(id) { $0.exportedNotePath = path }
         return true
     }
 }

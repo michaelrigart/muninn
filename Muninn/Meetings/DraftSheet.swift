@@ -11,6 +11,7 @@ struct DraftSheet: View {
     @State private var subject: String
     @State private var creating = false
     @State private var editError: Problem?
+    @FocusState private var recipientsFocused: Bool
 
     init(meeting: Meeting, summary: Summary?) {
         self.meeting = meeting
@@ -29,9 +30,9 @@ struct DraftSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
             Text("Outlook draft")
-                .font(Theme.subject)
+                .font(.headline)
             fromRow
-            RecipientsEditor(meeting: meeting, edit: edit)
+            RecipientsEditor(meeting: meeting, edit: edit, focused: $recipientsFocused)
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text("Subject").modifier(SectionLabel())
                 TextField("Subject", text: $subject)
@@ -89,7 +90,7 @@ struct DraftSheet: View {
                     ForEach(Array(summary.subjects.enumerated()), id: \.offset) { _, subject in
                         VStack(alignment: .leading, spacing: Space.xs) {
                             Text(subject.title)
-                                .font(Theme.reading.weight(.semibold))
+                                .font(Theme.subject)
                             ForEach(Array(subject.bullets.enumerated()), id: \.offset) { _, bullet in
                                 Text("\u{2022} \(bullet.text)")
                             }
@@ -115,9 +116,9 @@ struct DraftSheet: View {
 
     private func actionLine(_ action: ActionPoint) -> String {
         let owner = meeting.speakerNames[action.owner] ?? action.owner
-        var line = owner.isEmpty ? action.text : "\(owner): \(action.text)"
-        if let due = action.due, !due.isEmpty {
-            line += " (\(DueDate.date(from: due)?.formatted(date: .abbreviated, time: .omitted) ?? due))"
+        var line = "\(owner): \(action.text)"
+        if let due = action.due, let formatted = RecapEmail.dueDate(due) {
+            line += " (\(formatted))"
         }
         return line
     }
@@ -127,11 +128,12 @@ struct DraftSheet: View {
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(creating)
             if creating {
                 ProgressView().controlSize(.small)
             }
             Button(creating ? "Creating…" : "Create draft", action: create)
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(recipientsFocused ? nil : .defaultAction)
                 .disabled(refusal != nil || creating)
                 .help(refusal ?? "Create the draft in Outlook")
         }
@@ -166,6 +168,7 @@ private struct RecipientsEditor: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let edit: ((inout Meeting) -> Void) -> Void
+    var focused: FocusState<Bool>.Binding
 
     @State private var query = ""
     @State private var results: [Attendee] = []
@@ -181,6 +184,7 @@ private struct RecipientsEditor: View {
             }
             TextField(meeting.accountID == nil ? "Email address" : "Search people or type an email address", text: $query)
                 .textFieldStyle(.roundedBorder)
+                .focused(focused)
                 .onSubmit {
                     if let manual { add(manual) }
                 }
