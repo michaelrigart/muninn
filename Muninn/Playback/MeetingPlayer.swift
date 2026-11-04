@@ -57,6 +57,8 @@ final class MeetingPlayer: ObservableObject {
     private var playingObservation: AnyCancellable?
     private var terminationObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
+    /// The track files of the meeting last loaded, as they were when that load started.
+    private var loadedFiles: PlaybackFiles?
     /// Bumped whenever the item goes, so a load or seek that finishes after it is dropped.
     private var generation = 0
     private var pendingSeeks = 0
@@ -83,22 +85,26 @@ final class MeetingPlayer: ObservableObject {
     }
 
     /// A recording meeting stays `.idle`: its files are still being written. The meeting already loaded is left
-    /// alone while it is loading or ready; anything else loads again, the newest load winning.
+    /// alone while it is loading or ready and its track files are unchanged, so a reload doesn't cut playback off;
+    /// if they changed, the position is saved and the meeting loads again from there. Anything else loads again,
+    /// the newest load winning.
     func load(_ meeting: Meeting?) {
         guard let meeting else {
             stop()
             return
         }
-        if meeting.id == meetingID, state == .loading || state == .ready { return }
-        if meeting.id != meetingID { pause() }
+        let mic = store.audioURL(meeting.id, track: .mic)
+        let system = store.audioURL(meeting.id, track: .system)
+        let files = PlaybackFiles(mic: mic, system: system)
+        if meeting.id == meetingID, state == .loading || state == .ready, files == loadedFiles { return }
+        if meeting.id != meetingID || state == .ready { pause() }
         tearDown()
         meetingID = meeting.id
         hasStarted = startedIDs.contains(meeting.id)
         guard meeting.status != .recording else { return }
 
         state = .loading
-        let mic = store.audioURL(meeting.id, track: .mic)
-        let system = store.audioURL(meeting.id, track: .system)
+        loadedFiles = files
         let generation = generation
         loadTask = Task { [weak self] in
             do {

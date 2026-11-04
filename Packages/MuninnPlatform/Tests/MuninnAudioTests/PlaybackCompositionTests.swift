@@ -128,6 +128,35 @@ private func volume(of track: Track, in playback: PlaybackComposition, mix: Play
     }
 }
 
+@Test func unchangedFilesGiveEqualPlaybackFiles() throws {
+    let mic = try writeMic()
+    let system = try writeSystem()
+    defer { remove(mic, system) }
+
+    #expect(PlaybackFiles(mic: mic, system: system) == PlaybackFiles(mic: mic, system: system))
+    #expect(PlaybackFiles(mic: nil, system: makeURL("absent")) == PlaybackFiles(mic: nil, system: nil))
+}
+
+@Test func restoredTrackFileChangesPlaybackFiles() throws {
+    let mic = try writeMic()
+    let restored = makeURL("restored")
+    defer { remove(mic, restored) }
+
+    let before = PlaybackFiles(mic: mic, system: restored)
+    try FileManager.default.moveItem(at: try writeSystem(), to: restored)
+    #expect(PlaybackFiles(mic: mic, system: restored) != before)
+}
+
+@Test func replacedTrackFileChangesPlaybackFiles() throws {
+    let mic = try writeMic(seconds: 2.0)
+    defer { remove(mic) }
+
+    let before = PlaybackFiles(mic: mic, system: nil)
+    let longer = try writeMic(seconds: 3.0)
+    _ = try FileManager.default.replaceItemAt(mic, withItemAt: longer)
+    #expect(PlaybackFiles(mic: mic, system: nil) != before)
+}
+
 @Test func mixSilencesTheOtherTrack() async throws {
     let mic = try writeMic()
     let system = try writeSystem()

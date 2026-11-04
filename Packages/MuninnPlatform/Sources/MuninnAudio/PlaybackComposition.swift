@@ -2,6 +2,28 @@ import AVFoundation
 import MuninnCore
 import os
 
+/// The track files as they are on disk: whether each exists, its size and its modification date. Two values differ
+/// when a file appeared, went away or was replaced, which is when a loaded composition no longer matches them.
+public struct PlaybackFiles: Equatable {
+    private struct Stamp: Equatable {
+        let size: Int?
+        let modified: Date?
+    }
+
+    private let mic: Stamp?
+    private let system: Stamp?
+
+    public init(mic: URL?, system: URL?) {
+        self.mic = Self.stamp(mic)
+        self.system = Self.stamp(system)
+    }
+
+    private static func stamp(_ url: URL?) -> Stamp? {
+        guard let url, let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+        return Stamp(size: (attributes[.size] as? NSNumber)?.intValue, modified: attributes[.modificationDate] as? Date)
+    }
+}
+
 /// One composition of a meeting's recorded tracks, all starting at time zero, so a single player plays them in sync.
 public final class PlaybackComposition: @unchecked Sendable {
     private static let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "playback")
