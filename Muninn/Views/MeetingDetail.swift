@@ -25,6 +25,7 @@ struct MeetingDetail: View {
         let id: MeetingID
         let status: ProcessingStatus
         let engine: EngineKind?
+        let reloadRevision: Int
     }
 
     var body: some View {
@@ -66,7 +67,7 @@ struct MeetingDetail: View {
                 TranscriptView(meeting: meeting, transcript: transcript, clean: clean, target: $scrollTarget, report: report)
             }
         }
-        .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine)) {
+        .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine, reloadRevision: model.reloadRevision)) {
             let store = model.store
             let id = meeting.id
             if let unsaved = model.unsavedSummaries[id] {
@@ -173,8 +174,10 @@ private struct MeetingHeader: View {
                 .textFieldStyle(.plain)
                 .font(.title2.bold())
                 Menu {
-                    Button("Delete Meeting…", role: .destructive) { model.deleteMeeting(meeting.id) }
-                        .disabled(!MeetingActions.canDelete(meeting))
+                    let reason = MeetingCommands.disabledReason(.moveToTrash, model.commandContext(for: meeting))
+                    Button("Move to Trash…", role: .destructive) { model.trashMeeting(meeting.id) }
+                        .disabled(reason != nil)
+                        .help(reason ?? "")
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }

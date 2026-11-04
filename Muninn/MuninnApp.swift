@@ -49,6 +49,16 @@ private enum MenuBarIcon {
     }()
 }
 
+struct MeetingsCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button("Reload") { model.reloadMeetings() }
+        }
+    }
+}
+
 @main
 struct MuninnApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -88,6 +98,7 @@ struct MuninnApp: App {
                 .environmentObject(model)
         }
         .defaultLaunchBehavior(.suppressed)
+        .commands { MeetingsCommands(model: model) }
 
         Window("Live transcript", id: "live-transcript") {
             LiveTranscriptWindow()

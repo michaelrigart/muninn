@@ -58,47 +58,53 @@ extension AppModel {
         apply(meeting)
     }
 
-    /// Asks first, then removes the meeting's folder. A meeting that is recording, being processed or has a job queued is refused;
-    /// an exported Obsidian note is never touched, but its links to the audio and transcript stop working.
-    func deleteMeeting(_ id: MeetingID) {
-        Task { await confirmAndDelete(id) }
+    /// Asks first, then moves the meeting's folder to the Trash. A meeting that is recording, being processed or has a job queued is refused;
+    /// an exported Obsidian note is never touched, but its links to the audio and transcript stop working until the meeting is put back.
+    func trashMeeting(_ id: MeetingID) {
+        Task { await confirmAndTrash(id) }
     }
 
-    private func confirmAndDelete(_ id: MeetingID) async {
+    private func confirmAndTrash(_ id: MeetingID) async {
         guard let meeting = try? store.load(id) else { return }
-        guard await canDelete(meeting) else {
+        guard await canTrash(meeting) else {
             _ = Alerts.ask(
-                "This meeting can't be deleted yet",
-                "It is still recording or being processed. Delete it once it has finished.",
+                "This meeting can't be moved to the Trash yet",
+                "It is still recording or being processed. Try again once it has finished.",
                 buttons: ["OK"]
             )
             return
         }
+        var detail = "You can put it back from the Trash in Finder, with its recording, transcript and recap."
+        if meeting.exportedNotePath != nil {
+            detail += " The note in Obsidian stays, but its links to the recording and transcript stop working until you put the meeting back."
+        }
         guard Alerts.ask(
-            "Delete \u{201C}\(meeting.title)\u{201D}?",
-            "This permanently deletes its recording, transcript and recap from Muninn's folder. A note already exported to Obsidian is not touched, but its links to the audio and to Muninn's transcript files will stop working.",
-            buttons: ["Delete", "Cancel"],
-            destructiveFirst: true
-        ) == 0 else { return }
-        guard let current = try? store.load(id), await canDelete(current) else { return }
+            "Move \u{201C}\(meeting.title)\u{201D} to the Trash?",
+            detail,
+            buttons: ["Cancel", "Move to Trash"],
+            destructive: 1
+        ) == 1 else { return }
+        guard let current = try? store.load(id), await canTrash(current) else { return }
         do {
             deletedIDs.insert(id)
-            try store.delete(id)
+            try store.moveToTrash(id)
         } catch {
             deletedIDs.remove(id)
-            logger.error("Deleting \(id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            report(error, stage: .deletingMeeting, for: id)
+            logger.error("Moving \(id.rawValue, privacy: .public) to the Trash failed: \(String(describing: error), privacy: .public)")
+            report(error, stage: .trashingMeeting, for: id)
             return
         }
+        activity.record(.info, .app, "Moved to the Trash", meeting: current)
         meetings.removeAll { $0.id == id }
         actionErrors[id] = nil
         actionNotices[id] = nil
         failedActions[id] = nil
         unsavedSummaries[id] = nil
+        playbackPositions.remove(id)
         if selectedMeetingID == id { selectedMeetingID = nil }
     }
 
-    private func canDelete(_ meeting: Meeting) async -> Bool {
+    private func canTrash(_ meeting: Meeting) async -> Bool {
         guard MeetingActions.canDelete(meeting) else { return false }
         return await !pipeline.hasJob(for: meeting.id)
     }

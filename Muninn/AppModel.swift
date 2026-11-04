@@ -108,6 +108,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var claudeKeyPresent = false
     @Published var sidebarFilter = SidebarFilter.all
     @Published var settingsTab = SettingsTab.engines
+    /// Bumped by every reload, so views that read a meeting's files or texts read them again.
+    @Published private(set) var reloadRevision = 0
 
     let paths: MuninnPaths
     let store: MeetingStore
@@ -117,6 +119,7 @@ final class AppModel: ObservableObject {
     let graph: GraphServices
     let calendar: CalendarCache
     let activity: ActivityCenter
+    let playbackPositions: PlaybackPositions
 
     var actionsInFlight: Set<String> = []
     private let settingsBox: SettingsBox
@@ -157,6 +160,7 @@ final class AppModel: ObservableObject {
         self.settings = loaded
         self.settingsBox = box
         self.activity = activity
+        self.playbackPositions = PlaybackPositions(file: paths.playbackFile)
         self.recordingGate = gate
         let graph = GraphServices(secrets: secrets)
         self.graph = graph
@@ -273,6 +277,17 @@ final class AppModel: ObservableObject {
 
     func progress(for meeting: Meeting) -> MeetingProgress {
         ProcessingDisplay.progress(for: meeting, snapshot: pipelineSnapshot, speechModel: speechModels.first)
+    }
+
+    func commandContext(for meeting: Meeting, hasRecap: Bool = false) -> MeetingCommandContext {
+        MeetingCommandContext(
+            meeting: meeting,
+            progress: progress(for: meeting),
+            hasRecap: hasRecap,
+            hasPreviousRecap: store.hasPreviousSummary(meeting.id),
+            unsavedEdits: unsavedSummaries[meeting.id] != nil,
+            eventChanging: eventChangesInFlight.contains(meeting.id)
+        )
     }
 
     func dismissEngineNotice(_ id: MeetingID) {
@@ -413,6 +428,8 @@ final class AppModel: ObservableObject {
             let previous = Dictionary(meetings.map { ($0.id, $0.status) }, uniquingKeysWith: { first, _ in first })
             let list = try store.list()
             meetings = list
+            deletedIDs.subtract(list.map(\.id))
+            reloadRevision += 1
             loaded = true
             for meeting in list where meeting.status == .ready && previous[meeting.id].map({ $0 != .ready }) == true {
                 recapReady(meeting)

@@ -15,6 +15,7 @@ struct MainWindow: View {
     private struct SearchKey: Hashable {
         let active: Bool
         let stamps: [Stamp]
+        let reloadRevision: Int
     }
 
     var body: some View {
@@ -30,7 +31,7 @@ struct MainWindow: View {
             }
         }
         .frame(minWidth: 940, minHeight: 600)
-        .task(id: SearchKey(active: !trimmedQuery.isEmpty, stamps: model.meetings.map { Stamp(id: $0.id, status: $0.status, engine: $0.summaryEngine) })) {
+        .task(id: SearchKey(active: !trimmedQuery.isEmpty, stamps: model.meetings.map { Stamp(id: $0.id, status: $0.status, engine: $0.summaryEngine) }, reloadRevision: model.reloadRevision)) {
             await loadSummaryText()
         }
     }
@@ -48,8 +49,10 @@ struct MainWindow: View {
                         SidebarRow(meeting: meeting)
                             .tag(meeting.id)
                             .contextMenu {
-                                Button("Delete Meeting…", role: .destructive) { model.deleteMeeting(meeting.id) }
-                                    .disabled(!MeetingActions.canDelete(meeting))
+                                let reason = MeetingCommands.disabledReason(.moveToTrash, model.commandContext(for: meeting))
+                                Button("Move to Trash…", role: .destructive) { model.trashMeeting(meeting.id) }
+                                    .disabled(reason != nil)
+                                    .help(reason ?? "")
                             }
                     }
                 }

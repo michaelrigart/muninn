@@ -121,7 +121,7 @@ extension AppModel {
         var outcome = try await run(overwrite: overwrite)
         if case .alreadyExists = outcome {
             guard askToOverwrite,
-                  Alerts.ask("A note already exists", "\(path) is already in the vault. Overwrite?", buttons: ["Overwrite", "Cancel"], destructiveFirst: true) == 0
+                  Alerts.ask("A note already exists", "\(path) is already in the vault. Overwrite?", buttons: ["Overwrite", "Cancel"], destructive: 0) == 0
             else { return false }
             outcome = try await run(overwrite: true)
         }
