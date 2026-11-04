@@ -90,7 +90,7 @@ public struct RequestFacts: Codable, Hashable, Sendable {
 public enum ProblemStage: String, Codable, Hashable, Sendable, CaseIterable {
     case recording, transcribing, identifyingSpeakers, cleaningUp, writingRecap, preparingSpeechModel, liveTranscript
     case creatingDraft, searchingPeople, filingNote, changingEvent, readingCalendar, signingIn
-    case savingSettings, savingEdits, loadingMeetings, deletingMeeting, playingRecording, other
+    case savingSettings, savingEdits, loadingMeetings, deletingMeeting, trashingMeeting, playingRecording, other
 
     public var phrase: String {
         switch self {
@@ -111,6 +111,7 @@ public enum ProblemStage: String, Codable, Hashable, Sendable, CaseIterable {
         case .savingEdits: "saving your changes"
         case .loadingMeetings: "loading the meetings"
         case .deletingMeeting: "deleting the meeting"
+        case .trashingMeeting: "moving the meeting to the Trash"
         case .playingRecording: "playing the recording"
         case .other: "working"
         }
@@ -124,7 +125,7 @@ public enum ProblemStage: String, Codable, Hashable, Sendable, CaseIterable {
         case .creatingDraft, .searchingPeople: .outlook
         case .filingNote: .obsidian
         case .changingEvent, .readingCalendar, .signingIn: .accounts
-        case .savingSettings, .loadingMeetings, .deletingMeeting, .other: .app
+        case .savingSettings, .loadingMeetings, .deletingMeeting, .trashingMeeting, .other: .app
         }
     }
 }

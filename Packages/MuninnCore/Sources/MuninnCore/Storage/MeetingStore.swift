@@ -40,6 +40,8 @@ public final class MeetingStore: @unchecked Sendable {
     var swapFiles: (URL, URL) -> Int32 = { first, second in
         renamex_np(first.path, second.path, UInt32(RENAME_SWAP)) == 0 ? 0 : errno
     }
+    /// Moves a folder to the Trash so the owner can put it back from Finder. A test replaces it to keep the real Trash untouched.
+    var trashItem: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     /// Called each time a recovery failure is logged; lets a test count the log lines.
     var recoveryFailureLogged: ((MeetingID) -> Void)?
     private let failureLock = NSLock()
@@ -84,6 +86,13 @@ public final class MeetingStore: @unchecked Sendable {
         let folder = directory(id)
         guard FileManager.default.fileExists(atPath: folder.path) else { return }
         try FileManager.default.removeItem(at: folder)
+    }
+
+    /// Moves the whole meeting folder to the Trash. A missing folder is not an error.
+    public func moveToTrash(_ id: MeetingID) throws {
+        let folder = directory(id)
+        guard FileManager.default.fileExists(atPath: folder.path) else { return }
+        try trashItem(folder)
     }
 
     public func save(_ meeting: Meeting) throws {
