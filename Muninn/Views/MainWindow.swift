@@ -1,36 +1,6 @@
 import MuninnCore
 import SwiftUI
 
-struct MeetingGroup: Identifiable {
-    let title: String
-    let meetings: [Meeting]
-
-    var id: String { title }
-}
-
-enum MeetingGrouping {
-    static func groups(_ meetings: [Meeting], now: Date = Date(), calendar: Calendar = .current) -> [MeetingGroup] {
-        let titles = ["Today", "Yesterday", "This week", "Earlier"]
-        var buckets: [String: [Meeting]] = [:]
-        for meeting in meetings {
-            let title: String
-            if calendar.isDate(meeting.startedAt, inSameDayAs: now) {
-                title = titles[0]
-            } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(meeting.startedAt, inSameDayAs: yesterday) {
-                title = titles[1]
-            } else if calendar.isDate(meeting.startedAt, equalTo: now, toGranularity: .weekOfYear) {
-                title = titles[2]
-            } else {
-                title = titles[3]
-            }
-            buckets[title, default: []].append(meeting)
-        }
-        return titles.compactMap { title in
-            buckets[title].map { MeetingGroup(title: title, meetings: $0) }
-        }
-    }
-}
-
 struct MainWindow: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
@@ -73,7 +43,7 @@ struct MainWindow: View {
         let groups = MeetingGrouping.groups(filtered)
         return List(selection: $model.selectedMeetingID) {
             ForEach(groups) { group in
-                Section(group.title) {
+                Section(group.group.title) {
                     ForEach(group.meetings) { meeting in
                         SidebarRow(meeting: meeting)
                             .tag(meeting.id)
@@ -117,12 +87,7 @@ struct MainWindow: View {
         let term = trimmedQuery
         let meetings = model.sidebarFilter == .needsAttention ? model.meetings.filter { ProcessingDisplay.needsAttention($0, snapshot: model.pipelineSnapshot) } : model.meetings
         guard !term.isEmpty else { return meetings }
-        return meetings.filter { meeting in
-            meeting.title.localizedStandardContains(term)
-                || (meeting.client?.localizedStandardContains(term) ?? false)
-                || meeting.attendees.contains { $0.name.localizedStandardContains(term) || $0.email.localizedStandardContains(term) }
-                || (summaryText[meeting.id]?.localizedStandardContains(term) ?? false)
-        }
+        return meetings.filter { MeetingSearch.matches($0, term: term, recapText: summaryText[$0.id], transcriptText: nil) }
     }
 
     private func loadSummaryText() async {
@@ -133,9 +98,7 @@ struct MainWindow: View {
             var result: [MeetingID: String] = [:]
             for id in ids {
                 guard let summary = try? store.loadSummary(id) else { continue }
-                result[id] = summary.subjects.flatMap { subject in
-                    [subject.title] + subject.bullets.map(\.text) + subject.actions.flatMap { [$0.owner, $0.text] }
-                }.joined(separator: "\n")
+                result[id] = MeetingSearch.recapText(summary)
             }
             return result
         }.value

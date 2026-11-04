@@ -20,6 +20,18 @@ public enum MeetingProgress: Equatable, Sendable {
     case failed(Problem)
 }
 
+extension MeetingProgress {
+    /// What Muninn is doing with the meeting, in a few words; nil when it is doing nothing or the meeting waits or failed.
+    public var title: String? {
+        switch self {
+        case .working(let work): work.stage.title
+        case .queued: "Waiting its turn"
+        case .preparingSpeechModel: "Getting the speech model ready"
+        case .none, .waiting, .failed: nil
+        }
+    }
+}
+
 public enum ProcessingDisplay {
     public static func progress(for meeting: Meeting, snapshot: PipelineSnapshot, speechModel: SpeechModelPreparation?) -> MeetingProgress {
         let running = snapshot.current == nil ? 0 : 1

@@ -2,18 +2,6 @@ import Foundation
 import MuninnCore
 import SwiftUI
 
-extension MeetingProgress {
-    /// What Muninn is doing with the meeting, in a few words; nil when it is doing nothing or the meeting waits or failed.
-    var title: String? {
-        switch self {
-        case .working(let work): work.stage.title
-        case .queued: "Waiting its turn"
-        case .preparingSpeechModel: "Getting the speech model ready"
-        case .none, .waiting, .failed: nil
-        }
-    }
-}
-
 struct CommitTextField: View {
     let title: String
     let value: String
