@@ -42,6 +42,8 @@ final class MeetingPlayer: ObservableObject {
         didSet { applyMix() }
     }
     let clock = PlaybackClock()
+    /// Every seek asked for, with its target, once the clock is there.
+    let seeks = PassthroughSubject<TimeInterval, Never>()
     var timeline: SegmentTimeline?
 
     private let positions: PlaybackPositions
@@ -130,6 +132,7 @@ final class MeetingPlayer: ObservableObject {
         let target = move(to: time)
         positions.set(target, for: id)
         lastSave = Date()
+        seeks.send(target)
         if play { self.play() }
     }
 

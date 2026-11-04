@@ -29,6 +29,7 @@ struct MainWindow: View {
             }
         }
         .frame(minWidth: 820, minHeight: 560)
+        .background(PlaybackKeys(player: model.player))
         .task(id: PlayerKey(id: selectedMeeting?.id, recording: selectedMeeting?.status == .recording)) {
             model.player.load(selectedMeeting)
         }

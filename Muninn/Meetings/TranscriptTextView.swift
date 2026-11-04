@@ -1,21 +1,40 @@
 import AppKit
+import Combine
 import MuninnCore
 import SwiftUI
 
-/// The transcript tab's handle on its text view, for the toolbar and the recap: find, copy all and reveal. It holds the
-/// text view weakly with the layout it shows; a reveal asked for before they attach waits until they do.
+/// The transcript tab's handle on its text view, for the toolbar, the recap and playback: find, copy all, reveal and
+/// read along. It holds the text view weakly with the layout it shows; a reveal or a follow asked for before they
+/// attach waits until they do.
 @MainActor
 final class TranscriptController: ObservableObject {
-    @Published var following = true
+    /// The view keeps what is playing in view. Setting it scrolls there.
+    @Published var following = true {
+        didSet {
+            guard following else { return }
+            followRequested = true
+            follow()
+        }
+    }
+    /// Playback of this meeting is running; only then does a scroll by the owner stop the following.
+    var isPlaying = false
 
     private(set) weak var textView: TranscriptNSTextView?
     private(set) var layout: TranscriptLayout?
     private var pendingReveal: Int?
     private var tint: NSRange?
     private var tintToken = 0
+    private var position: ReadAlongPosition?
+    private var followRequested = false
+    /// The ranges that carry a temporary background now.
+    private var marked: [NSRange] = []
 
     func attach(_ textView: TranscriptNSTextView, layout: TranscriptLayout) {
-        endTint()
+        tintToken += 1
+        tint = nil
+        position = nil
+        marked = []
+        textView.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: textView.textStorage?.length ?? 0))
         self.textView = textView
         self.layout = layout
         carryOutPendingReveal()
@@ -23,7 +42,10 @@ final class TranscriptController: ObservableObject {
 
     func detach(_ textView: TranscriptNSTextView) {
         guard self.textView === textView else { return }
-        endTint()
+        tintToken += 1
+        tint = nil
+        position = nil
+        marked = []
         self.textView = nil
         layout = nil
     }
@@ -50,51 +72,124 @@ final class TranscriptController: ObservableObject {
         carryOutPendingReveal()
     }
 
+    /// Marks the segment and word spoken at `time`, or nothing when `time` is nil; only a changed position redraws.
+    func readAlong(at time: TimeInterval?) {
+        let position = time.flatMap { layout?.position(at: $0) }
+        guard position != self.position else { return }
+        self.position = position
+        redrawMarks()
+        if isPlaying || followRequested { follow() }
+    }
+
     func userScrolled() {
-        if following { following = false }
+        guard isPlaying, following else { return }
+        following = false
+        followRequested = false
     }
 
     func viewDidLayout() {
-        guard pendingReveal != nil else { return }
-        Task { self.carryOutPendingReveal() }
+        guard pendingReveal != nil || followRequested else { return }
+        Task {
+            self.carryOutPendingReveal()
+            if self.followRequested { self.follow() }
+        }
+    }
+
+    private var canScroll: Bool {
+        guard let textView, textView.window != nil, let clip = textView.enclosingScrollView?.contentView else { return false }
+        return clip.bounds.height > 0
     }
 
     private func carryOutPendingReveal() {
-        guard let id = pendingReveal, let textView, let layout, textView.window != nil,
-              let clip = textView.enclosingScrollView?.contentView, clip.bounds.height > 0 else { return }
+        guard let id = pendingReveal, let textView, let layout, canScroll else { return }
         pendingReveal = nil
         guard let index = layout.segmentIndex(forSegmentID: id) else { return }
         let segment = layout.segments[index]
         textView.centre(segment.line)
-        startTint(segment.text, in: textView)
+        startTint(segment.text)
     }
 
-    private func startTint(_ range: NSRange, in textView: TranscriptNSTextView) {
-        endTint()
-        guard let layoutManager = textView.layoutManager else { return }
-        layoutManager.addTemporaryAttribute(.backgroundColor, value: Theme.AppKit.accentSoft, forCharacterRange: range)
+    /// Brings the current segment to the centre when it is outside the middle of the visible rect.
+    private func follow() {
+        guard following, let position, let layout, let textView, canScroll,
+              layout.segments.indices.contains(position.segment) else { return }
+        followRequested = false
+        let segment = layout.segments[position.segment]
+        textView.keepInMiddle(segment.line, focus: wordRange(position, in: layout) ?? segment.line)
+    }
+
+    private func startTint(_ range: NSRange) {
         tint = range
+        tintToken += 1
+        redrawMarks()
         let token = tintToken
         Task {
             try? await Task.sleep(for: .seconds(2))
             guard tintToken == token else { return }
-            endTint()
+            tint = nil
+            redrawMarks()
         }
     }
 
-    private func endTint() {
-        tintToken += 1
-        guard let range = tint else { return }
-        tint = nil
-        guard let textView, let layoutManager = textView.layoutManager,
-              NSMaxRange(range) <= (textView.textStorage?.length ?? 0) else { return }
-        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+    /// Moves the temporary backgrounds: the reveal tint, then the read-along segment and word over it. Only the ranges
+    /// that change are redrawn, and nothing is laid out again.
+    private func redrawMarks() {
+        guard let textView, let layoutManager = textView.layoutManager, let layout else { return }
+        let length = textView.textStorage?.length ?? 0
+        for range in marked where NSMaxRange(range) <= length {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+        }
+        var marks: [(range: NSRange, colour: NSColor)] = []
+        if let tint { marks.append((tint, Theme.AppKit.accentSoft)) }
+        if let position, layout.segments.indices.contains(position.segment) {
+            marks.append((layout.segments[position.segment].text, Theme.AppKit.accentSoft))
+            if let word = wordRange(position, in: layout) { marks.append((word, Theme.AppKit.accentMid)) }
+        }
+        marks.removeAll { NSMaxRange($0.range) > length }
+        for mark in marks {
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: mark.colour, forCharacterRange: mark.range)
+        }
+        marked = marks.map(\.range)
+    }
+
+    private func wordRange(_ position: ReadAlongPosition, in layout: TranscriptLayout) -> NSRange? {
+        guard let word = position.word, layout.segments.indices.contains(position.segment) else { return nil }
+        let words = layout.segments[position.segment].words
+        return words.indices.contains(word) ? words[word].range : nil
+    }
+}
+
+/// "Back to 12:04", while the owner has scrolled away from what is playing; it follows playback again.
+struct TranscriptFollowButton: View {
+    @EnvironmentObject private var player: MeetingPlayer
+    @ObservedObject var controller: TranscriptController
+    let meetingID: MeetingID
+
+    var body: some View {
+        if !controller.following, player.meetingID == meetingID, player.hasStarted {
+            BackToButton(clock: player.clock) { controller.following = true }
+                .padding(Space.m)
+        }
+    }
+
+    /// The only view here that observes the clock.
+    private struct BackToButton: View {
+        @ObservedObject var clock: PlaybackClock
+        let action: () -> Void
+
+        var body: some View {
+            Button("Back to \(Timestamp.format(clock.time))", action: action)
+                .controlSize(.large)
+                .buttonStyle(.glass)
+                .help("Scroll back to what is playing and follow it")
+        }
     }
 }
 
 /// The transcript as one continuous, selectable text flow: speaker lines in their colours, timestamps in the margin.
 struct TranscriptTextView: NSViewRepresentable {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var player: MeetingPlayer
     let meeting: Meeting
     let transcript: Transcript
     let clean: CleanTranscript?
@@ -122,12 +217,16 @@ struct TranscriptTextView: NSViewRepresentable {
         scrollView.onLayout = { [weak controller] in controller?.viewDidLayout() }
         coordinator.textView = textView
         coordinator.update(userName: model.resolvedUserName)
+        coordinator.observe(player)
         return scrollView
     }
 
     func updateNSView(_ scrollView: TranscriptScrollView, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.update(userName: model.resolvedUserName)
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        coordinator.update(userName: model.resolvedUserName)
+        coordinator.observe(player)
+        coordinator.playerChanged()
     }
 
     static func dismantleNSView(_ scrollView: TranscriptScrollView, coordinator: Coordinator) {
@@ -140,6 +239,8 @@ struct TranscriptTextView: NSViewRepresentable {
         weak var textView: TranscriptNSTextView?
         private var inputs: Inputs?
         private var popover: NSPopover?
+        private weak var player: MeetingPlayer?
+        private var clockObservation: AnyCancellable?
 
         private struct Inputs: Equatable {
             let transcript: Transcript
@@ -176,9 +277,37 @@ struct TranscriptTextView: NSViewRepresentable {
                 userName: inputs.userName,
                 flags: inputs.flags
             )
-            textView.textStorage?.setAttributedString(TranscriptStyle.text(layout, colours: SpeakerColours.indices(for: inputs.transcript)))
+            let margin = TranscriptStyle.margin(for: layout)
+            textView.columnWidth = Theme.readingWidth + margin
+            textView.textStorage?.setAttributedString(TranscriptStyle.text(layout, colours: SpeakerColours.indices(for: inputs.transcript), margin: margin))
             textView.restore(anchor, in: layout)
             parent.controller.attach(textView, layout: layout)
+            if let player { readAlong(at: player.clock.time) }
+        }
+
+        /// Follows the clock with a Combine sink, so a tick moves the marks without a SwiftUI update.
+        func observe(_ player: MeetingPlayer) {
+            guard self.player !== player else { return }
+            self.player = player
+            clockObservation = player.clock.$time.sink { [weak self] time in
+                MainActor.assumeIsolated { self?.readAlong(at: time) }
+            }
+        }
+
+        /// The player's state changed: whether it is playing this meeting, and whether read-along starts or stops.
+        func playerChanged() {
+            guard let player else { return }
+            parent.controller.isPlaying = isCurrent && player.isPlaying
+            readAlong(at: player.clock.time)
+        }
+
+        private var isCurrent: Bool {
+            player?.meetingID == parent.meeting.id
+        }
+
+        private func readAlong(at time: TimeInterval) {
+            let active = isCurrent && player?.hasStarted == true
+            parent.controller.readAlong(at: active ? time : nil)
         }
 
         func click(_ event: NSEvent) {
@@ -191,6 +320,7 @@ struct TranscriptTextView: NSViewRepresentable {
         }
 
         func dismantle() {
+            clockObservation = nil
             popover?.close()
             popover = nil
             if let textView { parent.controller.detach(textView) }
@@ -288,6 +418,14 @@ final class TranscriptScrollView: NSScrollView {
 /// text with the layout manager's temporary attributes without laying it out again.
 final class TranscriptNSTextView: NSTextView {
     var onClick: ((NSEvent) -> Void)?
+    /// The reading width plus the timestamp margin: the column is at most this wide, centred.
+    var columnWidth = Theme.readingWidth + TranscriptStyle.minimumMargin {
+        didSet {
+            guard columnWidth != oldValue else { return }
+            fitColumn(to: frame.width)
+            textContainer?.size = NSSize(width: max(0, frame.width - 2 * textContainerInset.width), height: .greatestFiniteMagnitude)
+        }
+    }
 
     private let storage: NSTextStorage
 
@@ -327,10 +465,14 @@ final class TranscriptNSTextView: NSTextView {
         onClick?(event)
     }
 
-    /// Keeps the column at most the reading width plus the timestamp margin, centred.
+    /// Sets the inset before the frame, so the container never keeps a width for the old inset.
     override func setFrameSize(_ newSize: NSSize) {
+        fitColumn(to: newSize.width)
         super.setFrameSize(newSize)
-        let horizontal = max(Space.l, (newSize.width - TranscriptStyle.columnWidth) / 2)
+    }
+
+    private func fitColumn(to width: CGFloat) {
+        let horizontal = max(Space.l, (width - columnWidth) / 2)
         if textContainerInset.width != horizontal {
             textContainerInset = NSSize(width: horizontal, height: Space.l)
         }
@@ -360,6 +502,19 @@ final class TranscriptNSTextView: NSTextView {
     func centre(_ range: NSRange) {
         guard let clip = enclosingScrollView?.contentView else { return }
         scroll(toY: boundingRect(forCharacters: range).midY - clip.bounds.height / 2)
+    }
+
+    /// Scrolls only when `focus` is outside the middle half of the visible rect: to centre `line`, or `focus` itself
+    /// when the line is taller than that half.
+    func keepInMiddle(_ line: NSRange, focus: NSRange) {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        let visible = clip.documentVisibleRect
+        let band = visible.insetBy(dx: 0, dy: visible.height / 4)
+        let focusRect = boundingRect(forCharacters: focus)
+        guard focusRect.maxY <= band.minY || focusRect.minY >= band.maxY else { return }
+        let lineRect = boundingRect(forCharacters: line)
+        let target = lineRect.height <= band.height ? lineRect : focusRect
+        scroll(toY: target.midY - clip.bounds.height / 2)
     }
 
     struct TopAnchor {
@@ -397,20 +552,35 @@ final class TranscriptNSTextView: NSTextView {
     }
 }
 
-/// The transcript's attributes: a 64 pt timestamp margin, speaker lines in their colours, removed words struck through.
+/// The transcript's attributes: a timestamp margin of at least 64 pt, speaker lines in their colours, removed words
+/// struck through.
+@MainActor
 private enum TranscriptStyle {
-    static let margin: CGFloat = 64
-    static let columnWidth = Theme.readingWidth + margin
+    static let minimumMargin: CGFloat = 64
+    /// The space between the widest timestamp and the text.
+    static let gutter: CGFloat = 8
 
-    private static let readingFont = NSFont.systemFont(ofSize: 14.5)
     private static let speakerFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    private static let timestampFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
-    private static let segmentParagraph = paragraph(spacingBefore: 0)
-    private static let speakerParagraph = paragraph(spacingBefore: 12)
 
-    static func text(_ layout: TranscriptLayout, colours: [String: Int]) -> NSAttributedString {
+    /// The widest timestamp (with its flag) in the layout plus the gutter, and never less than the minimum. Timestamps
+    /// are monospaced, so one of each length, flagged or not, is measured.
+    static func margin(for layout: TranscriptLayout) -> CGFloat {
+        let string = layout.string as NSString
+        var measured = Set<Int>()
+        var widest: CGFloat = 0
+        for segment in layout.segments {
+            let range = segment.flag.map { NSUnionRange(segment.timestamp, $0) } ?? segment.timestamp
+            guard measured.insert(range.length * 2 + (segment.flag == nil ? 0 : 1)).inserted else { continue }
+            widest = max(widest, string.substring(with: range).size(withAttributes: [.font: Theme.AppKit.mono]).width)
+        }
+        return max(minimumMargin, ceil(widest) + gutter)
+    }
+
+    static func text(_ layout: TranscriptLayout, colours: [String: Int], margin: CGFloat) -> NSAttributedString {
+        let segmentParagraph = paragraph(spacingBefore: 0, margin: margin)
+        let speakerParagraph = paragraph(spacingBefore: 12, margin: margin)
         let result = NSMutableAttributedString(string: layout.string, attributes: [
-            .font: readingFont,
+            .font: Theme.AppKit.reading,
             .foregroundColor: Theme.AppKit.primaryText,
             .paragraphStyle: segmentParagraph,
         ])
@@ -420,11 +590,13 @@ private enum TranscriptStyle {
             result.addAttributes([
                 .font: speakerFont,
                 .foregroundColor: Theme.AppKit.speaker(colours[line.speaker] ?? 0),
+                .toolTip: "Rename speaker",
+                .cursor: NSCursor.pointingHand,
             ], range: line.range)
         }
         for segment in layout.segments {
             result.addAttributes([
-                .font: timestampFont,
+                .font: Theme.AppKit.mono,
                 .foregroundColor: segment.flag == nil ? Theme.AppKit.secondaryText : Theme.AppKit.attentionText,
             ], range: segment.flag.map { NSUnionRange(segment.timestamp, $0) } ?? segment.timestamp)
             for removed in segment.removed {
@@ -437,7 +609,7 @@ private enum TranscriptStyle {
         return result
     }
 
-    private static func paragraph(spacingBefore: CGFloat) -> NSParagraphStyle {
+    private static func paragraph(spacingBefore: CGFloat, margin: CGFloat) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.tabStops = [NSTextTab(textAlignment: .left, location: margin)]
         style.headIndent = margin

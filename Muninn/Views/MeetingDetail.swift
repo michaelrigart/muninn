@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MeetingDetail: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var player: MeetingPlayer
     @Environment(\.undoManager) private var undoManager
     let meeting: Meeting
     @Binding var tab: DetailTab
@@ -21,6 +22,7 @@ struct MeetingDetail: View {
     @StateObject private var transcriptController = TranscriptController()
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
+    private var canPlay: Bool { player.meetingID == meeting.id && player.state == .ready }
 
     private struct LoadKey: Hashable {
         let id: MeetingID
@@ -68,8 +70,11 @@ struct MeetingDetail: View {
                         mode: transcriptMode,
                         controller: transcriptController,
                         onRename: renameSpeaker,
-                        onSeek: { _ in }
+                        onSeek: listen(from:)
                     )
+                    .overlay(alignment: .bottomTrailing) {
+                        TranscriptFollowButton(controller: transcriptController, meetingID: meeting.id)
+                    }
                 } else {
                     ContentUnavailableView("No transcript yet", systemImage: "text.alignleft")
                 }
@@ -94,6 +99,9 @@ struct MeetingDetail: View {
             )
         }
         .sheet(isPresented: $showingDraft) { DraftSheet(meeting: meeting, summary: summary) }
+        .onReceive(player.seeks) { _ in
+            if player.meetingID == meeting.id { transcriptController.following = true }
+        }
         .onDisappear {
             guard let document else { return }
             document.endTyping(undoManager: undoManager)
@@ -109,6 +117,7 @@ struct MeetingDetail: View {
                 summary = model.loadFile("summary.json", for: meeting) { try store.loadSummary(id) }
             }
             transcript = model.loadFile("transcript.json", for: meeting) { try store.loadTranscript(id) }
+            player.timeline = transcript.map(SegmentTimeline.init(transcript:))
             clean = model.loadFile("transcript.clean.json", for: meeting) { try store.loadClean(id) }
             lanes = transcript.map(PlaybackLanes.lanes(for:)) ?? []
             speakerIndices = transcript.map(SpeakerColours.indices(for:)) ?? [:]
@@ -124,7 +133,7 @@ struct MeetingDetail: View {
             focus: recapFocus,
             summary: summary,
             segmentStarts: segmentStarts,
-            canPlay: false,
+            canPlay: canPlay,
             onSource: show(segment:),
             hasPreviousVersion: context.hasPreviousRecap,
             onPreviousVersion: restorePrevious,
@@ -256,9 +265,19 @@ struct MeetingDetail: View {
         return card.inset()
     }
 
+    /// With the recording ready, plays from the segment and follows it; without, scrolls to it and tints it.
     private func show(segment id: Int) {
         tab = .transcript
-        transcriptController.reveal(segmentID: id)
+        if canPlay, let start = segmentStarts[id] {
+            player.seek(to: start, play: true)
+        } else {
+            transcriptController.reveal(segmentID: id)
+        }
+    }
+
+    private func listen(from time: TimeInterval) {
+        guard canPlay else { return }
+        player.seek(to: time, play: true)
     }
 
     private func renameSpeaker(_ speaker: String, to name: String) {

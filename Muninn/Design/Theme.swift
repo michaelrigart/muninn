@@ -42,16 +42,19 @@ enum Theme {
 
     static let meetingTitle = Font.system(size: 27, weight: .semibold, design: .serif)
     static let subject = Font.system(size: 19, weight: .semibold, design: .serif)
-    static let reading = Font.system(size: 14.5)
+    static let reading = Font(AppKit.reading as CTFont)
     static let interface = Font.system(size: 13)
     static let meta = Font.system(size: 12.5)
     static let label = Font.system(size: 11, weight: .semibold)
-    static let mono = Font.system(size: 11.5, design: .monospaced)
+    static let mono = Font(AppKit.mono as CTFont)
 
     static let readingWidth: CGFloat = 760
 
-    /// The same colours as `NSColor`, for the transcript's text view. The SwiftUI colours above wrap these.
+    /// The same colours and fonts as `NSColor` and `NSFont`, for the transcript's text view. The SwiftUI colours and
+    /// fonts above wrap these.
     enum AppKit {
+        static let reading = NSFont.systemFont(ofSize: 14.5)
+        static let mono = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
         static let primaryText = NSColor.labelColor
         static let secondaryText = dynamic(light: Palette.secondaryTextLight, dark: Palette.secondaryTextDark)
         static let tertiaryText = dynamic(light: Palette.tertiaryTextLight, dark: Palette.tertiaryTextDark)
