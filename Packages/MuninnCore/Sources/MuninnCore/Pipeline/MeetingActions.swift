@@ -12,7 +12,7 @@ public enum AutoFileDecision: Equatable, Sendable {
 
 public enum MeetingActions {
     public static func canDraft(_ m: Meeting, accounts: [AccountSettings]) -> Bool {
-        !accountRemoved(m, accounts: accounts) && m.accountID != nil && m.recipients.contains(where: \.included)
+        MeetingCommands.draftRefusal(m, accounts: accounts) == nil
     }
 
     /// The meeting names an account that is no longer in the settings; it can't draft until another account is chosen.
