@@ -116,7 +116,7 @@ struct MeetingStatusCards: View {
     }
 }
 
-private extension View {
+extension View {
     func inset() -> some View {
         padding(.horizontal, Space.m).padding(.top, Space.s)
     }

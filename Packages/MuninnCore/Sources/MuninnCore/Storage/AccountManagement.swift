@@ -45,6 +45,6 @@ public enum AccountManagement {
     }
 
     public static func removalRefusal(accountName: String) -> String {
-        "\(accountName) can't be removed while a meeting for it is recording or being processed."
+        "\(accountName) can't be removed while a meeting for it is recording or being processed"
     }
 }

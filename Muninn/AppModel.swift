@@ -53,7 +53,7 @@ private final class FlagBox: @unchecked Sendable {
 /// Summary edits that couldn't be written, kept per meeting so navigating away doesn't lose them.
 struct UnsavedSummary {
     var summary: Summary
-    var error: String
+    var problem: Problem
 }
 
 enum SidebarFilter {
@@ -77,11 +77,15 @@ final class AppModel: ObservableObject {
     }
     @Published var settings: Settings
     @Published var selectedMeetingID: MeetingID?
-    /// Bumped to ask the always-alive menu bar label to open the Meetings window.
+    /// Bumped to ask the always-alive menu bar label to open the Meetings, Activity or Settings window.
     @Published var openMeetingsRequest = 0
-    /// The last failed draft or export per meeting, shown in that meeting's error banner.
-    @Published var actionErrors: [MeetingID: String] = [:]
-    @Published var actionNotices: [MeetingID: String] = [:]
+    @Published private(set) var openActivityRequest = 0
+    @Published private(set) var openSettingsRequest = 0
+    /// The last failed draft, export or event change per meeting, shown as that meeting's problem card.
+    @Published var actionErrors: [MeetingID: Problem] = [:]
+    @Published var actionNotices: [MeetingID: Problem] = [:]
+    /// The stage of a failed draft or export, so the problem card can run it again.
+    @Published var failedActions: [MeetingID: ProblemStage] = [:]
     /// Recap edits that couldn't be saved, per meeting, kept until a save succeeds.
     @Published var unsavedSummaries: [MeetingID: UnsavedSummary] = [:]
     /// Accounts whose stored sign-in Microsoft rejected during the last calendar refresh.
@@ -89,7 +93,10 @@ final class AppModel: ObservableObject {
     /// Meetings whose event is being fetched for a change. Drafts, exports and regeneration wait for it.
     @Published var eventChangesInFlight: Set<MeetingID> = []
     /// Why the flag hotkey couldn't be registered, if it couldn't.
-    @Published var hotkeyError: String?
+    @Published var hotkeyError: Problem?
+    /// Why the settings couldn't be saved, and the settings that failed, so the card can save them again.
+    @Published var settingsProblem: Problem?
+    @Published private(set) var failedSettings: MuninnCore.Settings?
     /// What the pipeline is running and what waits for its turn.
     @Published private(set) var pipelineSnapshot = PipelineSnapshot.idle
     /// The speech models being downloaded or loaded.
@@ -366,6 +373,29 @@ final class AppModel: ObservableObject {
         openMeetingsRequest += 1
     }
 
+    /// Opens Settings on a pane, from anywhere, including the floating panels that have no window actions of their own.
+    func showSettings(_ tab: SettingsTab) {
+        settingsTab = tab
+        openSettingsRequest += 1
+    }
+
+    /// Opens the Activity window on the newest entry with the problem's title, and the meeting's when one is given.
+    func showInActivity(_ problem: Problem, meeting: MeetingID? = nil) {
+        activity.focus(problemTitle: problem.title, meetingID: meeting)
+        openActivityRequest += 1
+    }
+
+    /// The handlers every problem card outside the meeting's status cards shares: the actions that open a Settings pane.
+    func problemHandlers(tryAgain: (() -> Void)? = nil) -> ProblemHandlers {
+        ProblemHandlers(
+            tryAgain: tryAgain,
+            engineSettings: { [weak self] in self?.showSettings(.engines) },
+            changeKey: { [weak self] in self?.showSettings(.engines) },
+            signInAgain: { [weak self] in self?.showSettings(.accounts) },
+            recordingSettings: { [weak self] in self?.showSettings(.recording) }
+        )
+    }
+
     nonisolated static func client(for engine: EngineKind, settings: Settings, secrets: KeychainSecrets) throws -> LLMClient {
         try EngineClients.make(engine, settings: settings, secrets: secrets)
     }
@@ -421,11 +451,22 @@ final class AppModel: ObservableObject {
             try settingsStore.save(s)
         } catch {
             logger.error("Saving settings failed: \(String(describing: error), privacy: .public)")
-            activity.record(failure: error, in: ProblemContext(stage: .savingSettings, subject: "the settings"))
+            guard !ActivityCenter.isCancellation(error) else { return }
+            let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingSettings, subject: "the settings"))
+            activity.record(problem, area: .app)
+            settingsProblem = problem
+            failedSettings = s
             return
         }
+        settingsProblem = nil
+        failedSettings = nil
         settingsBox.value = s
         settings = s
+    }
+
+    func dismissSettingsProblem() {
+        settingsProblem = nil
+        failedSettings = nil
     }
 
     func prepareMeeting(startedAt: Date, mode: CaptureMode, appName: String?) async throws -> Meeting {
@@ -510,11 +551,11 @@ final class AppModel: ObservableObject {
 
     func regenerate(_ id: MeetingID, engine: EngineKind) {
         guard !eventChangesInFlight.contains(id) else {
-            actionErrors[id] = MeetingActionError.eventChangeInProgress.errorDescription
+            report(MeetingActionError.eventChangeInProgress, stage: .writingRecap, for: id)
             return
         }
         guard unsavedSummaries[id] == nil else {
-            actionErrors[id] = MeetingActionError.unsavedEdits.errorDescription
+            report(MeetingActionError.unsavedEdits, stage: .writingRecap, for: id)
             return
         }
         if hasEditedSummary(id),

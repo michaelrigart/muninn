@@ -86,6 +86,6 @@ struct AccountManagementTests {
     }
 
     @Test func refusalNamesTheAccount() {
-        #expect(AccountManagement.removalRefusal(accountName: "Work") == "Work can't be removed while a meeting for it is recording or being processed.")
+        #expect(AccountManagement.removalRefusal(accountName: "Work") == "Work can't be removed while a meeting for it is recording or being processed")
     }
 }

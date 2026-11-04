@@ -528,7 +528,6 @@ struct StorageTests {
         #expect(!settings.hasVault)
         settings.vaultPath = "/Users/you/Notes"
         #expect(settings.hasVault)
-        #expect(MeetingActions.vaultNotChosenNotice == "Choose your Obsidian vault in Settings first")
     }
 
     private func readyMeeting() -> Meeting {
@@ -550,7 +549,7 @@ struct StorageTests {
 
     @Test func exportRefusesWithoutAVault() {
         var settings = Settings.defaults
-        #expect(MeetingActions.exportRefusal(settings: settings) == "Choose your Obsidian vault in Settings first")
+        #expect(MeetingActions.exportRefusal(settings: settings)?.title == Problems.vaultNotChosen().title)
         settings.vaultPath = "  "
         #expect(MeetingActions.exportRefusal(settings: settings) != nil)
         settings.vaultPath = "/Users/you/Notes"

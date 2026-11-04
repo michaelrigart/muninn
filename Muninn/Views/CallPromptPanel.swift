@@ -1,4 +1,5 @@
 import AppKit
+import MuninnCore
 import SwiftUI
 
 final class FloatingPanel: NSPanel {
@@ -130,13 +131,22 @@ struct CallPromptView: View {
                     Button("Cancel") { controller.cancelAllAudio() }
                 }
             default:
-                if let notice = controller.notice {
-                    header(
-                        notice.kind == .error ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
-                        notice.kind == .error ? "Recording problem" : "Recording warning",
-                        notice.message
+                if let notice = controller.notice, let first = notice.problems.first {
+                    ProblemCard(
+                        problem: first,
+                        role: first.severity == .warning ? .attention : nil,
+                        compact: true,
+                        handlers: ProblemHandlers(recordingSettings: { controller.showRecordingSettings() }),
+                        showInActivity: { controller.showInActivity(first) }
                     )
-                    Button("Dismiss") { controller.notice = nil }
+                    HStack {
+                        Button("Dismiss") { controller.notice = nil }
+                        if notice.problems.count > 1 {
+                            Text("+\(notice.problems.count - 1) more")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }

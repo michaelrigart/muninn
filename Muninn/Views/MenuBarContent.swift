@@ -23,7 +23,12 @@ struct MenuBarContent: View {
             Divider()
         }
         if let notice = recorder.notice {
-            Text(notice.message)
+            ForEach(notice.problems, id: \.title) { problem in
+                Text(problem.title)
+            }
+            if let failure = notice.problems.first(where: { $0.severity == .problem }) {
+                Button("Show in Activity") { model.showInActivity(failure) }
+            }
             Button("Dismiss") { recorder.notice = nil }
             Divider()
         }
@@ -104,14 +109,22 @@ struct MenuBarContent: View {
     }
 }
 
-/// The menu content isn't alive while the menu is closed, so the menu bar label opens the Meetings window on request.
-struct MeetingsOpener: ViewModifier {
+/// The menu content isn't alive while the menu is closed, so the menu bar label opens the Meetings, Activity and Settings windows on request.
+struct WindowOpener: ViewModifier {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     func body(content: Content) -> some View {
-        content.onChange(of: model.openMeetingsRequest) {
-            WindowPresenter.present { openWindow(id: "meetings") }
-        }
+        content
+            .onChange(of: model.openMeetingsRequest) {
+                WindowPresenter.present { openWindow(id: "meetings") }
+            }
+            .onChange(of: model.openActivityRequest) {
+                WindowPresenter.present { openWindow(id: "activity") }
+            }
+            .onChange(of: model.openSettingsRequest) {
+                WindowPresenter.present { openSettings() }
+            }
     }
 }

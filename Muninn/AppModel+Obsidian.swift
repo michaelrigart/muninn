@@ -7,7 +7,7 @@ private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "
 extension AppModel {
     func exportToObsidian(_ id: MeetingID) {
         Task {
-            await perform("export to Obsidian", for: id) {
+            await perform(.filingNote, for: id) {
                 _ = try await export(id, askToOverwrite: true)
             }
         }
@@ -31,19 +31,19 @@ extension AppModel {
         case .skip:
             return
         case .unsourced(let count):
-            actionNotices[id] = "Not filed automatically: \(Self.unsourcedPhrase(count))"
+            actionNotices[id] = Problems.notFiledAutomatically(unsourced: count)
             return
         case .vaultNotChosen(let showNotice):
             if showNotice {
                 vaultNoticeShown = true
-                actionNotices[id] = MeetingActions.vaultNotChosenNotice
+                actionNotices[id] = Problems.vaultNotChosen()
             }
             logger.info("Not auto-filing \(id.rawValue, privacy: .public): no vault chosen")
             return
         case .file:
             break
         }
-        await perform("export to Obsidian", for: id) {
+        await perform(.filingNote, for: id) {
             if try await !export(id, askToOverwrite: false) {
                 logger.info("Not auto-filing \(id.rawValue, privacy: .public): a note already exists")
             }

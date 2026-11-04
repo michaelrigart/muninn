@@ -79,7 +79,7 @@ struct MuninnApp: App {
                         .accessibilityLabel("Muninn")
                 }
             }
-            .modifier(MeetingsOpener(model: model))
+            .modifier(WindowOpener(model: model))
         }
         .menuBarExtraStyle(.menu)
 
@@ -91,6 +91,7 @@ struct MuninnApp: App {
 
         Window("Live transcript", id: "live-transcript") {
             LiveTranscriptWindow()
+                .environmentObject(model)
                 .environmentObject(recorder)
         }
         .defaultLaunchBehavior(.suppressed)

@@ -28,7 +28,7 @@ struct RecordingPillView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             row
-            if let warning {
+            ForEach(warnings, id: \.self) { warning in
                 Text(warning)
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -42,12 +42,14 @@ struct RecordingPillView: View {
         .fixedSize()
     }
 
-    /// The warning worth reading at a glance: a track that is no longer being saved, or a call track that went quiet.
-    private var warning: String? {
+    /// The warnings worth reading at a glance, by title: a track that is no longer being saved, or a call track that went quiet.
+    private var warnings: [String] {
+        var titles: [String] = []
         if let interruption = controller.interruption, case .writeFailed = interruption {
-            return Self.describe(interruption)
+            titles.append(Problems.recordingTrackStopped(track: interruption.track.recordingName).title)
         }
-        return controller.callAudioWarning
+        if let warning = controller.callAudioWarning { titles.append(warning.title) }
+        return titles
     }
 
     private var row: some View {
@@ -70,7 +72,7 @@ struct RecordingPillView: View {
                 if let interruption = controller.interruption {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
-                        .help(Self.describe(interruption))
+                        .help(Self.helpText(for: interruption))
                 }
                 Button {
                     controller.flag()
@@ -119,13 +121,14 @@ struct RecordingPillView: View {
             : String(format: "%02d:%02d", minutes, secs)
     }
 
-    static func describe(_ interruption: RecordingInterruption) -> String {
+    /// What the warning icon's tooltip says. The reasons stay in the log.
+    static func helpText(for interruption: RecordingInterruption) -> String {
         let track = interruption.track == .mic ? "Microphone" : "Call audio"
         switch interruption {
         case .configurationChanged: return "\(track): audio device changed, restarting"
-        case .restartFailed(_, let reason): return "\(track) stopped: \(reason)"
+        case .restartFailed: return "\(track) stopped"
         case .deviceStopped: return "\(track): device stopped"
-        case .writeFailed(_, let reason): return "\(track) is no longer being saved: \(reason)"
+        case .writeFailed: return Problems.recordingTrackStopped(track: interruption.track.recordingName).title
         }
     }
 }
