@@ -296,7 +296,7 @@ extension AppModel {
         case 0:
             return .include
         case 1:
-            showMeeting(id)
+            showRecap(id)
             return .review
         default:
             return .cancel

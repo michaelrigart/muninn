@@ -33,6 +33,7 @@ struct MainWindow: View {
         .task(id: PlayerKey(id: selectedMeeting?.id, recording: selectedMeeting?.status == .recording)) {
             model.player.load(selectedMeeting)
         }
+        .onChange(of: model.showRecapRequest) { tab = .recap }
         .onDisappear { model.player.stop() }
     }
 }

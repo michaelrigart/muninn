@@ -84,6 +84,8 @@ final class AppModel: ObservableObject {
     @Published var openMeetingsRequest = 0
     @Published private(set) var openActivityRequest = 0
     @Published private(set) var openSettingsRequest = 0
+    /// Bumped to ask an open Meetings window to show the Recap tab.
+    @Published private(set) var showRecapRequest = 0
     /// The last failed draft, export or event change per meeting, shown as that meeting's problem card.
     @Published var actionErrors: [MeetingID: Problem] = [:]
     @Published var actionNotices: [MeetingID: Problem] = [:]
@@ -232,7 +234,7 @@ final class AppModel: ObservableObject {
             }
             self?.pipelineSnapshot = await pipeline.snapshot()
         }
-        RecapNotifications.start { [weak self] id in self?.showMeeting(id) }
+        RecapNotifications.start { [weak self] id in self?.showRecap(id) }
         startLifecycle()
     }
 
@@ -395,6 +397,12 @@ final class AppModel: ObservableObject {
     func showMeeting(_ id: MeetingID) {
         selectedMeetingID = id
         openMeetingsRequest += 1
+    }
+
+    /// Opens the meeting on its Recap tab, even if the window is already open on the Transcript.
+    func showRecap(_ id: MeetingID) {
+        showMeeting(id)
+        showRecapRequest += 1
     }
 
     /// Opens Settings on a pane, from anywhere, including the floating panels that have no window actions of their own.
