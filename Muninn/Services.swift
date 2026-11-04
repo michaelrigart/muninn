@@ -255,26 +255,25 @@ enum RecapNotifications {
         post(content, id: "attention-\(meeting.id.rawValue)")
     }
 
-    private static var requestedAuthorization = false
-
-    /// Asks for permission the first time there is something to say, not at launch.
+    /// Asks for permission when there is something to say, not at launch; once decided, the answer comes back at once.
     private static func post(_ content: UNMutableNotificationContent, id: String) {
         guard available else { return }
-        let center = UNUserNotificationCenter.current()
-        if !requestedAuthorization {
-            requestedAuthorization = true
-            center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-                if let error {
-                    logger.error("Notification authorization failed: \(String(describing: error), privacy: .public)")
-                } else if !granted {
-                    logger.notice("Notifications are not allowed")
-                }
-            }
-        }
         content.sound = .default
-        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { error in
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                logger.error("Posting the notification failed: \(String(describing: error), privacy: .public)")
+                logger.error("Notification authorization failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            guard granted else {
+                logger.notice("Notifications are not allowed")
+                return
+            }
+            center.add(request) { error in
+                if let error {
+                    logger.error("Posting the notification failed: \(String(describing: error), privacy: .public)")
+                }
             }
         }
     }

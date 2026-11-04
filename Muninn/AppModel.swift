@@ -73,7 +73,7 @@ final class AppModel: ObservableObject {
         didSet {
             recordingGate.value = isRecording
             if oldValue, !isRecording { resumeHeldProcessing() }
-            announceAttention()
+            if oldValue != isRecording { announceAttention() }
         }
     }
     /// Decides which meetings to announce; nil until the first load, so meetings already waiting at launch stay quiet.
@@ -207,7 +207,6 @@ final class AppModel: ObservableObject {
             activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
-        attention = AttentionTracker(seed: meetings)
         refreshClaudeKey()
         SpeechModelActivity.shared.setObserver { [weak self] models in
             Task { @MainActor in self?.speechModels = models }
@@ -405,22 +404,27 @@ final class AppModel: ObservableObject {
     }
 
     func reloadMeetings() {
+        var loaded = false
         do {
             let previous = Dictionary(meetings.map { ($0.id, $0.status) }, uniquingKeysWith: { first, _ in first })
-            let loaded = try store.list()
-            meetings = loaded
-            for meeting in loaded where meeting.status == .ready && previous[meeting.id].map({ $0 != .ready }) == true {
+            let list = try store.list()
+            meetings = list
+            loaded = true
+            for meeting in list where meeting.status == .ready && previous[meeting.id].map({ $0 != .ready }) == true {
                 recapReady(meeting)
             }
         } catch {
             logger.error("Listing meetings failed: \(String(describing: error), privacy: .public)")
             activity.record(failure: error, in: ProblemContext(stage: .loadingMeetings))
         }
-        announceAttention()
+        announceAttention(loaded: loaded)
     }
 
-    private func announceAttention() {
-        guard var tracker = attention else { return }
+    private func announceAttention(loaded: Bool = false) {
+        guard var tracker = attention else {
+            if loaded { attention = AttentionTracker(seed: meetings) }
+            return
+        }
         let ids = tracker.update(meetings, isRecording: isRecording)
         attention = tracker
         for id in ids {
