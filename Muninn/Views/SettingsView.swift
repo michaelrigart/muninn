@@ -246,7 +246,7 @@ private struct AccountsTab: View {
         .onAppear(perform: refresh)
         .sheet(item: $signingIn, onDismiss: refresh) { request in
             let account = request.account
-            SignInSheet(account: account, secrets: model.secrets) { addresses in
+            SignInSheet(account: account, secrets: model.secrets, activity: model.activity) { addresses in
                 update(account.id) { $0.selfAddresses = Self.merge($0.selfAddresses, addresses) }
                 model.signInNeeded.remove(account.id)
                 model.refreshCalendar()
@@ -344,6 +344,7 @@ private struct AccountsTab: View {
         do {
             try TokenAccess.signOut(account: account.id, store: KeychainTokenStore(secrets: model.secrets))
             model.signInNeeded.remove(account.id)
+            model.activity.record(.info, .accounts, "Signed out of \(account.displayName)", details: ProblemDetails(account: account.displayName))
             error = nil
         } catch {
             self.error = SignInFlow.keychainMessage("remove the tokens of \(account.displayName) from", error)

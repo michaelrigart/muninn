@@ -96,6 +96,16 @@ struct MuninnApp: App {
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 420, height: 480)
 
+        Window("Activity", id: "activity") {
+            ActivityWindow()
+                .environmentObject(model)
+                .environmentObject(model.activity)
+                .frame(minWidth: 560, minHeight: 360)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .defaultSize(width: 760, height: 520)
+        .commands { ActivityCommands() }
+
         Settings {
             SettingsView()
                 .environmentObject(model)

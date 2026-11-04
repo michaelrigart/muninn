@@ -90,6 +90,7 @@ final class AppModel: ObservableObject {
     let pipeline: ProcessingPipeline
     let graph: GraphServices
     let calendar: CalendarCache
+    let activity: ActivityCenter
 
     var actionsInFlight: Set<String> = []
     private let settingsBox: SettingsBox
@@ -103,6 +104,8 @@ final class AppModel: ObservableObject {
     var deletedIDs: Set<MeetingID> = []
     /// Set once the "choose your vault" notice has been shown for auto-filing, so it appears once per session.
     var vaultNoticeShown = false
+    /// The meeting and file whose load failure was already recorded this session, so a failing file is recorded once.
+    private var recordedLoadFailures: Set<String> = []
 
     init() {
         let paths = MuninnPaths(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
@@ -110,6 +113,9 @@ final class AppModel: ObservableObject {
         let settingsStore = SettingsStore(file: paths.settingsFile)
         let secrets = KeychainSecrets()
         let loaded = settingsStore.load()
+        let activity = ActivityCenter(log: ActivityLog(file: paths.activityFile), dataDirectory: paths.data.path)
+        let log = activity.log
+        SpeechModelActivity.shared.setActivity(log)
         let box = SettingsBox(loaded)
         let gate = FlagBox()
         do {
@@ -124,6 +130,7 @@ final class AppModel: ObservableObject {
         self.secrets = secrets
         self.settings = loaded
         self.settingsBox = box
+        self.activity = activity
         self.recordingGate = gate
         let graph = GraphServices(secrets: secrets)
         self.graph = graph
@@ -136,23 +143,42 @@ final class AppModel: ObservableObject {
             cleaner: { settings, decision in
                 if settings.useLLMCleanup, case .run(let engine, _, _) = decision {
                     do {
-                        return LLMTranscriptCleaner(client: try Self.client(for: engine, settings: settings, secrets: secrets))
+                        return LLMTranscriptCleaner(client: try Self.client(for: engine, settings: settings, secrets: secrets), activity: log)
                     } catch {
                         logger.error("LLM cleanup unavailable, using rules: \(error.localizedDescription, privacy: .public)")
+                        let context = ProblemContext.engine(engine, settings: settings, stage: .cleaningUp, claudeKeyPresent: false)
+                        log.record(ActivityEntry(
+                            time: Date(),
+                            level: .warning,
+                            area: .transcription,
+                            meeting: ActivityScope.meeting,
+                            message: "Cleanup used the rule cleaner",
+                            details: ProblemTranslator.problem(for: error, in: context).details
+                        ))
                     }
                 }
                 return RuleTranscriptCleaner()
             },
             summarizer: LLMSummarizer(clientFor: { engine in
                 try Self.client(for: engine, settings: box.value, secrets: secrets)
-            }, settings: { box.value }),
-            probe: LiveEnvironmentProbe(secrets: secrets),
+            }, settings: { box.value }, activity: log),
+            probe: LiveEnvironmentProbe(secrets: secrets, activity: log),
             isRecording: { gate.value }
         )
 
         calendar.onSignInState = { [weak self] id, needed in
             guard let self else { return }
-            if needed { signInNeeded.insert(id) } else { signInNeeded.remove(id) }
+            if needed {
+                if signInNeeded.insert(id).inserted {
+                    activity.record(Problems.signInExpired(account: accountName(id)), area: .accounts)
+                }
+            } else {
+                signInNeeded.remove(id)
+            }
+        }
+        calendar.onFetchFailure = { [weak self] id, error in
+            guard let self else { return }
+            activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
         let pipeline = self.pipeline
@@ -215,12 +241,15 @@ final class AppModel: ObservableObject {
                     case .delete:
                         try store.delete(meeting.id)
                         meetings.removeAll { $0.id == meeting.id }
+                        activity.record(.info, .recording, "Removed an empty interrupted recording", meeting: meeting)
                     case .transcribe:
                         try mutate(meeting.id) { $0 = MeetingActions.finishRecording($0, endedAt: endedAt) }
                         ids.append(meeting.id)
+                        activity.record(.info, .recording, "Recovered an interrupted recording", meeting: meeting)
                     case .markUnreadable:
+                        // `apply` records the failed status, and the stage puts it under Recording.
                         try mutate(meeting.id) {
-                            $0.status = .failed(Problems.recordingUnreadable())
+                            $0.status = .failed(Problems.recordingUnreadable(details: ProblemDetails(stage: .recording)))
                             $0.endedAt = endedAt
                         }
                     }
@@ -246,6 +275,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The display name of an account for messages, falling back to its id once it is gone from the settings.
+    func accountName(_ id: String) -> String {
+        settings.accounts.first { $0.id == id }?.displayName ?? id
+    }
+
+    /// Reads one of a meeting's files for its detail view. A failure shows as missing and is recorded once per meeting and file.
+    func loadFile<T>(_ name: String, for meeting: Meeting, _ read: () throws -> T?) -> T? {
+        do {
+            return try read()
+        } catch {
+            guard !ActivityCenter.isCancellation(error), recordedLoadFailures.insert("\(meeting.id.rawValue)|\(name)").inserted else { return nil }
+            logger.error("Loading \(name, privacy: .public) of \(meeting.id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            var problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .loadingMeetings))
+            problem.details.path = paths.meetings.appendingPathComponent(meeting.id.rawValue).appendingPathComponent(name).path
+            activity.record(problem, area: .app, meeting: meeting)
+            return nil
+        }
+    }
+
     func showMeeting(_ id: MeetingID) {
         selectedMeetingID = id
         openMeetingsRequest += 1
@@ -265,14 +313,17 @@ final class AppModel: ObservableObject {
             }
         } catch {
             logger.error("Listing meetings failed: \(String(describing: error), privacy: .public)")
+            activity.record(failure: error, in: ProblemContext(stage: .loadingMeetings))
         }
     }
 
     /// Every change to a meeting goes through here, so the move to `.ready` is seen whoever made it.
     func apply(_ meeting: Meeting) {
         var becameReady = false
+        var previous: Meeting?
         if let index = meetings.firstIndex(where: { $0.id == meeting.id }) {
             guard !deletedIDs.contains(meeting.id) else { return }
+            previous = meetings[index]
             becameReady = meeting.status == .ready && meetings[index].status != .ready
             meetings[index] = meeting
         } else {
@@ -280,6 +331,9 @@ final class AppModel: ObservableObject {
             meetings.append(meeting)
         }
         meetings.sort { $0.startedAt == $1.startedAt ? $0.id.rawValue < $1.id.rawValue : $0.startedAt > $1.startedAt }
+        for entry in MeetingActivity.entries(from: previous, to: meeting, settings: settings, time: Date()) {
+            activity.log.record(entry)
+        }
         if becameReady { recapReady(meeting) }
     }
 
@@ -300,6 +354,7 @@ final class AppModel: ObservableObject {
             try settingsStore.save(s)
         } catch {
             logger.error("Saving settings failed: \(String(describing: error), privacy: .public)")
+            activity.record(failure: error, in: ProblemContext(stage: .savingSettings, subject: "the settings"))
             return
         }
         settingsBox.value = s
@@ -339,6 +394,13 @@ final class AppModel: ObservableObject {
             return try await graph.client(for: match).searchPeople(query)
         } catch {
             logger.warning("People search for \(account, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            if !ActivityCenter.isCancellation(error) {
+                let context = ProblemContext(stage: .searchingPeople, accountName: match.displayName)
+                activity.record(
+                    .warning, .outlook, "People search failed",
+                    details: ProblemTranslator.problem(for: error, in: context).details
+                )
+            }
             return []
         }
     }

@@ -68,10 +68,10 @@ struct MeetingDetail: View {
                 summary = unsaved.summary
                 if saveError == nil { saveError = unsaved.error }
             } else {
-                summary = try? store.loadSummary(id)
+                summary = model.loadFile("summary.json", for: meeting) { try store.loadSummary(id) }
             }
-            transcript = try? store.loadTranscript(id)
-            clean = try? store.loadClean(id)
+            transcript = model.loadFile("transcript.json", for: meeting) { try store.loadTranscript(id) }
+            clean = model.loadFile("transcript.clean.json", for: meeting) { try store.loadClean(id) }
         }
     }
 

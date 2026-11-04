@@ -8,7 +8,7 @@ public final class ActivityLog: ActivityRecording, @unchecked Sendable {
     static let maxBytes = 5_000_000
     static let trimmedBytes = 4_000_000
 
-    let file: URL
+    public let file: URL
     private let clock: @Sendable () -> Date
     private let lock = NSLock()
     private let encoder: JSONEncoder

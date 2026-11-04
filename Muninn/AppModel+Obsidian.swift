@@ -122,6 +122,7 @@ extension AppModel {
             outcome = try await run(overwrite: true)
         }
         guard case .written = outcome else { return false }
+        activity.record(.info, .obsidian, "Filed in Obsidian", meeting: meeting)
         try mutate(id) { $0.exportedNotePath = path }
         return true
     }

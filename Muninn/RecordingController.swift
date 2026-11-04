@@ -178,7 +178,9 @@ final class RecordingController: ObservableObject {
             flagCount += 1
         } catch {
             logger.error("Saving the flag failed: \(String(describing: error), privacy: .public)")
-            notice = RecordingNotice(kind: .error, message: "Couldn't save the flag: \(Self.describe(error))")
+            let failure = RecordingNotice(kind: .error, message: "Couldn't save the flag: \(Self.describe(error))")
+            record(failure, meeting: id)
+            notice = failure
         }
     }
 
@@ -305,6 +307,7 @@ final class RecordingController: ObservableObject {
         }
         guard !stopRequested else { return }
         didStart = true
+        model.activity.record(.info, .recording, "Recording started", meeting: meeting(id))
         startTicker()
         startLive(session)
     }
@@ -326,7 +329,9 @@ final class RecordingController: ObservableObject {
         logger.error("\(message, privacy: .public)")
         meetingID = nil
         session = nil
-        notice = RecordingNotice(kind: .error, message: message)
+        let failure = RecordingNotice(kind: .error, message: message)
+        record(failure, meeting: id)
+        notice = failure
         send(.stopped)
     }
 
@@ -341,15 +346,25 @@ final class RecordingController: ObservableObject {
     }
 
     private func post(_ new: RecordingNotice) {
+        guard notice?.message.contains(new.message) != true else { return }
+        record(new, meeting: meetingID)
         guard let current = notice else {
             notice = new
             return
         }
-        guard !current.message.contains(new.message) else { return }
         notice = RecordingNotice(
             kind: current.kind == .error || new.kind == .error ? .error : .warning,
             message: current.message + "\n" + new.message
         )
+    }
+
+    private func meeting(_ id: MeetingID?) -> Meeting? {
+        id.flatMap { id in model.meetings.first { $0.id == id } }
+    }
+
+    /// Every notice is also recorded in the Activity log, at its severity.
+    private func record(_ notice: RecordingNotice, meeting id: MeetingID?) {
+        model.activity.record(notice.kind == .error ? .problem : .warning, .recording, notice.message, meeting: meeting(id))
     }
 
     private func discardPending() {
@@ -435,6 +450,8 @@ final class RecordingController: ObservableObject {
                     post(RecordingNotice(kind: .error, message: "Couldn't save the end of the recording: \(Self.describe(error))"))
                 }
                 finished = id
+                let length = meeting(id).map { endedAt.timeIntervalSince($0.startedAt) } ?? 0
+                model.activity.record(.info, .recording, "Recording stopped · \(DurationText.short(length))", meeting: meeting(id))
                 if !writeErrors.isEmpty {
                     let tracks = writeErrors.keys.map { $0 == .mic ? "microphone" : "call audio" }.sorted().joined(separator: " and ")
                     let detail = writeErrors.values.first.map { ": \($0.localizedDescription)" } ?? ""

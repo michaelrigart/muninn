@@ -183,6 +183,7 @@ extension AppModel {
                     html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
                     to: meeting.recipients.filter(\.included).map(\.attendee)
                 )
+                activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
                 var saveFailure: Error?
                 do {
                     try mutate(id) {

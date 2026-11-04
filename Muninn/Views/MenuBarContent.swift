@@ -37,6 +37,9 @@ struct MenuBarContent: View {
         Divider()
         Button("Open meetings…") { openMeetings() }
             .keyboardShortcut("o")
+        Button("Activity") {
+            WindowPresenter.present { openWindow(id: "activity") }
+        }
         Button("Settings…") {
             WindowPresenter.present { openSettings() }
         }

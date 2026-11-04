@@ -17,12 +17,14 @@ final class SignInFlow: ObservableObject {
 
     private let account: AccountSettings
     private let secrets: KeychainSecrets
+    private let activity: ActivityCenter
     private let onAddresses: ([String]) -> Void
     private var task: Task<Void, Never>?
 
-    init(account: AccountSettings, secrets: KeychainSecrets, onAddresses: @escaping ([String]) -> Void) {
+    init(account: AccountSettings, secrets: KeychainSecrets, activity: ActivityCenter, onAddresses: @escaping ([String]) -> Void) {
         self.account = account
         self.secrets = secrets
+        self.activity = activity
         self.onAddresses = onAddresses
     }
 
@@ -66,6 +68,7 @@ final class SignInFlow: ObservableObject {
             let addresses = try await GraphClient(account: account.id, token: { accessToken }).me()
             onAddresses(addresses)
             phase = .done(addresses)
+            activity.record(.info, .accounts, "Signed in to \(account.displayName)", details: ProblemDetails(account: account.displayName))
         } catch {
             fail(error, prefix: "Signed in, but reading your profile failed")
         }
@@ -98,9 +101,9 @@ struct SignInSheet: View {
     @StateObject private var flow: SignInFlow
     @Environment(\.dismiss) private var dismiss
 
-    init(account: AccountSettings, secrets: KeychainSecrets, onAddresses: @escaping ([String]) -> Void) {
+    init(account: AccountSettings, secrets: KeychainSecrets, activity: ActivityCenter, onAddresses: @escaping ([String]) -> Void) {
         self.account = account
-        _flow = StateObject(wrappedValue: SignInFlow(account: account, secrets: secrets, onAddresses: onAddresses))
+        _flow = StateObject(wrappedValue: SignInFlow(account: account, secrets: secrets, activity: activity, onAddresses: onAddresses))
     }
 
     var body: some View {

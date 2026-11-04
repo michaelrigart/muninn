@@ -68,6 +68,10 @@ final class CalendarCache {
     private var forgetCounts: [String: Int] = [:]
     /// Called per account after each refresh: true when Microsoft rejected the stored sign-in, false when the account fetched fine or is signed out.
     var onSignInState: ((String, Bool) -> Void)?
+    /// Called per account when it goes from fetching fine (or not yet fetched) to failing, not on each failed refresh after that.
+    /// A rejected sign-in is reported through `onSignInState` instead.
+    var onFetchFailure: ((String, Error) -> Void)?
+    private var failing: Set<String> = []
 
     init(graph: GraphServices) {
         self.graph = graph
@@ -80,6 +84,7 @@ final class CalendarCache {
         let clients = accounts.compactMap { account in graph.signedInClient(for: account).map { (account.id, $0) } }
         let ids = Set(clients.map(\.0))
         for account in accounts where !ids.contains(account.id) {
+            failing.remove(account.id)
             onSignInState?(account.id, false)
         }
         if let inFlight, inFlightIDs == ids { return inFlight }
@@ -115,9 +120,16 @@ final class CalendarCache {
                 switch outcome {
                 case .success(let events):
                     entries[id] = Entry(events: events, fetchedAt: now, from: from, to: to)
+                    failing.remove(id)
                     onSignInState?(id, false)
                 case .failure(let error):
-                    if Self.signInRejected(error) { onSignInState?(id, true) }
+                    if ActivityCenter.isCancellation(error) { continue }
+                    let started = failing.insert(id).inserted
+                    if Self.signInRejected(error) {
+                        onSignInState?(id, true)
+                    } else if started {
+                        onFetchFailure?(id, error)
+                    }
                 }
             }
             if generation == mine {
@@ -133,6 +145,7 @@ final class CalendarCache {
     /// Drops a removed account's events; a refresh already running for it neither stores its result nor flags the account.
     func forget(_ accountID: String) {
         entries[accountID] = nil
+        failing.remove(accountID)
         forgetCounts[accountID, default: 0] += 1
     }
 
