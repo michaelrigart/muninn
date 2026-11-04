@@ -80,7 +80,7 @@ public enum DurationText {
     }
 
     public static func minutes(_ seconds: TimeInterval) -> String {
-        let total = max(1, Int((seconds / 60).rounded()))
+        let total = seconds.isFinite ? max(1, Int((seconds / 60).rounded())) : 1
         if total < 60 { return "\(total) min" }
         let hours = total / 60
         let rest = total % 60

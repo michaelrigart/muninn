@@ -33,6 +33,14 @@ struct TranscriptLayoutTests {
         #expect(substring(layout, layout.segments[0].line) == "00:00\tum we uh ship friday")
     }
 
+
+    @Test func aSpeakerNameWithWhitespaceStaysOnOneLine() {
+        let layout = TranscriptLayout.make(transcript: transcript, clean: nil, mode: .verbatim, speakerNames: ["S1": "Ann\nExample"], userName: "Ann", flags: [])
+        #expect(layout.string.contains("\tAnn Example\n00:03"))
+        #expect(layout.speakerLines.map(\.name) == ["Ann", "Ann Example"])
+        #expect(layout.speakerLines.map { substring(layout, $0.range) } == ["Ann", "Ann Example"])
+    }
+
     @Test func cleanModeSkipsRemovedWords() {
         let layout = layout(.clean)
         let segment = layout.segments[0]

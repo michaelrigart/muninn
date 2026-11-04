@@ -19,12 +19,14 @@ struct PlaybackTests {
             segment(1, .mic, "you", 0, 4),
             segment(2, .system, "S2", 10, 14),
             segment(3, .system, "S1", 8.3, 9),
+            segment(4, .system, "S2", 14.5, 15),
         ], language: nil)
         #expect(PlaybackLanes.lanes(for: transcript) == [
             PlaybackLane(track: .mic, spans: [LaneSpan(start: 0, end: 4, speaker: "you")]),
             PlaybackLane(track: .system, spans: [
                 LaneSpan(start: 3, end: 9, speaker: "S1"),
                 LaneSpan(start: 10, end: 14, speaker: "S2"),
+                LaneSpan(start: 14.5, end: 15, speaker: "S2"),
             ]),
         ])
     }
@@ -57,6 +59,20 @@ struct PlaybackTests {
         PlaybackPositions(file: file).set(42, for: MeetingID(rawValue: "a"))
         #expect(PlaybackPositions(file: file).position(for: MeetingID(rawValue: "a")) == 42)
         #expect(PlaybackPositions(file: file).position(for: MeetingID(rawValue: "b")) == nil)
+    }
+
+
+    @Test func nonFiniteTimeIsIgnoredAndDoesNotBreakLaterWrites() {
+        let file = temporaryFile()
+        let positions = PlaybackPositions(file: file)
+        positions.set(7, for: MeetingID(rawValue: "a"))
+        positions.set(.nan, for: MeetingID(rawValue: "a"))
+        positions.set(.infinity, for: MeetingID(rawValue: "c"))
+        positions.set(30, for: MeetingID(rawValue: "b"))
+        let reread = PlaybackPositions(file: file)
+        #expect(reread.position(for: MeetingID(rawValue: "a")) == 7)
+        #expect(reread.position(for: MeetingID(rawValue: "b")) == 30)
+        #expect(reread.position(for: MeetingID(rawValue: "c")) == nil)
     }
 
     @Test func removeForgetsAPosition() {

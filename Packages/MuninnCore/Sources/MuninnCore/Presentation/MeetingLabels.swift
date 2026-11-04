@@ -42,7 +42,7 @@ public enum MeetingGrouping {
 public enum Timestamp {
     /// Whole seconds, truncated: `mm:ss` under an hour, `h:mm:ss` from an hour; negative as zero.
     public static func format(_ seconds: TimeInterval) -> String {
-        let total = Int(max(0, seconds))
+        let total = seconds.isFinite ? Int(max(0, seconds)) : 0
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         let rest = total % 60

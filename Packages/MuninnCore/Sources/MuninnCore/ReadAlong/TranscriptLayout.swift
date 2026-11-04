@@ -94,7 +94,7 @@ public struct TranscriptLayout: Sendable {
             guard !shown.text.allSatisfy(\.isWhitespace) else { continue }
 
             if segment.speaker != previousSpeaker {
-                let name = SummaryRequestBuilder.displayName(segment.speaker, speakerNames: speakerNames, userName: userName)
+                let name = singleLine(SummaryRequestBuilder.displayName(segment.speaker, speakerNames: speakerNames, userName: userName))
                 builder.append("\t")
                 let range = builder.append(name)
                 builder.append("\n")

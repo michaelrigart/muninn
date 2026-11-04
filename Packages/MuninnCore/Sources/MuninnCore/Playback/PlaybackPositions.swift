@@ -27,7 +27,9 @@ public final class PlaybackPositions: @unchecked Sendable {
         return positions[id.rawValue]
     }
 
+    /// A time that is not finite (an unready player reports NaN) is ignored; JSON cannot hold it.
     public func set(_ time: TimeInterval, for id: MeetingID) {
+        guard time.isFinite else { return }
         lock.lock()
         defer { lock.unlock() }
         positions[id.rawValue] = time

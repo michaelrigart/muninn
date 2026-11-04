@@ -32,6 +32,13 @@ struct PresentationTests {
         #expect(Timestamp.format(-3) == "00:00")
     }
 
+    @Test func nonFiniteTimesReadAsZero() {
+        #expect(Timestamp.format(.nan) == "00:00")
+        #expect(Timestamp.format(.infinity) == "00:00")
+        #expect(DurationText.minutes(.nan) == "1 min")
+        #expect(DurationText.minutes(.infinity) == "1 min")
+    }
+
     @Test func durationInMinutes() {
         #expect(DurationText.minutes(20) == "1 min")
         #expect(DurationText.minutes(2700) == "45 min")
