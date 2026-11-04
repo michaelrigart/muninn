@@ -38,11 +38,11 @@ Run all of these outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Appli
 
 ## Review Focus
 
-1. **Transcript text whose words don't line up with its timings** (WhisperKit punctuation and segment text, vocabulary corrections, the mic de-duplication, cleanup that adds a word): the highlight never lands on the wrong word; a token without a matching word gets no word highlight and its segment still tints. Pinned in Task 5 (`mismatchedTokensAlignByForm`, `cleanWordsNotInTheVerbatimMapToNothing`) and Task 6 (`cleanModeSkipsRemovedWords`, `segmentWithoutWordsHighlightsWhole`).
+1. **Transcript text whose words don't line up with its timings** (WhisperKit punctuation and segment text, vocabulary corrections, the mic de-duplication, cleanup that adds a word): the highlight never lands on the wrong word; a token without a matching word gets no word highlight and its segment still tints. Pinned in Task 5 (`mismatchedTokensAlignByForm`, `cleanWordsNotInTheVerbatimMapToNothing`) and Task 6 (`cleanModeSkipsRemovedWords`, `cleanModeHighlightsNothingDuringARemovedWord`, `segmentWithoutWordsHighlightsWhole`).
 2. **Both sides talking at once, silences, and ⇧← early in a segment**: overlapping segments highlight the one that started last, a gap highlights nothing, and ⇧← within the first second of a segment goes to the one before. Pinned in Task 6 (`overlappingSegmentsPickTheLatestStart`, `gapHighlightsNothing`, `previousStartGoesBackWithinTheFirstSecond`).
 3. **A recording that is partly missing or broken** (a mic-only meeting, a track that stopped writing early, a header-only file left by a crash, a corrupt file): the other track plays; no playable track shows "The recording for this meeting isn't available."; only unreadable files show a problem. Pinned in Task 9 (`micOnlyMeetingPlaysOneTrack`, `shorterTrackDoesNotShortenPlayback`, `emptyFileCountsAsMissing`, `unreadableFileIsSkipped`, `allUnreadableThrows`).
 4. **A remembered position that no longer fits** (at or past the end, negative, or a damaged `playback.json`): playback starts at zero and the file is rewritten on the next save. Pinned in Task 7 (`resumeRule`, `damagedFileReadsEmpty`).
-5. **Undo after the recap changed underneath it, and typing**: ⌘Z after a regeneration, a restore of the previous version or a reload never puts an older recap back over the new one; a field's typing is saved on every change and undoes as one step. Pinned in Task 4 (`replaceClearsHistory`, `typingSavesEveryChangeAndUndoesAsOneStep`, `structuralEditEndsTyping`).
+5. **Undo after the recap changed underneath it, and typing**: ⌘Z after a regeneration, a restore of the previous version or a reload never puts an older recap back over the new one; a field's typing is saved on every change and undoes as one step. Pinned in Task 4 (`replaceClearsHistory`, `typingSavesEveryChangeAndUndoesAsOneStep`, `typingUndoneBeforeEndingRegistersNothing`, `structuralEditEndsTyping`).
 
 ## Rulings made while planning
 
@@ -269,7 +269,8 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
   - `enum RecapField: Hashable, Sendable { case subjectTitle(Int), bulletText(Int, Int), actionText(Int, Int), actionOwner(Int, Int) }`
   - `final class RecapDocument { private(set) var summary: Summary; init(summary: Summary, save: @escaping (Summary) -> Void); func edit(_ actionName: String, undoManager: UndoManager?, _ change: (inout Summary) -> Void); func type(_ field: RecapField, undoManager: UndoManager?, _ change: (inout Summary) -> Void); func endTyping(undoManager: UndoManager?); func replace(with summary: Summary, undoManager: UndoManager?) }`
   - `edit`: ends any typing, applies the change; when the summary changed, saves it and registers one undo step (inside its own `beginUndoGrouping`/`endUndoGrouping`) named `actionName`. Undoing restores and saves the earlier summary and registers the redo under the same name.
-  - `type`: saves every change at once without registering an undo step; the summary before the first change of a run is kept. A change to a different field ends the open run first. `endTyping` registers the whole run as one step named "Typing" when it changed anything.
+  - `type`: saves every change at once without registering an undo step; the summary before the first change of a run is kept. A change to a different field ends the open run first. `endTyping` registers the whole run as one step named "Typing" when the summary differs from the run's start (a run the field's own undo took back to its start registers nothing).
+  - Undo routing (the app follows it): while a recap field has focus, ⌘Z and ⇧⌘Z are the field editor's own typing undo, whose changes reach the document through `type` and are saved; AppKit discards the field editor's actions when its editing ends, and `endTyping` then registers the run. The document's history therefore never holds a step for text that is still being typed, and the field editor's history never outlives the field's focus.
   - `replace`: drops the open run, removes every undo and redo action targeting the document (`removeAllActions(withTarget:)`) and takes the new summary without saving it.
   - Action names used by the app: "Remove subject", "Remove bullet", "Remove action", "Add subject", "Add bullet", "Add action", "Change due date"; the owner is typed, so it undoes as "Typing".
 
@@ -283,6 +284,7 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 @Test func typingSavesEveryChangeAndUndoesAsOneStep() {
     // three type(.bulletText(0, 0)) changes → three saves; endTyping; undo.undo() → the original text; undo.canUndo == false
 }
+@Test func typingUndoneBeforeEndingRegistersNothing() // type "x" then type back to the original text; endTyping → undo.canUndo == false
 @Test func structuralEditEndsTyping()      // type into bullet 0, then edit("Remove bullet") on bullet 1: undo → bullet 1 back, typed text kept; undo → text reverted
 @Test func replaceClearsHistory()          // remove a bullet, replace(with: fresh) → undo.canUndo == false, summary == fresh, no save
 @Test func unchangedEditRegistersNothing() // edit that changes nothing → no save, undo.canUndo == false
@@ -342,11 +344,11 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 - Produces (`public`; ranges are `NSRange` in UTF-16 units of `string`):
   - `enum TranscriptMode: String, CaseIterable, Sendable { case clean, changes, verbatim; var label: String }` — "Clean", "Changes", "Verbatim".
   - `struct TranscriptLayout: Sendable` with `string: String`, `segments: [SegmentLayout]`, `speakerLines: [SpeakerLine]`, and `static func make(transcript: Transcript, clean: CleanTranscript?, mode: TranscriptMode, speakerNames: [String: String], userName: String, flags: [Flag]) -> TranscriptLayout`.
-    - `struct SegmentLayout: Sendable { var segmentID: Int; var start: TimeInterval; var end: TimeInterval; var line: NSRange; var timestamp: NSRange; var flag: NSRange?; var text: NSRange; var words: [WordSpan]; var removed: [NSRange] }`, `struct WordSpan: Sendable { var range: NSRange; var start: TimeInterval; var end: TimeInterval }`, `struct SpeakerLine: Sendable { var range: NSRange; var speaker: String; var name: String }` (`range` covers the name only).
+    - `struct SegmentLayout: Sendable { var segmentID: Int; var start: TimeInterval; var end: TimeInterval; var line: NSRange; var timestamp: NSRange; var flag: NSRange?; var text: NSRange; var words: [WordSpan]; var removed: [NSRange] }`, `struct WordSpan: Sendable { var range: NSRange?; var start: TimeInterval; var end: TimeInterval }`, `struct SpeakerLine: Sendable { var range: NSRange; var speaker: String; var name: String }` (`range` covers the name only).
     - The text, in transcript order: when a segment's speaker differs from the previous shown segment's, a speaker line `"\t" + name + "\n"`; then the segment line `timestamp + (flagged ? " ⚑\u{FE0E}" : "") + "\t" + text + "\n"`. `line` excludes the newline.
-    - Verbatim: `text` is `segment.text`; `words` from `tokenWords`. Changes: the verbatim tokens joined by single spaces; `removed` holds the tokens `ChangeView.tokens` marks removed; `words` as verbatim. Clean: `clean.text(for:)`; a clean token's word is `tokenWords[alignment[i]]`; a token without one gets none. A segment whose shown text is empty is left out.
-    - `func position(at time: TimeInterval) -> ReadAlongPosition?` — among segments with `start <= time < end`, the one with the latest start (ties: the later in the list); its word is the last one with `start <= time`, or nil. Nil in a gap.
-    - `func seekTime(atOffset offset: Int) -> TimeInterval?` — a word's start when the offset is inside a word span; the segment's start anywhere else on its line; nil elsewhere (speaker lines included).
+    - `words` holds one `WordSpan` per timed word of the segment, in order, in every mode; `range` is the shown token that word maps to, or nil when the shown text has no token for it. Verbatim: `text` is `segment.text`; a word's token comes from `tokenWords`. Changes: the verbatim tokens joined by single spaces; `removed` holds the tokens `ChangeView.tokens` marks removed; ranges as verbatim. Clean: `clean.text(for:)`; clean token `i` maps to the word `tokenWords[alignment[i]]`, so removed and unmapped words keep their timings with a nil range. A segment whose shown text is empty is left out.
+    - `func position(at time: TimeInterval) -> ReadAlongPosition?` — among segments with `start <= time < end`, the one with the latest start (ties: the later in the list); its word is the last timed word with `start <= time`, or nil; the app highlights a word only when its `range` is not nil, so a removed or unmapped word being spoken highlights only the segment. Nil in a gap.
+    - `func seekTime(atOffset offset: Int) -> TimeInterval?` — a word's start when the offset is inside a word's range; the segment's start anywhere else on its line; nil elsewhere (speaker lines included).
     - `func speakerLine(atOffset offset: Int) -> SpeakerLine?`
     - `func segmentIndex(forSegmentID id: Int) -> Int?`
   - `struct ReadAlongPosition: Equatable, Sendable { var segment: Int; var word: Int? }` — indices into `segments` and that segment's `words`.
@@ -356,8 +358,9 @@ App (`Muninn/`): `Design/Theme.swift` (3), `Design/Chips.swift` (12, 14), `Meeti
 
 ```swift
 let transcript = Transcript(segments: [
-    Segment(id: 0, track: .mic, speaker: "you", start: 0, end: 4, text: "um we ship friday",
-            words: [Word(text: "um", start: 0, end: 0.5), Word(text: "we", start: 1, end: 1.4), Word(text: "ship", start: 1.5, end: 2), Word(text: "friday", start: 2.2, end: 3.8)]),
+    Segment(id: 0, track: .mic, speaker: "you", start: 0, end: 4, text: "um we uh ship friday",
+            words: [Word(text: "um", start: 0, end: 0.5), Word(text: "we", start: 0.6, end: 0.9), Word(text: "uh", start: 1, end: 1.4),
+                    Word(text: "ship", start: 1.5, end: 2), Word(text: "friday", start: 2.2, end: 3.8)]),
     Segment(id: 1, track: .system, speaker: "S1", start: 3, end: 8, text: "sounds good",
             words: [Word(text: "sounds", start: 3.2, end: 3.9), Word(text: "good", start: 4, end: 7.5)]),
     Segment(id: 2, track: .system, speaker: "S1", start: 10, end: 14, text: "next topic", words: []),
@@ -365,16 +368,17 @@ let transcript = Transcript(segments: [
 let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday."), CleanSegment(id: 1, text: "Sounds good."), CleanSegment(id: 2, text: "Next topic.")])
 
 @Test func verbatimLayoutPlacesSpeakersAndTimestamps() {
-    // string == "\tAnn\n00:00\tum we ship friday\n\tS1\n00:03\tsounds good\n00:10\tnext topic\n"
-    // speakerLines names == ["Ann", "S1"]; substring(segments[0].timestamp) == "00:00"; substring(segments[0].text) == "um we ship friday"
+    // string == "\tAnn\n00:00\tum we uh ship friday\n\tS1\n00:03\tsounds good\n00:10\tnext topic\n"
+    // speakerLines names == ["Ann", "S1"]; substring(segments[0].timestamp) == "00:00"; substring(segments[0].text) == "um we uh ship friday"
 }
-@Test func cleanModeSkipsRemovedWords()     // segments[0] text "We ship Friday."; words.map(\.start) == [1, 1.5, 2.2]; substring(words[0].range) == "We"
-@Test func changesModeMarksRemovedTokens()  // segments[0] removed substrings == ["um"]; words.count == 4
-@Test func positionPicksTheWordBeingSpoken() // verbatim: at 1.6 → (0, 2); at 1.45 → (0, 1)
+@Test func cleanModeSkipsRemovedWords()     // segments[0] text "We ship Friday."; words' range substrings == [nil, "We", nil, "ship", "Friday."]; starts == [0, 0.6, 1, 1.5, 2.2]
+@Test func changesModeMarksRemovedTokens()  // segments[0] removed substrings == ["um", "uh"]; every word has a range
+@Test func positionPicksTheWordBeingSpoken() // verbatim: at 1.6 → (0, 3); at 1.45 → (0, 2), whose range is "uh"
+@Test func cleanModeHighlightsNothingDuringARemovedWord() // clean: at 1.2 → (0, 2) and segments[0].words[2].range == nil
 @Test func overlappingSegmentsPickTheLatestStart() // at 3.5 → (1, 0)
 @Test func gapHighlightsNothing()            // at 9 → nil
 @Test func segmentWithoutWordsHighlightsWhole() // at 11 → (2, nil)
-@Test func cleanModeBeforeTheFirstKeptWord() // clean: at 0.2 → (0, nil)
+@Test func cleanModeBeforeTheFirstKeptWord() // clean: at 0.2 → (0, 0) and words[0].range == nil
 @Test func seekTimeFromAClick()              // offset inside "ship" → 1.5; inside segment 1's timestamp → 3; inside the "S1" speaker line → nil, and speakerLine(atOffset:) is S1's
 @Test func flaggedSegmentsCarryAMarker()     // flags [Flag(offset: 11)] → segment 2's line starts "00:10 ⚑\u{FE0E}\t" and flag != nil
 @Test func emptyCleanTextLeavesTheSegmentOut() // clean text "" for id 1 → segments.map(\.segmentID) == [0, 2]
@@ -517,7 +521,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 - `AppModel.playbackPositions: PlaybackPositions` (from `paths.playbackFile`, created in `init`).
 - `AppModel.commandContext(for meeting: Meeting, hasRecap: Bool = false) -> MeetingCommandContext` (progress from `progress(for:)`, previous recap from `store.hasPreviousSummary`, unsaved edits from `unsavedSummaries`, event change from `eventChangesInFlight`).
 - `AppModel.trashMeeting(_ id: MeetingID)` replaces `deleteMeeting`: the same refusal (`canDelete` and `pipeline.hasJob`), with the alert "This meeting can't be moved to the Trash yet" / "It is still recording or being processed. Try again once it has finished." Then it asks "Move “\(title)” to the Trash?" with "You can put it back from the Trash in Finder, with its recording, transcript and recap." plus, when `exportedNotePath` is set, " The note in Obsidian stays, but its links to the recording and transcript stop working until you put the meeting back." Buttons `["Cancel", "Move to Trash"]`, `destructive: 1`; only 1 proceeds, so Return and Escape cancel. It re-checks the refusal, calls `store.moveToTrash`, records info, area `.app`, "Moved to the Trash" for the meeting, and clears what `deleteMeeting` cleared plus `playbackPositions.remove(id)`. A failure is `report(error, stage: .trashingMeeting, for: id)`.
-- `reloadMeetings()` removes every listed id from `deletedIDs`, so a meeting put back from the Trash takes edits and pipeline updates again.
+- `reloadMeetings()` removes every listed id from `deletedIDs`, so a meeting put back from the Trash takes edits and pipeline updates again, and bumps `@Published private(set) var reloadRevision = 0`. `MeetingDetail`'s load key and the sidebar's search key include `reloadRevision`, so a reload re-reads the selected meeting's recap, transcript and clean transcript and the search texts.
 - `MeetingsCommands: Commands { let model: AppModel }` adds `CommandGroup(after: .toolbar) { Button("Reload") { model.reloadMeetings() } }`, attached to the Meetings window scene.
 - The sidebar's context menu and the header's menu offer "Move to Trash…", disabled with `.help` from `MeetingCommands.disabledReason(.moveToTrash, …)`.
 
@@ -571,7 +575,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
   - `Sidebar` (the sidebar column, moved out of `MainWindow`):
     - Smart lists above the meetings: "All meetings" (`tray.full`) and "Needs attention" (`exclamationmark.circle`, with its count when above zero), as buttons setting `model.sidebarFilter`; the selected one on `Theme.accentSoft` (radius `Radius.card`) with `.accessibilityAddTraits(.isSelected)`. They replace the segmented picker.
     - Day sections titled `DayGroup.title`; each row: the title (`Theme.interface`, semibold, one line), then `MeetingLabels.sidebarTime(… group: …)` in `Theme.meta`/`Theme.secondaryText` and the client as a `Chip`, and one sign at the trailing edge: `.progress` → the mini circular ring of `step / 4`; `.queued` → the mini indeterminate spinner; `.attention` → the 8-pt `Theme.attentionFill` dot; `.recording` → `record.circle` in `Theme.recording`; `.draftCreated` / `.filed` → "Draft created" / "Filed" in `Theme.meta`/`Theme.tertiaryText`. Every sign has `.help` and an accessibility label (the stage title, "Waiting its turn", "Needs attention", "Recording", "Draft created", "Filed").
-    - Search (`.searchable(placement: .sidebar, prompt: "Search meetings")`) filters with `MeetingSearch.matches`. While the query is not empty, a detached task loads for every meeting its recap text (`MeetingSearch.recapText`) and its transcript text (`transcript.clean.md`, else `transcript.md`, read as text), keyed as today by id, status and engine; a file that can't be read counts as empty.
+    - Search (`.searchable(placement: .sidebar, prompt: "Search meetings")`) filters with `MeetingSearch.matches`. While the query is not empty, a detached task loads for every meeting its recap text (`MeetingSearch.recapText`) and its transcript text (`transcript.clean.md`, else `transcript.md`, read as text), keyed as today by id, status and engine, plus `reloadRevision`; a file that can't be read counts as empty.
     - The context menu from Task 10.
     - The empty texts stay: "No matches", "Nothing needs attention", "No meetings yet".
 
@@ -646,7 +650,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 **Interfaces:**
 - Consumes: `RecapDocument`, `RecapField`, `Timestamp.format`, `Token`, `SectionLabel`, `MeetingCommands` (`previousVersion`).
 - Produces:
-  - `MeetingDetail` holds `@State document: RecapDocument?`, created when the recap loads, with `save` calling the existing `saveSummary`; a later load from disk (the load task's key changed) or `restorePrevious` calls `document.replace(with:undoManager:)`. `@Environment(\.undoManager)` is passed to every document call. On disappear it calls `endTyping` and `undoManager?.removeAllActions(withTarget: document)`.
+  - `MeetingDetail` holds `@State document: RecapDocument?`, created when the recap loads, with `save` calling the existing `saveSummary`; a later load from disk (the load task's key changed, `reloadRevision` included) or `restorePrevious` calls `document.replace(with:undoManager:)`. `@Environment(\.undoManager)` is passed to every document call. On disappear it calls `endTyping` and `undoManager?.removeAllActions(withTarget: document)`.
   - `RecapEditor(meeting:, document:, summary:, segmentStarts: [Int: TimeInterval], canPlay: Bool, onSource: (Int) -> Void, onPreviousVersion: () -> Void, previousVersionReason: String?)`, in a `ScrollView`, centred at most `Theme.readingWidth` wide:
     - A subject's title is a plain field in `Theme.subject`; its bullets are "•" and a plain multi-line field in `Theme.reading`; when it has actions, an "Actions" `SectionLabel` over them. An action row: a decorative `square` marker (hidden from accessibility), the text field, the owner token and the due token, then the source marks.
     - Text fields go through `RecapTextField(field: RecapField, …)`, calling `document.type` on every change and `document.endTyping` on submit, on losing focus and on disappearing.
@@ -677,7 +681,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 - Consumes: `TranscriptLayout`, `TranscriptMode`, `SpeakerColours.indices`, `Theme.AppKit`, `FlagCoverage`.
 - Produces:
   - `AppModel.renameSpeaker(_ speaker: String, to name: String, in id: MeetingID, transcript: Transcript, clean: CleanTranscript?) throws` — `TranscriptView.rename`'s logic, moved.
-  - `@MainActor final class TranscriptController: ObservableObject { @Published var following = true; func showFind(); func copyAll(); func reveal(segmentID: Int) }` — owned by `MeetingDetail` (`@StateObject`), holding a weak reference to the text view and the current layout. `reveal` scrolls the segment to the centre and tints its text with `Theme.AppKit.accentSoft` for 2 s.
+  - `@MainActor final class TranscriptController: ObservableObject { @Published var following = true; func showFind(); func copyAll(); func reveal(segmentID: Int) }` — owned by `MeetingDetail` (`@StateObject`), holding a weak reference to the text view and the current layout. `reveal` scrolls the segment to the centre and tints its text with `Theme.AppKit.accentSoft` for 2 s; called before the text view and its layout are attached (the tab has only just switched), it is kept as a pending request and carried out when they attach.
   - `TranscriptTextView: NSViewRepresentable` (`meeting`, `transcript`, `clean`, `mode`, `controller`, `onRename`, `onSeek: (TimeInterval) -> Void`):
     - An `NSScrollView` subclass that reports user scrolling (`scrollWheel(with:)` and `willStartLiveScrollNotification`) holding an `NSTextView` built on TextKit 1 (`NSTextStorage` → `NSLayoutManager` with `allowsNonContiguousLayout = true` → `NSTextContainer`): not editable, selectable, `usesFindBar = true`, `isIncrementalSearchingEnabled = true`, no background.
     - The string and ranges come from `TranscriptLayout.make`, rebuilt only when the transcript, clean transcript, mode, speaker names, user name or flags change. Attributes: the paragraph style puts the text column 64 pt in (a tab stop and `headIndent` at 64), 6 pt between paragraphs and 12 pt before a speaker line; speaker lines semibold 13 pt in `Theme.AppKit.speaker(index)`; timestamps `Theme.mono` in `secondaryText` (flagged: `attentionText`, with the flag marker); text `Theme.reading` in `primaryText`; removed tokens in `secondaryText` with a single strikethrough. The text column is at most `Theme.readingWidth` plus the margin, centred. After a rebuild, the segment that was at the top stays at the top.
@@ -703,13 +707,13 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 **Interfaces:**
 - Consumes: `PlaybackComposition`, `PlaybackPositions`, `PlaybackMix`, `Playback`, `PlaybackLanes`, `SpeakerColours.indices`, `Timestamp.format`, `ProblemTranslator`, `ActivityCenter`.
 - Produces:
-  - `@MainActor final class PlaybackClock: ObservableObject { @Published private(set) var time: TimeInterval = 0 }` — the only thing published at 30 Hz.
+  - `@MainActor final class PlaybackClock: ObservableObject { @Published private(set) var time: TimeInterval = 0; func update(_ time: TimeInterval) }` — the only thing published at 30 Hz; `update` publishes only when the value changed.
   - `@MainActor final class MeetingPlayer: ObservableObject` with `enum State: Equatable { case idle, loading, unavailable, failed(Problem), ready }`; published `meetingID: MeetingID?`, `state`, `isPlaying`, `duration`, `tracks: [Track]`, `hasStarted: Bool` (playback began for this meeting in this session), `speed: Float = 1`, `volume: Float = 1`, `mix = PlaybackMix.both`; `let clock = PlaybackClock()`; `var timeline: SegmentTimeline?`; `init(positions: PlaybackPositions, store: MeetingStore, activity: ActivityCenter)`; `func load(_ meeting: Meeting?)`, `play()`, `pause()`, `toggle()`, `seek(to: TimeInterval, play: Bool = false)`, `skip(by: TimeInterval)`, `stop()`, `unload(_ id: MeetingID)`.
-    - `load`: the same meeting again does nothing; otherwise it pauses and saves the current position, then loads `PlaybackComposition.load(mic:system:)` from `store.audioURL`; the newest load wins if several overlap. Nil → `.unavailable`; a throw → `.failed` with `ProblemTranslator.problem(for:in: ProblemContext(stage: .playingRecording))`, recorded once per meeting in Activity; success → an `AVPlayerItem` with `audioTimePitchAlgorithm = .timeDomain` and the mix, then a seek to `PlaybackPositions.resumeTime(stored:duration:)` and `.ready`.
-    - A periodic time observer every 1/30 s sets `clock.time`; every 10 s of playing the position is saved; reaching the end stops playing and saves.
+    - `load`: a meeting that is recording leaves the player `.idle` with no composition (its files are still being written). A call for the meeting already loaded does nothing while that load is `.loading` or `.ready` and was not made while it recorded; in every other case it loads again, so a meeting selected during its recording loads once the recording stops, and an `.unavailable` or `.failed` one is retried. Loading another meeting first pauses and saves the current position, then loads `PlaybackComposition.load(mic:system:)` from `store.audioURL`; the newest load wins if several overlap. Nil → `.unavailable`; a throw → `.failed` with `ProblemTranslator.problem(for:in: ProblemContext(stage: .playingRecording))`, recorded once per meeting in Activity; success → an `AVPlayerItem` with `audioTimePitchAlgorithm = .timeDomain` and the mix, then a seek to `PlaybackPositions.resumeTime(stored:duration:)` and `.ready`.
+    - A periodic time observer every 1/30 s calls `clock.update`, as do seeks and loads; every 10 s of playing the position is saved; reaching the end stops playing and saves.
     - `speed` sets `defaultRate` and, while playing, `rate`; `volume` sets the player's volume; `mix` sets the item's audio mix. Seeks use zero tolerance. `play` sets `hasStarted`.
     - `pause`, `seek` and `stop` save the position; `stop` also unloads.
-  - `AppModel.player: MeetingPlayer`, created in `init`. `MainWindow` calls `player.load` for the selected meeting on appear and on selection change (switching meeting pauses), and `player.stop()` on disappear (closing the window stops). `trashMeeting` calls `player.unload(id)`. The player goes to the views with `.environmentObject(model.player)`.
+  - `AppModel.player: MeetingPlayer`, created in `init`. `MainWindow` calls `player.load` for the selected meeting on appear, on selection change (switching meeting pauses) and when the selected meeting's status leaves `.recording` (a `.task(id:)` keyed by the id and whether it is recording), and `player.stop()` on disappear (closing the window stops). `trashMeeting` calls `player.unload(id)`. The player goes to the views with `.environmentObject(model.player)`.
   - `PlayerBar`, docked under the meeting with `.safeAreaInset(edge: .bottom)` on both tabs, unless the meeting is recording; on `.bar` material with a divider on top:
     - `.unavailable`: the quiet line "The recording for this meeting isn't available." (`Theme.meta`, `Theme.secondaryText`). `.failed`: a compact `ProblemCard` with Show in Activity. `.loading`: the controls, disabled.
     - Above the scrubber, the lanes in a `Canvas` (one 6-pt row per `PlaybackLanes` lane, spans in `Theme.speaker(index)`), with the flags as 2-pt ticks in `Theme.attentionFill` and the playhead; accessibility label "Speakers over time".
@@ -736,7 +740,7 @@ let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday
 **Interfaces:**
 - Consumes: `TranscriptLayout.position(at:)`, `SegmentTimeline`, `MeetingPlayer`, `PlaybackClock`, `Playback.skip`, `Timestamp.format`.
 - Produces:
-  - Read along: while `player.meetingID == meeting.id` and `player.hasStarted`, the text view's coordinator follows `clock.$time` (a Combine sink, not a SwiftUI update) and, when `position(at:)` changes, moves two temporary background attributes: the segment's text range in `Theme.AppKit.accentSoft` and the word's range in `Theme.AppKit.accentMid`. Nothing else is redrawn.
+  - Read along: while `player.meetingID == meeting.id` and `player.hasStarted`, the text view's coordinator follows `clock.$time` (a Combine sink, not a SwiftUI update) and, when `position(at:)` changes, moves two temporary background attributes: the segment's text range in `Theme.AppKit.accentSoft` and, when the word has a range, that range in `Theme.AppKit.accentMid`. Nothing else is redrawn. When the text view attaches or its layout is rebuilt, it applies the current position at once.
   - Following: while `controller.following`, a current segment outside the middle of the visible rect is scrolled to the centre. A user scroll while playing sets `following = false`, and a "Back to \(Timestamp.format(time))" button appears at the bottom trailing corner of the transcript (a small view in `TranscriptTextView.swift`, the only one there observing `clock`); it sets `following = true` and scrolls. Any seek sets `following = true`.
   - Click to listen: `onSeek` calls `player.seek(to: time, play: true)` when the player is `.ready` for this meeting.
   - Source marks: `canPlay` is true when the player is `.ready` for this meeting; a click then switches to the Transcript tab, seeks to the segment's start, plays and follows. Without audio it keeps Task 16's reveal.
@@ -789,8 +793,8 @@ Signed Debug build installed in `/Applications`, started with `open`:
 
 1. Record a call with both sides talking; open it: the player plays both tracks in sync; at 1× and 2× the highlighted word matches the audio within about 150 ms; the speed keeps natural pitch; Call only and Me only each silence the other side (acceptance 5).
 2. Click a recap source mark: the Transcript tab opens at that moment and plays. Click a sentence: it plays from there. Scroll away while playing: "Back to …" appears and playback continues. Space, ←, →, ⇧← and ⇧→ work, and don't while typing in a recap field (acceptance 5).
-3. Switch tabs while playing: playback continues. Switch meetings: it pauses; come back: it resumes from the same place, also after quitting and reopening Muninn.
-4. Remove a bullet, an action and a subject; ⌘Z three times restores each. Type into a bullet, click elsewhere, ⌘Z: the typing undoes as one step (acceptance 6).
+3. Switch tabs while playing: playback continues. Switch meetings: it pauses; come back: it resumes from the same place, also after quitting and reopening Muninn. Keep a meeting selected while it records: when the recording stops, its player appears.
+4. Remove a bullet, an action and a subject; ⌘Z three times restores each. Type into a bullet: ⌘Z while still in the field undoes the typing; type again, click elsewhere, ⌘Z: the typing undoes as one step, and the next ⌘Z undoes the edit before it (acceptance 6).
 5. Move a meeting to the Trash, put it back from Finder, choose View › Reload: it is back with its recording, transcript and recap; edit its recap: the edit is kept (acceptance 6).
 6. Outlook draft: the sheet shows the account, the recipients and a preview; Create draft shows progress, opens the draft and leaves "Draft created · Open in Outlook". Obsidian files in one click and shows "Filed in Obsidian · Reveal".
 7. ⌘F in the transcript highlights every match; a selection can run across speakers; Copy all pastes the whole transcript.
