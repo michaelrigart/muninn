@@ -128,6 +128,24 @@ struct TranscriptLayoutTests {
         #expect(substring(layout, layout.segments[0].text) == cleaned)
     }
 
+    @Test func aLongUntimedSegmentLaysOutQuicklyInChangesMode() {
+        let kept = (0..<19_000).map { "w\($0)" }
+        let verbatim = kept.enumerated().map { $0 % 20 == 19 ? "\($1) um" : $1 }.joined(separator: " ")
+        let long = Transcript(segments: [
+            Segment(id: 0, track: .system, speaker: "S1", start: 0, end: 5_400, text: verbatim, words: []),
+        ], language: "en")
+        let started = Date()
+        let layout = TranscriptLayout.make(
+            transcript: long, clean: CleanTranscript(segments: [CleanSegment(id: 0, text: kept.joined(separator: " "))]),
+            mode: .changes, speakerNames: [:], userName: "Ann", flags: []
+        )
+        #expect(Date().timeIntervalSince(started) < 5)
+        #expect(layout.segments.count == 1)
+        let removed = layout.segments[0].removed.compactMap { substring(layout, $0) }
+        #expect(removed.count == 950)
+        #expect(removed.allSatisfy { $0 == "um" })
+    }
+
     @Test func flaggedSegmentsCarryAMarker() {
         let layout = layout(.verbatim, flags: [Flag(offset: 11)])
         let segment = layout.segments[2]

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import MuninnCore
 
@@ -34,5 +35,16 @@ struct WordAlignmentTests {
     @Test func punctuationTokensMapToNothing() {
         let result = ChangeView.alignment(verbatim: "yes — fine", clean: "Yes — fine.")
         #expect(result == [0, nil, 2])
+    }
+
+    @Test func aLongInputAlignsInWindowsWithEveryKeptTokenPairedToItsOwn() {
+        let verbatim = (0..<10_000).map { "w\($0)" }
+        let removedRuns = [100..<103, 1_400..<1_500, 2_990..<3_010, 8_000..<8_001]
+        let kept = verbatim.indices.filter { index in !removedRuns.contains { $0.contains(index) } }
+        let started = Date()
+        let result = WordAlignment.pairs(verbatim, kept.map { verbatim[$0] })
+        #expect(Date().timeIntervalSince(started) < 5)
+        #expect(result.map(\.0) == kept)
+        #expect(result.map(\.1) == Array(kept.indices))
     }
 }
