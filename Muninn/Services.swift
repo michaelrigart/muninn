@@ -261,19 +261,20 @@ enum RecapNotifications {
         content.sound = .default
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
+        Task {
+            do {
+                guard try await center.requestAuthorization(options: [.alert, .sound]) else {
+                    logger.notice("Notifications are not allowed")
+                    return
+                }
+            } catch {
                 logger.error("Notification authorization failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            guard granted else {
-                logger.notice("Notifications are not allowed")
-                return
-            }
-            center.add(request) { error in
-                if let error {
-                    logger.error("Posting the notification failed: \(String(describing: error), privacy: .public)")
-                }
+            do {
+                try await center.add(request)
+            } catch {
+                logger.error("Posting the notification failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
