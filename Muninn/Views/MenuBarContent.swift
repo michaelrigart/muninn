@@ -1,3 +1,4 @@
+import MuninnCore
 import SwiftUI
 
 struct MenuBarContent: View {
@@ -7,6 +8,20 @@ struct MenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        let workLine = ProcessingDisplay.workLine(meetings: model.meetings, snapshot: model.pipelineSnapshot)
+        let attentionLine = ProcessingDisplay.attentionLine(count: model.meetings.filter(\.needsAttention).count)
+        if let workLine {
+            Text(workLine)
+        }
+        if let attentionLine {
+            Button(attentionLine) {
+                model.sidebarFilter = .needsAttention
+                openMeetings()
+            }
+        }
+        if workLine != nil || attentionLine != nil {
+            Divider()
+        }
         if let notice = recorder.notice {
             Text(notice.message)
             Button("Dismiss") { recorder.notice = nil }

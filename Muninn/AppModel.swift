@@ -56,6 +56,14 @@ struct UnsavedSummary {
     var error: String
 }
 
+enum SidebarFilter {
+    case all, needsAttention
+}
+
+enum SettingsTab: Hashable {
+    case engines, accounts, obsidian, recording, dictionary, permissions
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var meetings: [Meeting] = []
@@ -82,6 +90,14 @@ final class AppModel: ObservableObject {
     @Published var eventChangesInFlight: Set<MeetingID> = []
     /// Why the flag hotkey couldn't be registered, if it couldn't.
     @Published var hotkeyError: String?
+    /// What the pipeline is running and what waits for its turn.
+    @Published private(set) var pipelineSnapshot = PipelineSnapshot.idle
+    /// The speech models being downloaded or loaded.
+    @Published private(set) var speechModels: [SpeechModelPreparation] = []
+    /// Whether a Claude API key is stored; a Keychain read that fails counts as absent.
+    @Published private(set) var claudeKeyPresent = false
+    @Published var sidebarFilter = SidebarFilter.all
+    @Published var settingsTab = SettingsTab.engines
 
     let paths: MuninnPaths
     let store: MeetingStore
@@ -181,29 +197,41 @@ final class AppModel: ObservableObject {
             activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
+        refreshClaudeKey()
+        SpeechModelActivity.shared.setObserver { [weak self] models in
+            Task { @MainActor in self?.speechModels = models }
+        }
+        speechModels = SpeechModelActivity.shared.preparing
         let pipeline = self.pipeline
         setupTask = Task { [weak self] in
             await pipeline.setOnChange { meeting in
                 Task { @MainActor in self?.apply(meeting) }
             }
+            await pipeline.setOnSnapshot { snapshot in
+                Task { @MainActor in self?.pipelineSnapshot = snapshot }
+            }
+            self?.pipelineSnapshot = await pipeline.snapshot()
         }
         RecapNotifications.start { [weak self] id in self?.showMeeting(id) }
         startLifecycle()
     }
 
-    /// Recovers meetings a quit or crash left unfinished, then retries waiting ones every minute; the calendar cache refreshes on its own loop.
+    /// Recovers meetings a quit or crash left unfinished, then re-checks waiting ones every `WaitRetry.interval`; the calendar cache refreshes on its own loop.
     private func startLifecycle() {
         let pipeline = self.pipeline
         let setup = setupTask
         let interrupted = recoverInterruptedMeetings()
-        lifecycleTask = Task {
+        lifecycleTask = Task { [weak self] in
             await setup?.value
             for id in interrupted {
                 await pipeline.process(id)
             }
+            var tick = 0
             while !Task.isCancelled {
-                await pipeline.resumeWaiting()
-                try? await Task.sleep(for: .seconds(60))
+                self?.refreshClaudeKey()
+                await pipeline.requeueWaiting(only: WaitRetry.reasons(forTick: tick))
+                tick += 1
+                try? await Task.sleep(for: WaitRetry.interval)
             }
         }
         calendarTask = Task { [weak self] in
@@ -212,6 +240,37 @@ final class AppModel: ObservableObject {
                 await self.refreshCalendar().value
                 try? await Task.sleep(for: .seconds(60))
             }
+        }
+    }
+
+    /// Reads the Claude key's presence from the Keychain again; called when it may have changed.
+    func refreshClaudeKey() {
+        do {
+            claudeKeyPresent = !(try secrets.get(LiveEnvironmentProbe.claudeKeyName) ?? "").isEmpty
+        } catch {
+            logger.error("Reading the Claude key failed: \(String(describing: error), privacy: .public)")
+            claudeKeyPresent = false
+        }
+    }
+
+    func progress(for meeting: Meeting) -> MeetingProgress {
+        ProcessingDisplay.progress(for: meeting, snapshot: pipelineSnapshot, speechModel: speechModels.first)
+    }
+
+    func dismissEngineNotice(_ id: MeetingID) {
+        dismissNotice(id) { $0.engineNotice = nil }
+    }
+
+    func dismissTranscriptNotice(_ id: MeetingID) {
+        dismissNotice(id) { $0.transcriptNotice = nil }
+    }
+
+    private func dismissNotice(_ id: MeetingID, _ change: (inout Meeting) -> Void) {
+        do {
+            try mutate(id, change)
+        } catch {
+            logger.error("Dismissing a notice of \(id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            activity.record(failure: error, in: ProblemContext(stage: .savingEdits, subject: "the meeting"))
         }
     }
 

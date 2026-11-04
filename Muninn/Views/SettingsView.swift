@@ -6,20 +6,28 @@ import MuninnSystem
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
-        TabView {
+        TabView(selection: $model.settingsTab) {
             EnginesTab()
                 .tabItem { Label("Engines", systemImage: "cpu") }
+                .tag(SettingsTab.engines)
             AccountsTab()
                 .tabItem { Label("Accounts", systemImage: "person.crop.circle") }
+                .tag(SettingsTab.accounts)
             ObsidianTab()
                 .tabItem { Label("Obsidian", systemImage: "folder") }
+                .tag(SettingsTab.obsidian)
             RecordingTab()
                 .tabItem { Label("Recording", systemImage: "record.circle") }
+                .tag(SettingsTab.recording)
             DictionaryTab()
                 .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
+                .tag(SettingsTab.dictionary)
             PermissionsTab()
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
+                .tag(SettingsTab.permissions)
         }
         .frame(width: 560, height: 520)
     }
@@ -134,6 +142,7 @@ private struct ClaudeSection: View {
             apiKey = ""
             error = nil
             hasKey = true
+            model.refreshClaudeKey()
         } catch {
             self.error = SignInFlow.keychainMessage("save the key in", error)
         }
@@ -145,6 +154,7 @@ private struct ClaudeSection: View {
             apiKey = ""
             error = nil
             hasKey = false
+            model.refreshClaudeKey()
         } catch {
             self.error = SignInFlow.keychainMessage("remove the key from", error)
         }

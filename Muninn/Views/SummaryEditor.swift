@@ -12,7 +12,6 @@ struct SummaryEditor: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                banners
                 toolbar
                 if let summary {
                     ForEach(Array(summary.subjects.indices), id: \.self) { index in
@@ -37,60 +36,6 @@ struct SummaryEditor: View {
         guard var updated = summary else { return }
         change(&updated)
         onEdit(updated)
-    }
-
-    @ViewBuilder
-    private var banners: some View {
-        switch meeting.status {
-        case .waiting(.recording):
-            banner(symbol: "pause.circle.fill", tint: .orange, text: WaitReason.recording.text) {}
-        case .waiting(let reason):
-            banner(symbol: "pause.circle.fill", tint: .orange, text: reason.text) {
-                Button("Run on This Mac anyway") { model.regenerate(meeting.id, engine: .macbook) }
-                    .disabled(hasUnsavedEdits || eventChanging)
-                    .help(blockedHelp)
-                if reason == .claudeKeyMissing {
-                    SettingsLink {
-                        Text("Add a Claude API key in Settings")
-                    }
-                } else {
-                    Button("Use Claude") { model.regenerate(meeting.id, engine: .claude) }
-                        .disabled(hasUnsavedEdits || eventChanging)
-                        .help(blockedHelp)
-                }
-            }
-        case .failed(let problem):
-            banner(symbol: "exclamationmark.triangle.fill", tint: .red, text: problem.title) {
-                Button("Retry") { model.process(meeting.id) }
-            }
-        case .ready:
-            EmptyView()
-        default:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(meeting.status.label + "…")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        if let notice = meeting.engineNotice {
-            banner(symbol: "info.circle.fill", tint: .blue, text: notice.title) {}
-        }
-        if let notice = meeting.transcriptNotice {
-            banner(symbol: "info.circle.fill", tint: .blue, text: notice.title) {}
-        }
-    }
-
-    private func banner<Buttons: View>(symbol: String, tint: Color, text: String, @ViewBuilder buttons: () -> Buttons) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol)
-                .foregroundStyle(tint)
-            Text(text)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
-            buttons()
-        }
-        .padding(10)
-        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var toolbar: some View {

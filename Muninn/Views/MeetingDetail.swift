@@ -38,6 +38,7 @@ struct MeetingDetail: View {
             if let notice = model.actionNotices[meeting.id] {
                 noticeBanner(notice, dismiss: { model.actionNotices[meeting.id] = nil })
             }
+            MeetingStatusCards(meeting: meeting)
             MeetingHeader(meeting: meeting, edit: edit, report: report)
             Divider()
             HStack(spacing: 12) {
@@ -200,8 +201,12 @@ private struct MeetingHeader: View {
                 if let language = meeting.language {
                     Label(language.uppercased(), systemImage: "globe")
                 }
-                Label(meeting.status.label, systemImage: meeting.status.symbol ?? "checkmark.circle")
-                    .foregroundStyle(statusColor)
+                if meeting.needsAttention {
+                    Label("Needs attention", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(Theme.attentionText)
+                } else if let title = model.progress(for: meeting).title {
+                    Label(title, systemImage: "hourglass")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -254,12 +259,6 @@ private struct MeetingHeader: View {
         formatter.unitsStyle = .abbreviated
         formatter.maximumUnitCount = 2
         return formatter.string(from: end.timeIntervalSince(meeting.startedAt))
-    }
-
-    private var statusColor: Color {
-        if case .failed = meeting.status { return .red }
-        if case .waiting = meeting.status { return .orange }
-        return .secondary
     }
 
     private var accountBinding: Binding<String?> {
