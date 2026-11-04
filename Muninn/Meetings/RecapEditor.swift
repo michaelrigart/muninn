@@ -2,21 +2,26 @@ import AppKit
 import MuninnCore
 import SwiftUI
 
-/// Which recap text fields have focus. Resigning only when one does leaves other responders, such as the sidebar list or
-/// another window, alone.
+/// Which recap text fields have focus, and the window each one lives in. Resigning only when one does leaves other
+/// responders, such as the sidebar list or another window, alone.
 final class RecapFocus {
-    private var fields: Set<RecapField> = []
-
-    func set(_ field: RecapField, focused: Bool) {
-        if focused { fields.insert(field) } else { fields.remove(field) }
+    private struct Focused {
+        weak var window: NSWindow?
     }
 
-    /// Ends the editing of a focused recap field, so its own undo history is gone before the document registers or
-    /// drops anything.
+    private var fields: [RecapField: Focused] = [:]
+
+    /// Records the key window as the field's own when focus begins. Entries leave only when focus really ends.
+    func set(_ field: RecapField, focused: Bool) {
+        fields[field] = focused ? Focused(window: NSApp.keyWindow) : nil
+    }
+
+    /// Ends the editing of a focused recap field, through the field's own window (which need not be key), so its own
+    /// undo history is gone before the document registers or drops anything.
     func resign() {
-        guard !fields.isEmpty else { return }
-        fields.removeAll()
-        NSApp.keyWindow?.makeFirstResponder(nil)
+        for focused in fields.values {
+            focused.window?.makeFirstResponder(nil)
+        }
     }
 }
 
