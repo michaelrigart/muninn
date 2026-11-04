@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import MuninnAudio
@@ -25,6 +26,7 @@ final class MeetingPlayer: ObservableObject {
 
     @Published private(set) var meetingID: MeetingID?
     @Published private(set) var state = State.idle
+    /// Follows the player's `timeControlStatus`, so it never disagrees with what the player is doing.
     @Published private(set) var isPlaying = false
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var tracks: [Track] = []
@@ -49,6 +51,9 @@ final class MeetingPlayer: ObservableObject {
     private var composition: PlaybackComposition?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var itemStatusObservation: AnyCancellable?
+    private var playingObservation: AnyCancellable?
+    private var terminationObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
     /// Bumped whenever the item goes, so a load or seek that finishes after it is dropped.
     private var generation = 0
@@ -64,6 +69,14 @@ final class MeetingPlayer: ObservableObject {
         player.actionAtItemEnd = .pause
         player.defaultRate = speed
         player.volume = volume
+        playingObservation = player.publisher(for: \.timeControlStatus)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                MainActor.assumeIsolated { self?.statusChanged(status) }
+            }
+        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.savePosition() }
+        }
     }
 
     /// A recording meeting stays `.idle`: its files are still being written. The meeting already loaded is left
@@ -87,9 +100,9 @@ final class MeetingPlayer: ObservableObject {
         loadTask = Task { [weak self] in
             do {
                 let loaded = try await PlaybackComposition.load(mic: mic, system: system)
-                self?.finishLoading(loaded, generation: generation)
+                self?.finishLoading(loaded, meeting: meeting, generation: generation)
             } catch {
-                self?.failLoading(error, meeting: meeting, generation: generation)
+                self?.fail(error, meeting: meeting, generation: generation)
             }
         }
     }
@@ -98,7 +111,6 @@ final class MeetingPlayer: ObservableObject {
         guard state == .ready, let id = meetingID else { return }
         if clock.time >= duration - 0.05 { seek(to: 0) }
         player.play()
-        isPlaying = true
         startedIDs.insert(id)
         hasStarted = true
         lastSave = Date()
@@ -106,12 +118,11 @@ final class MeetingPlayer: ObservableObject {
 
     func pause() {
         player.pause()
-        if isPlaying { isPlaying = false }
         savePosition()
     }
 
     func toggle() {
-        if isPlaying { pause() } else { play() }
+        if player.rate != 0 { pause() } else { play() }
     }
 
     func seek(to time: TimeInterval, play: Bool = false) {
@@ -145,7 +156,7 @@ final class MeetingPlayer: ObservableObject {
         hasStarted = false
     }
 
-    private func finishLoading(_ loaded: PlaybackComposition?, generation: Int) {
+    private func finishLoading(_ loaded: PlaybackComposition?, meeting: Meeting, generation: Int) {
         guard generation == self.generation, let id = meetingID else { return }
         guard let loaded, loaded.duration.isFinite, loaded.duration > 0 else {
             state = .unavailable
@@ -158,7 +169,7 @@ final class MeetingPlayer: ObservableObject {
         item.audioTimePitchAlgorithm = .timeDomain
         item.audioMix = loaded.audioMix(effectiveMix)
         player.replaceCurrentItem(with: item)
-        addObservers(for: item)
+        addObservers(for: item, meeting: meeting)
         state = .ready
         move(to: PlaybackPositions.resumeTime(stored: positions.position(for: id), duration: loaded.duration))
     }
@@ -179,7 +190,9 @@ final class MeetingPlayer: ObservableObject {
         return target
     }
 
-    private func failLoading(_ error: Error, meeting: Meeting, generation: Int) {
+    /// A load that threw, or an item that failed while playing: translated at `.playingRecording`, recorded once per
+    /// meeting in Activity.
+    private func fail(_ error: Error, meeting: Meeting, generation: Int) {
         guard generation == self.generation else { return }
         let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .playingRecording))
         if recordedFailures.insert(meeting.id).inserted {
@@ -194,17 +207,25 @@ final class MeetingPlayer: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
         removeObservers()
+        player.pause()
         player.replaceCurrentItem(with: nil)
         composition = nil
-        if isPlaying { isPlaying = false }
         state = .idle
         duration = 0
         tracks = []
         clock.update(0)
     }
 
-    private func addObservers(for item: AVPlayerItem) {
+    private func addObservers(for item: AVPlayerItem, meeting: Meeting) {
         removeObservers()
+        let generation = generation
+        itemStatusObservation = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] status in
+                guard status == .failed else { return }
+                let error = item?.error
+                MainActor.assumeIsolated { self?.itemFailed(error, meeting: meeting, generation: generation) }
+            }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.tick(time) }
         }
@@ -218,6 +239,20 @@ final class MeetingPlayer: ObservableObject {
         timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
+        itemStatusObservation = nil
+    }
+
+    private func statusChanged(_ status: AVPlayer.TimeControlStatus) {
+        let playing = status != .paused
+        if playing != isPlaying { isPlaying = playing }
+    }
+
+    /// Saves where playback had got to, drops the item and shows the failure, which Try again reloads.
+    private func itemFailed(_ error: Error?, meeting: Meeting, generation: Int) {
+        guard generation == self.generation else { return }
+        savePosition()
+        tearDown()
+        fail(error ?? AVError(.unknown), meeting: meeting, generation: self.generation)
     }
 
     private func tick(_ time: CMTime) {
@@ -227,7 +262,6 @@ final class MeetingPlayer: ObservableObject {
     }
 
     private func reachedEnd() {
-        if isPlaying { isPlaying = false }
         clock.update(duration)
         savePosition()
     }
@@ -245,7 +279,7 @@ final class MeetingPlayer: ObservableObject {
 
     private func applySpeed() {
         player.defaultRate = speed
-        if isPlaying { player.rate = speed }
+        if player.rate != 0 { player.rate = speed }
     }
 
     private func applyMix() {

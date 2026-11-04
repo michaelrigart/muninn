@@ -53,6 +53,7 @@ struct PlayerBar: View {
                 lanes: lanes,
                 speakerIndices: speakerIndices,
                 flags: meeting.flags.map(\.offset),
+                disabledReason: isReady ? nil : Self.loadingReason,
                 seek: { player.seek(to: $0) }
             )
             HStack(spacing: Space.m) {
@@ -148,6 +149,7 @@ private struct PlayerTimeline: View {
     let lanes: [PlaybackLane]
     let speakerIndices: [String: Int]
     let flags: [TimeInterval]
+    let disabledReason: String?
     let seek: (TimeInterval) -> Void
     @State private var dragTime: TimeInterval?
 
@@ -164,6 +166,7 @@ private struct PlayerTimeline: View {
                 TimeLabel(clock: clock, dragTime: dragTime, duration: duration, remaining: false)
                     .gridColumnAlignment(.trailing)
                 Scrubber(clock: clock, duration: duration, dragTime: $dragTime, seek: seek)
+                    .help(disabledReason ?? "")
                 TimeLabel(clock: clock, dragTime: dragTime, duration: duration, remaining: true)
                     .gridColumnAlignment(.leading)
             }
