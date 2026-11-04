@@ -185,6 +185,7 @@ private struct SidebarRow: View {
                     .font(Theme.interface.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: Space.xs)
+                PlayingMark(meetingID: meeting.id)
                 sign
             }
             HStack(spacing: Space.xs + 2) {
@@ -248,5 +249,21 @@ private struct SidebarRow: View {
             .lineLimit(1)
             .help(text)
             .accessibilityLabel(text)
+    }
+}
+
+/// The animated level mark on the row of the meeting that is playing. Its own view, so only it follows the player.
+private struct PlayingMark: View {
+    @EnvironmentObject private var player: MeetingPlayer
+    let meetingID: MeetingID
+
+    var body: some View {
+        if player.isPlaying, player.meetingID == meetingID {
+            Image(systemName: "waveform")
+                .foregroundStyle(Theme.accent)
+                .symbolEffect(.variableColor.iterative)
+                .help("Playing")
+                .accessibilityLabel("Playing")
+        }
     }
 }

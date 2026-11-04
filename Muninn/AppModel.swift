@@ -122,6 +122,7 @@ final class AppModel: ObservableObject {
     let calendar: CalendarCache
     let activity: ActivityCenter
     let playbackPositions: PlaybackPositions
+    let player: MeetingPlayer
 
     var actionsInFlight: Set<String> = []
     private let settingsBox: SettingsBox
@@ -162,7 +163,9 @@ final class AppModel: ObservableObject {
         self.settings = loaded
         self.settingsBox = box
         self.activity = activity
-        self.playbackPositions = PlaybackPositions(file: paths.playbackFile)
+        let playbackPositions = PlaybackPositions(file: paths.playbackFile)
+        self.playbackPositions = playbackPositions
+        self.player = MeetingPlayer(positions: playbackPositions, store: store, activity: activity)
         self.recordingGate = gate
         let graph = GraphServices(secrets: secrets)
         self.graph = graph

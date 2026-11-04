@@ -96,6 +96,7 @@ struct MuninnApp: App {
         Window("Meetings", id: "meetings") {
             MainWindow()
                 .environmentObject(model)
+                .environmentObject(model.player)
         }
         .defaultLaunchBehavior(.suppressed)
         .defaultSize(width: 1180, height: 780)

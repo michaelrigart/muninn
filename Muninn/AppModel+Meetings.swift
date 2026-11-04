@@ -136,6 +136,7 @@ extension AppModel {
         actionSuccesses[id] = nil
         failedActions[id] = nil
         unsavedSummaries[id] = nil
+        player.unload(id)
         playbackPositions.remove(id)
         if selectedMeetingID == id { selectedMeetingID = nil }
     }

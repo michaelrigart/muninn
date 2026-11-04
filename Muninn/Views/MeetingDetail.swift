@@ -14,6 +14,8 @@ struct MeetingDetail: View {
     @State private var recapFocus = RecapFocus()
     @State private var transcript: Transcript?
     @State private var clean: CleanTranscript?
+    @State private var lanes: [PlaybackLane] = []
+    @State private var speakerIndices: [String: Int] = [:]
     @State private var saveError: Problem?
     @State private var showingDraft = false
     @StateObject private var transcriptController = TranscriptController()
@@ -73,6 +75,11 @@ struct MeetingDetail: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if meeting.status != .recording {
+                PlayerBar(meeting: meeting, lanes: lanes, speakerIndices: speakerIndices)
+            }
+        }
         .navigationTitle(meeting.title)
         .toolbar {
             MeetingToolbar(
@@ -103,6 +110,8 @@ struct MeetingDetail: View {
             }
             transcript = model.loadFile("transcript.json", for: meeting) { try store.loadTranscript(id) }
             clean = model.loadFile("transcript.clean.json", for: meeting) { try store.loadClean(id) }
+            lanes = transcript.map(PlaybackLanes.lanes(for:)) ?? []
+            speakerIndices = transcript.map(SpeakerColours.indices(for:)) ?? [:]
             adoptDocument()
         }
     }
