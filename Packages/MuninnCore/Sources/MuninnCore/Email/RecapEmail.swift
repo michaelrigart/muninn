@@ -43,34 +43,102 @@ public enum RecapEmail {
         return "Recap: \(title), \(formatter.string(from: date))"
     }
 
-    public static func html(summary: Summary, speakerNames: [String: String]) -> String {
+    public struct Item: Equatable, Sendable {
+        public var owner: String?
+        public var text: String
+
+        public init(owner: String?, text: String) {
+            self.owner = owner
+            self.text = text
+        }
+    }
+
+    public struct Section: Equatable, Sendable {
+        public var title: String
+        public var items: [Item]
+
+        public init(title: String, items: [Item]) {
+            self.title = title
+            self.items = items
+        }
+    }
+
+    public struct Content: Equatable, Sendable {
+        public var greeting: String
+        public var intro: String
+        public var sections: [Section]
+        public var closing: String
+
+        public init(greeting: String, intro: String, sections: [Section], closing: String) {
+            self.greeting = greeting
+            self.intro = intro
+            self.sections = sections
+            self.closing = closing
+        }
+    }
+
+    /// One section per subject (its bullets, owner nil), then the actions section: the language's heading, and each
+    /// subject's actions in order, owner resolved through speakerNames, text with " (dd/MM)" when the due date is valid.
+    public static func content(summary: Summary, speakerNames: [String: String]) -> Content {
         let copy = copy(for: summary.language)
+        var sections = summary.subjects.map { subject in
+            Section(title: subject.title, items: subject.bullets.map { Item(owner: nil, text: $0.text) })
+        }
+        let actions = summary.subjects.flatMap(\.actions).map { action in
+            var text = action.text
+            if let due = action.due, let formatted = dueDate(due) {
+                text += " (\(formatted))"
+            }
+            return Item(owner: speakerNames[action.owner] ?? action.owner, text: text)
+        }
+        sections.append(Section(title: copy.actionsHeading, items: actions))
+        return Content(greeting: copy.greeting, intro: copy.intro, sections: sections, closing: copy.closing)
+    }
+
+    public static func html(summary: Summary, speakerNames: [String: String]) -> String {
+        let content = content(summary: summary, speakerNames: speakerNames)
         var out = [
-            "<p>\(escape(copy.greeting))</p>",
-            "<p>\(escape(copy.intro))</p>",
+            "<p>\(escape(content.greeting))</p>",
+            "<p>\(escape(content.intro))</p>",
         ]
-        for subject in summary.subjects {
-            out.append("<h3>\(escape(subject.title))</h3>")
+        for section in content.sections {
+            out.append("<h3>\(escape(section.title))</h3>")
             out.append("<ul>")
-            for bullet in subject.bullets {
-                out.append("<li>\(escape(bullet.text))</li>")
+            for item in section.items {
+                let text = escape(item.text)
+                out.append(item.owner.map { "<li><b>\(escape($0))</b>: \(text)</li>" } ?? "<li>\(text)</li>")
             }
             out.append("</ul>")
         }
-        let actions = summary.subjects.flatMap(\.actions)
-        out.append("<h3>\(escape(copy.actionsHeading))</h3>")
-        out.append("<ul>")
-        for action in actions {
-            let owner = speakerNames[action.owner] ?? action.owner
-            var line = "<b>\(escape(owner))</b>: \(escape(action.text))"
-            if let due = action.due, let formatted = dueDate(due) {
-                line += " (\(formatted))"
-            }
-            out.append("<li>\(line)</li>")
-        }
-        out.append("</ul>")
-        out.append("<p>\(escape(copy.closing))</p>")
+        out.append("<p>\(escape(content.closing))</p>")
         return out.joined(separator: "\n")
+    }
+
+    public static func plainText(summary: Summary, speakerNames: [String: String]) -> String {
+        let content = content(summary: summary, speakerNames: speakerNames)
+        var blocks = [content.greeting, content.intro]
+        for section in content.sections {
+            let lines = section.items.map { item in
+                "- " + (item.owner.map { "\($0): \(item.text)" } ?? item.text)
+            }
+            blocks.append(([section.title] + lines).joined(separator: "\n"))
+        }
+        blocks.append(content.closing)
+        return blocks.joined(separator: "\n\n")
+    }
+
+    public static func htmlDocument(summary: Summary, speakerNames: [String: String]) -> String {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        </head>
+        <body>
+        \(html(summary: summary, speakerNames: speakerNames))
+        </body>
+        </html>
+        """
     }
 
     /// A due date as the email shows it (dd/MM), or nil when `iso` is not a valid yyyy-MM-dd date.
