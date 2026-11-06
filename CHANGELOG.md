@@ -28,6 +28,9 @@ whether it is compatible with the one before. Each section says what changed.
   recap source to play from there.
 - Every recap edit can be undone with ⌘Z, including removing a subject, bullet or action.
 - Find in the transcript (⌘F) highlights every match, and Copy all copies the whole transcript.
+- Move a transcript line, or a selection of lines, to another speaker or a new one: right-click
+  and choose Change speaker.
+- A meeting without a calendar event shows its speakers in the header; click one to rename it.
 
 ### Changed
 
@@ -43,5 +46,7 @@ whether it is compatible with the one before. Each section says what changed.
 - Sidebar search also looks in recaps and transcripts, and each row shows the time, duration,
   client and status.
 - Recap sources show the time in the transcript instead of a segment number.
+- Renaming a speaker says that it renames them everywhere.
+- Each speaker keeps their colour when lines move between speakers.
 
 [Unreleased]: https://github.com/michaelrigart/muninn/commits/main
