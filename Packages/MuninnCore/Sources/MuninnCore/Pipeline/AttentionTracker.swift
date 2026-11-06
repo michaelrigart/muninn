@@ -12,7 +12,7 @@ public struct AttentionTracker: Sendable {
     public mutating func update(_ meetings: [Meeting], isRecording: Bool) -> [MeetingID] {
         let now = Set(meetings.filter(\.needsAttention).map(\.id))
         held = held.union(now.subtracting(needing)).intersection(now)
-        needing = now
+        needing = now.union(needing.subtracting(meetings.map(\.id)))
         guard !isRecording else { return [] }
         let announce = meetings.map(\.id).filter(held.contains)
         held = []
