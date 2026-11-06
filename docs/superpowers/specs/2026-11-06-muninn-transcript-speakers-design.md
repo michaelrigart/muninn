@@ -101,21 +101,26 @@ A change sets the speaker of the chosen segments and nothing else; a segment's t
 audio is, so a moved line stays in its lane of the player and takes its new speaker's colour. The
 clean transcript is keyed by segment and needs no change.
 
-`transcript.json` is the source of truth and is written first, by atomic replacement. The Markdown
-files (`transcript.md`, and the clean one when a clean transcript exists) are derived from it and
-the meeting's speaker names, and are rewritten after it. Today `saveTranscript` writes the Markdown
-first; that order changes, for renames too.
+Who said each line lives in `transcript.json`; what each speaker is called lives in the meeting's
+`speakerNames` (`meeting.json`). The Markdown files (`transcript.md`, and the clean one when a
+clean transcript exists) are derived from both and only rewritten after them. Today
+`saveTranscript` writes the Markdown before `transcript.json`; that order changes.
 
-- If writing `transcript.json` fails, nothing changed: the Markdown files are not touched, the
-  view keeps the transcript as it was, and the usual problem card ("Couldn't save your changes") is
-  shown and recorded in Activity.
-- If `transcript.json` is written but a Markdown file fails, the change stands in Muninn (the view,
-  the player and later recaps use `transcript.json`). The problem card says the transcript files
-  couldn't all be updated, is recorded in Activity, and its "Try again" rewrites the Markdown files
-  from `transcript.json`. Any later speaker change or rename rewrites them too.
+- **A speaker change** commits when `transcript.json` is written, by atomic replacement. If that
+  write fails, nothing changed: the Markdown files are not touched, the view keeps the transcript
+  as it was, and the usual problem card ("Couldn't save your changes") is shown and recorded in
+  Activity.
+- **A rename** commits when `speakerNames` is saved, as today; `transcript.json` holds no names and
+  is not rewritten. If saving `speakerNames` fails, nothing changed and the same problem card is
+  shown.
+- **After either commits**, the Markdown files are rewritten. If one fails, the change stands in
+  Muninn (the view, the player, drafts, notes and later recaps use `transcript.json` and
+  `speakerNames`). The problem card says the transcript files couldn't all be updated, is recorded
+  in Activity, and its "Try again" rewrites the Markdown files from `transcript.json` and
+  `speakerNames`. Any later speaker change or rename rewrites them too.
 
-The meeting view, the player's lanes and colours, and the header chips update once
-`transcript.json` is written.
+The meeting view, the player's lanes and colours, and the header chips update once the change
+commits.
 
 ### Header speaker chips
 
@@ -129,15 +134,17 @@ label is the shown name and its help text is "Rename this speaker everywhere".
 The owner approved the decisions above; these details were settled while writing them down:
 
 - a partly selected line counts as chosen;
-- new labels take the highest `S` number ever used in the meeting (transcript, stored names, recap
-  action owners) plus one;
+- new labels take the highest `S` number found in the transcript, the stored names and the action
+  owners of the current and previous recap, plus one, so no label that still carries meaning is
+  reused;
 - "You" is always on the menu, also in in-person meetings;
 - colours follow the label number instead of first appearance;
 - changes are refused while the meeting is being processed or has a pipeline job, as Move to Trash
   is;
 - a moved line keeps its track (its lane in the player);
-- `transcript.json` is written before the Markdown files, for renames too, and a failed Markdown
-  write keeps the change and offers "Try again";
+- a speaker change commits with `transcript.json` and a rename with `speakerNames`; the Markdown
+  files are rewritten only after that, and a failed Markdown write keeps the change and offers
+  "Try again";
 - the header lists "You" first, then by label number, all of them.
 
 ## Constraints
@@ -145,7 +152,8 @@ The owner approved the decisions above; these details were settled while writing
 - Everything with rules lives in MuninnCore and is unit tested: applying a speaker change to a
   transcript, the next label, the menu's and the header's speaker lists and their order, the colour
   rule, when a change is allowed (status and pipeline job) with its refusal reason, and the
-  transcript's write order with its two failure cases.
+  save order for a speaker change and a rename with their failure cases (commit fails; a Markdown
+  file fails after the commit).
 - MuninnCore stays dependency-free. Swift 5 language mode.
 - Copy follows the UX pass: sentence case, "…" only where more input follows, no full stop in
   titles.
