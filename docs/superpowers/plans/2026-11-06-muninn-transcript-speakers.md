@@ -68,6 +68,7 @@ Decided in the final whole-branch review; record these under "Rulings" in the pu
 3. The "files behind" card can be dismissed like every other card; Activity keeps the record and the next result that reports on the files sets it again (amends ruling 9).
 4. `Token` takes a leading mark (a symbol or a dot), and `SpeakerChip` is built on it, so the chip look lives in one place.
 5. The header names same-named speakers by their shown name only, as the spec says; their colours tell them apart.
+6. `PipelineSnapshot` lists the meetings with a job queued or running (`jobs`), and the menu's refusal uses it, so "Change speaker" is disabled with its reason also while a job holds its turn before its first stage (pre-merge review).
 
 ## File map
 
