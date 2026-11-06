@@ -73,10 +73,11 @@ speaker".
 Transcript labels are `you` and `S1`, `S2`, … ("S" plus a number, as speaker attribution creates
 them). "New speaker" takes `S` plus one more than the highest `S` number found in the transcript's
 labels, the keys of the meeting's `speakerNames`, and the action owners of the current and the
-previous recap. A label is therefore never reused: a reused one would arrive with an old stored
-name, and a recap action owned by the old label would show the new person's name in a draft or
-note. An `S` label left with no lines disappears from the menu and the header; its stored name
-stays.
+previous recap. A new speaker therefore never takes a label that still carries meaning: a stored
+name it would arrive with, or a recap action whose owner would turn into the new person in a draft
+or note. A label that nothing refers to any more (a new speaker moved away before it was named or
+used in a recap) can be taken again, which is harmless. An `S` label left with no lines disappears
+from the menu and the header; its stored name stays.
 
 ### Colours
 
@@ -97,12 +98,24 @@ refused menu item is shown disabled, with its reason as a tooltip. Renaming keep
 ### Saving
 
 A change sets the speaker of the chosen segments and nothing else; a segment's track says where its
-audio is, so a moved line stays in its lane of the player and takes its new speaker's colour. It
-rewrites `transcript.json` and `transcript.md`, and the clean Markdown file when a clean transcript
-exists. The clean transcript itself is keyed by segment and needs no change. The meeting
-view, the player's lanes and colours, and the header chips update at once. A failed save shows the
-usual problem card ("Couldn't save your changes") and is recorded in Activity, and the view keeps
-showing what is on disk.
+audio is, so a moved line stays in its lane of the player and takes its new speaker's colour. The
+clean transcript is keyed by segment and needs no change.
+
+`transcript.json` is the source of truth and is written first, by atomic replacement. The Markdown
+files (`transcript.md`, and the clean one when a clean transcript exists) are derived from it and
+the meeting's speaker names, and are rewritten after it. Today `saveTranscript` writes the Markdown
+first; that order changes, for renames too.
+
+- If writing `transcript.json` fails, nothing changed: the Markdown files are not touched, the
+  view keeps the transcript as it was, and the usual problem card ("Couldn't save your changes") is
+  shown and recorded in Activity.
+- If `transcript.json` is written but a Markdown file fails, the change stands in Muninn (the view,
+  the player and later recaps use `transcript.json`). The problem card says the transcript files
+  couldn't all be updated, is recorded in Activity, and its "Try again" rewrites the Markdown files
+  from `transcript.json`. Any later speaker change or rename rewrites them too.
+
+The meeting view, the player's lanes and colours, and the header chips update once
+`transcript.json` is written.
 
 ### Header speaker chips
 
@@ -123,13 +136,16 @@ The owner approved the decisions above; these details were settled while writing
 - changes are refused while the meeting is being processed or has a pipeline job, as Move to Trash
   is;
 - a moved line keeps its track (its lane in the player);
+- `transcript.json` is written before the Markdown files, for renames too, and a failed Markdown
+  write keeps the change and offers "Try again";
 - the header lists "You" first, then by label number, all of them.
 
 ## Constraints
 
 - Everything with rules lives in MuninnCore and is unit tested: applying a speaker change to a
   transcript, the next label, the menu's and the header's speaker lists and their order, the colour
-  rule, and when a change is allowed (status and pipeline job) with its refusal reason.
+  rule, when a change is allowed (status and pipeline job) with its refusal reason, and the
+  transcript's write order with its two failure cases.
 - MuninnCore stays dependency-free. Swift 5 language mode.
 - Copy follows the UX pass: sentence case, "…" only where more input follows, no full stop in
   titles.
