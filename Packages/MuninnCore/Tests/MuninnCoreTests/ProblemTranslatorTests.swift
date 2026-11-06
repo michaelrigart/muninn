@@ -54,7 +54,7 @@ import Testing
         #expect(problem.details.provider == .anthropic)
     }
 
-    @Test(arguments: [ProblemStage.creatingDraft, .readingCalendar, .searchingPeople, .signingIn, .changingEvent])
+    @Test(arguments: [ProblemStage.readingCalendar, .searchingPeople, .signingIn, .changingEvent])
     func connectionWithoutAnEngineAtAMicrosoftStage(stage: ProblemStage) {
         let problem = translate(URLError(.notConnectedToInternet), ProblemContext(stage: stage))
         #expect(problem.title == "Microsoft can't be reached")
@@ -183,11 +183,11 @@ import Testing
         #expect(problem.details.provider == .microsoftSignIn)
     }
 
-    @Test func graphErrorWhileDrafting() {
-        let graphRequest = RequestFacts(method: "POST", path: "/v1.0/me/messages", host: "graph.microsoft.com")
+    @Test func graphErrorDetails() {
+        let graphRequest = RequestFacts(method: "GET", path: "/v1.0/me/calendarView", host: "graph.microsoft.com")
         let error = GraphError.http(status: 500, code: "ErrorInternalServerError", request: graphRequest)
-        let problem = translate(error, ProblemContext(stage: .creatingDraft, accountName: "Work"))
-        #expect(problem.title == "Outlook couldn't create the draft")
+        let problem = translate(error, ProblemContext(stage: .readingCalendar, accountName: "Work"))
+        #expect(problem.title == "Muninn couldn't read the Work calendar")
         #expect(problem.details.httpStatus == 500 && problem.details.graphCode == "ErrorInternalServerError")
         #expect(problem.details.provider == .microsoftGraph && problem.details.request == graphRequest)
         #expect(problem.details.errorDomain == "GraphError" && problem.details.errorCode == nil)
@@ -202,12 +202,12 @@ import Testing
     @Test func graphErrorAtAnotherStageIsGeneric() {
         let error = GraphError.http(status: 503, code: nil, request: request)
         #expect(translate(error, ProblemContext(stage: .searchingPeople)).title == "Something went wrong while searching for people")
-        #expect(translate(GraphError.decoding, ProblemContext(stage: .creatingDraft)).title == "Something went wrong while creating the Outlook draft")
+        #expect(translate(GraphError.decoding, ProblemContext(stage: .searchingPeople)).title == "Something went wrong while searching for people")
     }
 
-    @Test func microsoftUnreachableWhileDrafting() {
+    @Test func microsoftUnreachableWhileSearchingPeople() {
         let error = GraphError.connection(code: -1009, request: request)
-        let problem = translate(error, ProblemContext(stage: .creatingDraft))
+        let problem = translate(error, ProblemContext(stage: .searchingPeople))
         #expect(problem.title == "Microsoft can't be reached")
         #expect(problem.details.errorDomain == NSURLErrorDomain && problem.details.errorCode == -1009)
     }

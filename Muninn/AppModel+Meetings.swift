@@ -4,9 +4,8 @@ import os
 
 private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "meetings")
 
-/// What a draft or a filed note left behind for the meeting's success card.
+/// What a filed note left behind for the meeting's success card.
 enum ActionSuccess: Equatable {
-    case draftCreated(URL?)
     case filed(URL)
 }
 
@@ -15,34 +14,25 @@ enum UnsourcedChoice {
     case include, review, cancel
 }
 
-/// How a draft attempt ended, so the Outlook draft sheet knows whether to close.
-enum DraftOutcome {
-    case created, cancelled, review, failed
-}
-
 enum MeetingActionError: ProblemConvertible {
     case eventUnsettled
     case notReady
     case noSummary
-    case noRecipients
     case unknownAccount
     case vaultNotChosen
     case vaultMissing(String)
-    case linkNotSaved(Error)
     case unsavedEdits
     case eventChangeInProgress
-    case draftOrExportInProgress
+    case exportInProgress
 
     func problem(in context: ProblemContext) -> Problem {
         switch self {
         case .eventUnsettled:
-            return Self.warning("Choose the event first", "Muninn needs the calendar event before it can draft or file the recap.")
+            return Self.warning("Choose the event first", "Muninn needs the calendar event before it can file the recap.")
         case .notReady:
             return Self.warning("The meeting isn't processed yet", "Wait for the recap, then try again.")
         case .noSummary:
             return Self.warning("There's no recap yet", "Write the recap first.")
-        case .noRecipients:
-            return Self.warning("Choose an account and at least one recipient", "The draft needs an account to send from and someone to send to.")
         case .unknownAccount:
             return Self.warning("This meeting's account is no longer in Settings", "Choose another account for the meeting.")
         case .vaultNotChosen:
@@ -53,11 +43,8 @@ enum MeetingActionError: ProblemConvertible {
             return Self.warning("Save your recap edits first", "Muninn couldn't save your last changes. Save them, then try again.")
         case .eventChangeInProgress:
             return Self.warning("The event is being changed", "Try again in a moment.")
-        case .draftOrExportInProgress:
-            return Self.warning("A draft or note is being made", "Change the event once it has finished.")
-        case .linkNotSaved(let error):
-            let details = ProblemTranslator.problem(for: error, in: ProblemContext(stage: context.stage, accountName: context.accountName, subject: "the draft's link")).details
-            return Problem(severity: .problem, title: "The draft was created, but Muninn couldn't save its link", explanation: "Find the draft in Outlook's Drafts.", actions: [], details: details)
+        case .exportInProgress:
+            return Self.warning("A note is being filed", "Change the event once it has finished.")
         }
     }
 
@@ -163,13 +150,13 @@ extension AppModel {
         return (events, failures)
     }
 
-    /// Fetches the chosen event and applies it, unless a draft or note appeared meanwhile. Drafts, exports and regeneration
+    /// Fetches the chosen event and applies it, unless a note appeared meanwhile. Exports and regeneration
     /// are held off for the meeting while the fetch is pending, and the event is judged against the meeting as it is when the fetch ends.
     func chooseEvent(_ ref: CalendarEventRef, for id: MeetingID) async {
         guard eventChangesInFlight.insert(id).inserted else { return }
         var applied = false
         await perform(.changingEvent, for: id, retry: nil) {
-            guard !isDraftOrExportRunning(id) else { throw MeetingActionError.draftOrExportInProgress }
+            guard !isExportRunning(id) else { throw MeetingActionError.exportInProgress }
             guard let account = settings.accounts.first(where: { $0.id == ref.accountID }) else {
                 throw MeetingActionError.unknownAccount
             }
@@ -193,10 +180,10 @@ extension AppModel {
         if applied { Task { await autoFile(id) } }
     }
 
-    /// "No event": the meeting returns to the no-event state (untitled, no attendees, client or event recipients) and can now be drafted and filed.
+    /// "No event": the meeting returns to the no-event state (untitled, no attendees, client or event recipients) and can now be filed.
     func dismissEventChoice(for id: MeetingID) throws {
         guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
-        guard !isDraftOrExportRunning(id) else { throw MeetingActionError.draftOrExportInProgress }
+        guard !isExportRunning(id) else { throw MeetingActionError.exportInProgress }
         var appName: String?
         if case .call(let bundleID) = try store.load(id).captureMode { appName = AppNames.name(bundleID: bundleID) }
         var cleared = false
@@ -213,65 +200,8 @@ extension AppModel {
         }
     }
 
-    private func isDraftOrExportRunning(_ id: MeetingID) -> Bool {
-        [ProblemStage.creatingDraft, .filingNote].contains { actionsInFlight.contains(Self.actionKey($0, id)) }
-    }
-
-    /// Creates the draft in Outlook with `subject`, or the usual recap subject when it is nil or blank.
-    func createDraft(_ id: MeetingID, subject: String? = nil) async -> DraftOutcome {
-        var outcome = DraftOutcome.failed
-        await perform(.creatingDraft, for: id, retry: .draft(subject: subject)) {
-            guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
-            let meeting = try store.load(id)
-            guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
-            guard meeting.candidateEvents.isEmpty else { throw MeetingActionError.eventUnsettled }
-            guard meeting.status == .ready else { throw MeetingActionError.notReady }
-            guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
-            guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
-            guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
-                throw MeetingActionError.unknownAccount
-            }
-            if meeting.draftID != nil || meeting.draftWebLink != nil,
-               Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
-                outcome = .cancelled
-                return
-            }
-            switch confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: id) {
-            case .include:
-                break
-            case .review:
-                outcome = .review
-                return
-            case .cancel:
-                outcome = .cancelled
-                return
-            }
-            let trimmed = subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let result = try await graph.client(for: account).createDraft(
-                subject: trimmed.isEmpty ? RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current) : trimmed,
-                html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
-                to: meeting.recipients.filter(\.included).map(\.attendee)
-            )
-            outcome = .created
-            activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
-            var saveFailure: Error?
-            do {
-                try mutate(id) {
-                    $0.draftID = result.id
-                    $0.draftWebLink = result.webLink?.absoluteString ?? $0.draftWebLink
-                }
-            } catch {
-                saveFailure = error
-            }
-            if let link = result.webLink {
-                NSWorkspace.shared.open(link)
-            } else {
-                actionNotices[id] = Problems.draftWithoutLink()
-            }
-            actionSuccesses[id] = .draftCreated(result.webLink)
-            if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
-        }
-        return outcome
+    private func isExportRunning(_ id: MeetingID) -> Bool {
+        actionsInFlight.contains(Self.actionKey(.filingNote, id))
     }
 
     /// "N recap items have no transcript source": the phrase shared by the question and the auto-file notice.
@@ -331,16 +261,14 @@ extension AppModel {
         activity.record(problem, area: stage.area, meeting: meeting)
     }
 
-    /// What a failed draft or export needs to run again.
+    /// What a failed export needs to run again.
     enum RetryableAction: Equatable {
-        case draft(subject: String?)
         case note
     }
 
-    /// Runs the draft or the export that failed again.
+    /// Runs the export that failed again.
     func retryAction(_ id: MeetingID) {
         switch failedActions[id] {
-        case .draft(let subject): Task { _ = await createDraft(id, subject: subject) }
         case .note: exportToObsidian(id)
         case nil: break
         }

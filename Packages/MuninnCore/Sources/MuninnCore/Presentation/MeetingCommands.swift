@@ -81,14 +81,6 @@ public enum MeetingCommands {
         }
         return hasJob ? wait : nil
     }
-
-    /// Why a draft can't be made for the meeting, or nil when it can.
-    public static func draftRefusal(_ m: Meeting, accounts: [AccountSettings]) -> String? {
-        if m.accountID == nil { return "Choose an account in the meeting's details" }
-        if MeetingActions.accountRemoved(m, accounts: accounts) { return MeetingActions.accountRemovedLabel }
-        if !m.recipients.contains(where: \.included) { return "Choose at least one recipient" }
-        return nil
-    }
 }
 
 /// A speaker change refused because Muninn is recording or working on the meeting.

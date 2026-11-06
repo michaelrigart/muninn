@@ -182,36 +182,24 @@ import Testing
         #expect(chosen.client == "Acme")
     }
 
-    @Test func canDraftRequiresAccountAndRecipient() {
+    @Test func setIncludedTicksAndUnticksByAddressInAnyCase() {
         var m = prepare(.none)
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
-        m.accountID = "work"
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
         m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: [])
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
         m = MeetingActions.setIncluded("JAN@acme.be", false, in: m)
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
+        #expect(m.recipients.map(\.included) == [false])
+        m = MeetingActions.setIncluded("jan@ACME.be", true, in: m)
+        #expect(m.recipients.map(\.included) == [true])
     }
 
-    @Test func aMeetingWhoseAccountWasRemovedCannotDraft() {
+    @Test func accountRemovedNamesAMissingAccount() {
         var m = prepare(.none)
         m.accountID = "gone"
-        m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: [])
         #expect(MeetingActions.accountRemoved(m, accounts: accounts))
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
         m.accountID = "other"
         #expect(!MeetingActions.accountRemoved(m, accounts: accounts))
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
         m.accountID = nil
         #expect(!MeetingActions.accountRemoved(m, accounts: accounts))
         #expect(MeetingActions.accountRemovedLabel == "Account removed — choose an account")
-    }
-
-    @Test func noEventToDraftable() {
-        var m = prepare(.none)
-        m.accountID = "work"
-        m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: ["me@example.com"])
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
     }
 
     @Test func addRecipientIgnoresSelfAndDuplicates() {

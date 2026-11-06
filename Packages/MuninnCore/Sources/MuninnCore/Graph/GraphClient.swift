@@ -12,16 +12,6 @@ enum GraphQuery {
     }
 }
 
-public struct DraftResult: Equatable, Sendable {
-    public var id: String
-    public var webLink: URL?
-
-    public init(id: String, webLink: URL?) {
-        self.id = id
-        self.webLink = webLink
-    }
-}
-
 public struct GraphClient: Sendable {
     static let base = "https://graph.microsoft.com/v1.0"
     static let eventFields = "id,iCalUId,subject,start,end,isAllDay,isCancelled,attendees,organizer"
@@ -81,11 +71,6 @@ public struct GraphClient: Sendable {
         var userPrincipalName: String?
     }
 
-    private struct DraftResponse: Decodable {
-        var id: String
-        var webLink: String?
-    }
-
     private struct PeopleResponse: Decodable {
         struct Entry: Decodable {
             struct Scored: Decodable {
@@ -97,18 +82,14 @@ public struct GraphClient: Sendable {
         var value: [Entry]
     }
 
-    private func send(_ url: URL, method: String = "GET", body: JSONValue? = nil, extraHeaders: [String: String] = [:]) async throws -> Data {
+    private func send(_ url: URL, extraHeaders: [String: String] = [:]) async throws -> Data {
         var request = URLRequest(url: url)
-        request.httpMethod = method
+        request.httpMethod = "GET"
         request.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
         for (name, value) in extraHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
-        }
-        let facts = RequestFacts(method: method, url: url)
+        let facts = RequestFacts(method: "GET", url: url)
         let data: Data
         let response: URLResponse
         do {
@@ -215,19 +196,6 @@ public struct GraphClient: Sendable {
             throw GraphError.decoding
         }
         return date.addingTimeInterval(fraction)
-    }
-
-    public func createDraft(subject: String, html: String, to: [Attendee]) async throws -> DraftResult {
-        let body: JSONValue = .object([
-            "subject": .string(subject),
-            "body": .object(["contentType": .string("HTML"), "content": .string(html)]),
-            "toRecipients": .array(to.map {
-                .object(["emailAddress": .object(["address": .string($0.email), "name": .string($0.name)])])
-            }),
-        ])
-        let data = try await send(URL(string: "\(Self.base)/me/messages")!, method: "POST", body: body)
-        let response = try decode(DraftResponse.self, from: data)
-        return DraftResult(id: response.id, webLink: response.webLink.flatMap { URL(string: $0) })
     }
 
     public func searchPeople(_ query: String) async throws -> [Attendee] {

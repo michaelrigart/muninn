@@ -274,13 +274,6 @@ struct MeetingDetail: View {
         let id = meeting.id
         let card: StatusCard
         switch success {
-        case .draftCreated(let link):
-            card = StatusCard(
-                role: .success,
-                title: "Draft created",
-                actions: link.map { link in [StatusCard.Action(label: "Open in Outlook", run: { NSWorkspace.shared.open(link) })] } ?? [],
-                onDismiss: { model.actionSuccesses[id] = nil }
-            )
         case .filed(let url):
             card = StatusCard(
                 role: .success,

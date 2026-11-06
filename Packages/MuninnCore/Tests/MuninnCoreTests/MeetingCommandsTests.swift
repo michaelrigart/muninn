@@ -108,17 +108,6 @@ struct MeetingCommandsTests {
         #expect(MeetingCommands.disabledReason(.moveToTrash, c.context) == c.reason)
     }
 
-    @Test func draftRefusalNamesWhatIsMissing() {
-        let account = AccountSettings(id: "work", displayName: "Work", vaultArea: "Work", tenant: "t", clientID: "c", selfAddresses: [])
-        let included = Recipient(attendee: Attendee(name: "Sam", email: "sam@example.com"), included: true)
-        let excluded = Recipient(attendee: Attendee(name: "Sam", email: "sam@example.com"), included: false)
-        #expect(MeetingCommands.draftRefusal(Self.meeting(recipients: [included]), accounts: [account]) == "Choose an account in the meeting's details")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "gone", recipients: [included]), accounts: [account]) == MeetingActions.accountRemovedLabel)
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work", recipients: [excluded]), accounts: [account]) == "Choose at least one recipient")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work"), accounts: [account]) == "Choose at least one recipient")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work", recipients: [included]), accounts: [account]) == nil)
-    }
-
     @Test func accountChangeDropsOnlyAnotherAccountsEvent() {
         let withEvent = Self.meeting(association: EventAssociation(accountID: "work", eventID: "e", iCalUID: nil))
         #expect(!MeetingActions.accountChangeDropsEvent(withEvent, to: "work"))

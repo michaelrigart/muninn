@@ -72,7 +72,7 @@ public enum Problems {
     }
 
     public static func signInExpired(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .problem, title: "Sign-in to \(account) expired", explanation: "Sign in again so Muninn can read the calendar and create drafts.", actions: [.signInAgain], details: details.with(account: account))
+        Problem(severity: .problem, title: "Sign-in to \(account) expired", explanation: "Sign in again so Muninn can read the calendar and search people.", actions: [.signInAgain], details: details.with(account: account))
     }
 
     public static func signInFailed(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
@@ -81,10 +81,6 @@ public enum Problems {
 
     public static func microsoftUnreachable(details: ProblemDetails = ProblemDetails()) -> Problem {
         Problem(severity: .problem, title: "Microsoft can't be reached", explanation: "Check the network connection and that a firewall isn't blocking Muninn, then try again.", actions: [.tryAgain], details: details)
-    }
-
-    public static func outlookDraftFailed(details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .problem, title: "Outlook couldn't create the draft", explanation: "Microsoft Graph refused the request. Try again; if it keeps failing, copy the details.", actions: [.tryAgain], details: details)
     }
 
     public static func calendarUnreadable(account: String, details: ProblemDetails = ProblemDetails()) -> Problem {
@@ -216,10 +212,6 @@ public enum Problems {
             ? "1 recap item has no transcript source. Check it, then file the recap."
             : "\(unsourced) recap items have no transcript source. Check them, then file the recap."
         return Problem(severity: .warning, title: "Not filed automatically", explanation: explanation, actions: [], details: details)
-    }
-
-    public static func draftWithoutLink(details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .info, title: "Draft created in Outlook", explanation: "Microsoft didn't return a link to it; find it in Outlook's Drafts.", actions: [], details: details)
     }
 
     public static func waiting(_ reason: WaitReason, api: EndpointAPI, claudeKeyPresent: Bool, details: ProblemDetails = ProblemDetails()) -> Problem {

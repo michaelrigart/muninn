@@ -50,7 +50,7 @@ public struct DeviceCodePrompt: Equatable, Sendable {
 }
 
 public struct DeviceCodeAuthenticator: Sendable {
-    public static let scopes = ["offline_access", "User.Read", "Calendars.Read", "Mail.ReadWrite", "People.Read"]
+    public static let scopes = ["offline_access", "User.Read", "Calendars.Read", "People.Read"]
 
     let clientID: String
     let tenant: String
