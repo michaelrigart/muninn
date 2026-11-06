@@ -305,8 +305,9 @@ an exported Obsidian note, it moves the whole meeting folder to the macOS Trash,
 back from Finder. Muninn watches its meetings folder and reloads its list when a meeting folder
 appears there or goes away, so a put-back meeting shows up again by itself (owner's decision,
 2026-11-06; it first waited for the next reload). Launch and a "Reload" item in the View menu also
-reload the list. The same refusals apply as today: no removal
-while the meeting is recording, processing or queued. The confirmation's default button is Cancel.
+reload the list. If the meetings folder itself is removed or renamed while Muninn runs, watching
+resumes at the next launch. A put-back meeting that needs attention isn't announced again. The
+same refusals apply as today: no removal while the meeting is recording, processing or queued. The confirmation's default button is Cancel.
 
 ### Outlook draft sheet
 
@@ -459,7 +460,7 @@ next starts:
 5. Playback of a recorded meeting plays both tracks in sync; the highlighted word matches the
    audio within 150 ms at 1× and 2×; clicking a recap source mark plays from that moment.
 6. ⌘Z restores a removed bullet, action and subject. A meeting moved to the Trash and put back
-   from Finder appears again after a reload, with its recording, transcript and recap intact.
+   from Finder appears again by itself, with its recording, transcript and recap intact.
 7. Each surface in light and dark passes contrast for its text colours, every icon-only control
    has an accessibility label, and every window works at its minimum size without truncated
    controls.
