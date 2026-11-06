@@ -21,8 +21,9 @@ public final class MeetingFolderWatcher {
         self.debounce = debounce
         self.onChange = onChange
         let descriptor = open(directory.path, O_EVTONLY)
+        let openError = errno
         guard descriptor >= 0 else {
-            logger.error("Watching \(directory.path, privacy: .public) failed: \(String(cString: strerror(errno)), privacy: .public)")
+            logger.error("Watching \(directory.path, privacy: .public) failed: \(String(cString: strerror(openError)), privacy: .public)")
             return
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .delete, .rename], queue: events)

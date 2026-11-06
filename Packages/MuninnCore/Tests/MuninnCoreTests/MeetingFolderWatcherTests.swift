@@ -34,11 +34,11 @@ struct MeetingFolderWatcherTests {
         return folder
     }
 
-    private func watch(_ root: URL, _ counter: Counter) -> MeetingFolderWatcher {
+    private func watch(_ root: URL, _ counter: Counter, debounce: TimeInterval = 0.1) -> MeetingFolderWatcher {
         MeetingFolderWatcher(
             directory: root,
             queue: DispatchQueue(label: "watcher-tests"),
-            debounce: 0.1,
+            debounce: debounce,
             onChange: { counter.increment() }
         )
     }
@@ -54,13 +54,13 @@ struct MeetingFolderWatcherTests {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let counter = Counter()
-        let watcher = watch(root, counter)
+        let watcher = watch(root, counter, debounce: 0.5)
         defer { watcher.stop() }
 
         _ = try makeMeeting("20261106-0900-standup", in: root)
         _ = try makeMeeting("20261106-1000-review", in: root)
         try await wait(upTo: 3) { counter.count > 0 }
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(1000))
         #expect(counter.count == 1)
     }
 
@@ -101,6 +101,25 @@ struct MeetingFolderWatcherTests {
 
         watcher.stop()
         _ = try makeMeeting("20261106-0900-standup", in: root)
+        try await wait(upTo: 0.5) { counter.count > 0 }
+        #expect(counter.count == 0)
+    }
+
+    @Test func deletingOrRenamingTheFolderStopsWatching() async throws {
+        let root = try temporaryRoot()
+        let renamed = root.deletingLastPathComponent()
+            .appendingPathComponent("muninn-watcher-renamed-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: renamed)
+        }
+        let counter = Counter()
+        let watcher = watch(root, counter)
+        defer { watcher.stop() }
+
+        try FileManager.default.moveItem(at: root, to: renamed)
+        try await wait(upTo: 0.5) { counter.count > 0 }
+        _ = try makeMeeting("20261106-0900-standup", in: renamed)
         try await wait(upTo: 0.5) { counter.count > 0 }
         #expect(counter.count == 0)
     }
