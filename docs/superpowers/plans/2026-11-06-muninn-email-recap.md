@@ -1,6 +1,8 @@
 # Muninn email recap — Implementation Plan
 
-**Status:** In progress — [PR #6](https://github.com/michaelrigart/muninn/pull/6)
+**Status:** Implemented — [PR #6](https://github.com/michaelrigart/muninn/pull/6)
+
+> **Execution complete (2026-11-06).** All 6 tasks are implemented, with the review fixes listed under "Changes during execution". Do not run this plan again. The manual paste, keyboard and VoiceOver checks are done by hand on the owner's Mac.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -32,6 +34,15 @@
 3. **A typed address with spaces around it** (`"  ann@example.com "`): trimmed and accepted, while a space inside it is refused. Pinned in Task 1.
 4. **Accented names and international addresses** (`Zoë Peeters`, `zoë@exämple.be`): accepted, and the name is not quoted. Pinned in Task 1.
 5. **A recap with no subjects**: the plain text still reads greeting, intro, "Action points", closing. Pinned in Task 2.
+
+## Changes during execution
+
+Decided in the task and final reviews; the pull request records them under "Rulings".
+
+1. Escape closes the sheet through a hidden button with `.keyboardShortcut(.cancelAction)` (out of sight, out of the accessibility tree and out of Tab focus) instead of `.onExitCommand`, which a focused text field can swallow (Task 3).
+2. A recipient name equal to its address, ignoring case, counts as empty in the copied line, so an external attendee reads `bob@client.com`, not `"bob@client.com" <bob@client.com>` (final review).
+3. A meeting whose account was removed from Settings is treated like one without an account in the sheet: the field says "Email address" and doesn't search people (final review).
+4. The shared unsourced-items question's explanation reads "Nothing is copied or filed unless you include them." (Task 3, as planned).
 
 ---
 
