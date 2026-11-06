@@ -4,6 +4,22 @@ import os
 
 private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "meetings")
 
+/// What a draft or a filed note left behind for the meeting's success card.
+enum ActionSuccess: Equatable {
+    case draftCreated(URL?)
+    case filed(URL)
+}
+
+/// The answer to "N recap items have no transcript source".
+enum UnsourcedChoice {
+    case include, review, cancel
+}
+
+/// How a draft attempt ended, so the Outlook draft sheet knows whether to close.
+enum DraftOutcome {
+    case created, cancelled, review, failed
+}
+
 enum MeetingActionError: ProblemConvertible {
     case eventUnsettled
     case notReady
@@ -58,47 +74,74 @@ extension AppModel {
         apply(meeting)
     }
 
-    /// Asks first, then removes the meeting's folder. A meeting that is recording, being processed or has a job queued is refused;
-    /// an exported Obsidian note is never touched, but its links to the audio and transcript stop working.
-    func deleteMeeting(_ id: MeetingID) {
-        Task { await confirmAndDelete(id) }
+    /// Names a transcript speaker for the meeting (a blank name puts the default back) and rewrites the transcript files,
+    /// which carry the names.
+    func renameSpeaker(_ speaker: String, to name: String, in id: MeetingID, transcript: Transcript, clean: CleanTranscript?) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var names: [String: String] = [:]
+        try mutate(id) { current in
+            if trimmed.isEmpty {
+                current.speakerNames.removeValue(forKey: speaker)
+            } else {
+                current.speakerNames[speaker] = trimmed
+            }
+            names = current.speakerNames
+        }
+        try store.saveTranscript(transcript, for: id, speakerNames: names, userName: resolvedUserName)
+        if let clean {
+            try store.saveClean(clean, transcript: transcript, for: id, speakerNames: names, userName: resolvedUserName)
+        }
     }
 
-    private func confirmAndDelete(_ id: MeetingID) async {
+    /// Asks first, then moves the meeting's folder to the Trash. A meeting that is recording, being processed or has a job queued is refused;
+    /// an exported Obsidian note is never touched, but its links to the audio and transcript stop working until the meeting is put back.
+    func trashMeeting(_ id: MeetingID) {
+        Task { await confirmAndTrash(id) }
+    }
+
+    private func confirmAndTrash(_ id: MeetingID) async {
         guard let meeting = try? store.load(id) else { return }
-        guard await canDelete(meeting) else {
+        guard await canTrash(meeting) else {
             _ = Alerts.ask(
-                "This meeting can't be deleted yet",
-                "It is still recording or being processed. Delete it once it has finished.",
+                "This meeting can't be moved to the Trash yet",
+                "It is still recording or being processed. Try again once it has finished.",
                 buttons: ["OK"]
             )
             return
         }
+        var detail = "You can put it back from the Trash in Finder, with its recording, transcript and recap."
+        if meeting.exportedNotePath != nil {
+            detail += " The note in Obsidian stays, but its links to the recording and transcript stop working until you put the meeting back."
+        }
         guard Alerts.ask(
-            "Delete \u{201C}\(meeting.title)\u{201D}?",
-            "This permanently deletes its recording, transcript and recap from Muninn's folder. A note already exported to Obsidian is not touched, but its links to the audio and to Muninn's transcript files will stop working.",
-            buttons: ["Delete", "Cancel"],
-            destructiveFirst: true
-        ) == 0 else { return }
-        guard let current = try? store.load(id), await canDelete(current) else { return }
+            "Move \u{201C}\(meeting.title)\u{201D} to the Trash?",
+            detail,
+            buttons: ["Cancel", "Move to Trash"],
+            destructive: 1
+        ) == 1 else { return }
+        guard let current = try? store.load(id), await canTrash(current) else { return }
         do {
             deletedIDs.insert(id)
-            try store.delete(id)
+            try store.moveToTrash(id)
         } catch {
             deletedIDs.remove(id)
-            logger.error("Deleting \(id.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            report(error, stage: .deletingMeeting, for: id)
+            logger.error("Moving \(id.rawValue, privacy: .public) to the Trash failed: \(String(describing: error), privacy: .public)")
+            report(error, stage: .trashingMeeting, for: id)
             return
         }
+        activity.record(.info, .app, "Moved to the Trash", meeting: current)
         meetings.removeAll { $0.id == id }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        actionSuccesses[id] = nil
         failedActions[id] = nil
         unsavedSummaries[id] = nil
+        player.unload(id)
+        playbackPositions.remove(id)
         if selectedMeetingID == id { selectedMeetingID = nil }
     }
 
-    private func canDelete(_ meeting: Meeting) async -> Bool {
+    private func canTrash(_ meeting: Meeting) async -> Bool {
         guard MeetingActions.canDelete(meeting) else { return false }
         return await !pipeline.hasJob(for: meeting.id)
     }
@@ -130,7 +173,7 @@ extension AppModel {
     func chooseEvent(_ ref: CalendarEventRef, for id: MeetingID) async {
         guard eventChangesInFlight.insert(id).inserted else { return }
         var applied = false
-        await perform(.changingEvent, for: id) {
+        await perform(.changingEvent, for: id, retry: nil) {
             guard !isDraftOrExportRunning(id) else { throw MeetingActionError.draftOrExportInProgress }
             guard let account = settings.accounts.first(where: { $0.id == ref.accountID }) else {
                 throw MeetingActionError.unknownAccount
@@ -179,47 +222,61 @@ extension AppModel {
         [ProblemStage.creatingDraft, .filingNote].contains { actionsInFlight.contains(Self.actionKey($0, id)) }
     }
 
-    func createDraft(_ id: MeetingID) {
-        Task {
-            await perform(.creatingDraft, for: id) {
-                guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
-                let meeting = try store.load(id)
-                guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
-                guard meeting.candidateEvents.isEmpty else { throw MeetingActionError.eventUnsettled }
-                guard meeting.status == .ready else { throw MeetingActionError.notReady }
-                guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
-                guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
-                guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
-                    throw MeetingActionError.unknownAccount
-                }
-                if meeting.draftID != nil || meeting.draftWebLink != nil,
-                   Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
-                    return
-                }
-                guard confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: id) else { return }
-                let result = try await graph.client(for: account).createDraft(
-                    subject: RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current),
-                    html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
-                    to: meeting.recipients.filter(\.included).map(\.attendee)
-                )
-                activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
-                var saveFailure: Error?
-                do {
-                    try mutate(id) {
-                        $0.draftID = result.id
-                        $0.draftWebLink = result.webLink?.absoluteString ?? $0.draftWebLink
-                    }
-                } catch {
-                    saveFailure = error
-                }
-                if let link = result.webLink {
-                    NSWorkspace.shared.open(link)
-                } else {
-                    actionNotices[id] = Problems.draftWithoutLink()
-                }
-                if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
+    /// Creates the draft in Outlook with `subject`, or the usual recap subject when it is nil or blank.
+    func createDraft(_ id: MeetingID, subject: String? = nil) async -> DraftOutcome {
+        var outcome = DraftOutcome.failed
+        await perform(.creatingDraft, for: id, retry: .draft(subject: subject)) {
+            guard !eventChangesInFlight.contains(id) else { throw MeetingActionError.eventChangeInProgress }
+            let meeting = try store.load(id)
+            guard unsavedSummaries[id] == nil else { throw MeetingActionError.unsavedEdits }
+            guard meeting.candidateEvents.isEmpty else { throw MeetingActionError.eventUnsettled }
+            guard meeting.status == .ready else { throw MeetingActionError.notReady }
+            guard MeetingActions.canDraft(meeting, accounts: settings.accounts), let accountID = meeting.accountID else { throw MeetingActionError.noRecipients }
+            guard let summary = try store.loadSummary(id) else { throw MeetingActionError.noSummary }
+            guard let account = settings.accounts.first(where: { $0.id == accountID }) else {
+                throw MeetingActionError.unknownAccount
             }
+            if meeting.draftID != nil || meeting.draftWebLink != nil,
+               Alerts.ask("A draft already exists", "A draft already exists. Create another?", buttons: ["Create Another", "Cancel"]) != 0 {
+                outcome = .cancelled
+                return
+            }
+            switch confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: id) {
+            case .include:
+                break
+            case .review:
+                outcome = .review
+                return
+            case .cancel:
+                outcome = .cancelled
+                return
+            }
+            let trimmed = subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let result = try await graph.client(for: account).createDraft(
+                subject: trimmed.isEmpty ? RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current) : trimmed,
+                html: RecapEmail.html(summary: summary, speakerNames: meeting.speakerNames),
+                to: meeting.recipients.filter(\.included).map(\.attendee)
+            )
+            outcome = .created
+            activity.record(.info, .outlook, "Draft created in Outlook", meeting: meeting)
+            var saveFailure: Error?
+            do {
+                try mutate(id) {
+                    $0.draftID = result.id
+                    $0.draftWebLink = result.webLink?.absoluteString ?? $0.draftWebLink
+                }
+            } catch {
+                saveFailure = error
+            }
+            if let link = result.webLink {
+                NSWorkspace.shared.open(link)
+            } else {
+                actionNotices[id] = Problems.draftWithoutLink()
+            }
+            actionSuccesses[id] = .draftCreated(result.webLink)
+            if let saveFailure { throw MeetingActionError.linkNotSaved(saveFailure) }
         }
+        return outcome
     }
 
     /// "N recap items have no transcript source": the phrase shared by the question and the auto-file notice.
@@ -229,41 +286,43 @@ extension AppModel {
 
     /// Before a recap leaves Muninn (draft or note): asks whether items without a transcript source may go along.
     /// "Review first" opens the meeting and stops, so the items can be checked in the editor.
-    func confirmUnsourcedItems(_ count: Int, for id: MeetingID) -> Bool {
-        guard count > 0 else { return true }
+    func confirmUnsourcedItems(_ count: Int, for id: MeetingID) -> UnsourcedChoice {
+        guard count > 0 else { return .include }
         switch Alerts.ask(
             "\(Self.unsourcedPhrase(count)). Include \(count == 1 ? "it" : "them") anyway?",
             "They are marked in the recap editor. Nothing is sent or filed unless you include them.",
             buttons: ["Include", "Review first", "Cancel"]
         ) {
         case 0:
-            return true
+            return .include
         case 1:
-            showMeeting(id)
-            return false
+            showRecap(id)
+            return .review
         default:
-            return false
+            return .cancel
         }
     }
 
     /// Runs one user-visible action per meeting at a time; a failure lands in `actionErrors` for the meeting's problem card.
-    func perform(_ stage: ProblemStage, for id: MeetingID, _ body: () async throws -> Void) async {
+    /// `retry` is what the problem card's "Try again" runs after a failure; nil leaves the card without one.
+    func perform(_ stage: ProblemStage, for id: MeetingID, retry: RetryableAction?, _ body: () async throws -> Void) async {
         let key = Self.actionKey(stage, id)
         guard actionsInFlight.insert(key).inserted else { return }
         defer { actionsInFlight.remove(key) }
         actionErrors[id] = nil
         actionNotices[id] = nil
+        actionSuccesses[id] = nil
         failedActions[id] = nil
         do {
             try await body()
         } catch {
             logger.error("Couldn't run \(stage.rawValue, privacy: .public) for \(id.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
-            report(error, stage: stage, for: id)
+            report(error, stage: stage, retry: retry, for: id)
         }
     }
 
     /// Shows what went wrong with a meeting's action as a problem card and records it. A cancellation is not a failure.
-    func report(_ error: Error, stage: ProblemStage, for id: MeetingID) {
+    func report(_ error: Error, stage: ProblemStage, retry: RetryableAction? = nil, for id: MeetingID) {
         guard !ActivityCenter.isCancellation(error) else { return }
         let meeting = meetings.first { $0.id == id }
         let context = ProblemContext(
@@ -273,16 +332,22 @@ extension AppModel {
         )
         let problem = ProblemTranslator.problem(for: error, in: context)
         actionErrors[id] = problem
-        failedActions[id] = [.creatingDraft, .filingNote].contains(stage) ? stage : nil
+        failedActions[id] = retry
         activity.record(problem, area: stage.area, meeting: meeting)
+    }
+
+    /// What a failed draft or export needs to run again.
+    enum RetryableAction: Equatable {
+        case draft(subject: String?)
+        case note
     }
 
     /// Runs the draft or the export that failed again.
     func retryAction(_ id: MeetingID) {
         switch failedActions[id] {
-        case .creatingDraft: createDraft(id)
-        case .filingNote: exportToObsidian(id)
-        default: break
+        case .draft(let subject): Task { _ = await createDraft(id, subject: subject) }
+        case .note: exportToObsidian(id)
+        case nil: break
         }
     }
 

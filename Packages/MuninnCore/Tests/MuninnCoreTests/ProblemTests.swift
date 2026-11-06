@@ -33,6 +33,7 @@ import Testing
             Problems.speechModelUnavailable(model: "parakeet"),
             Problems.couldNotSave(what: "the settings"),
             Problems.couldNotDelete(what: "the meeting"),
+            Problems.couldNotMoveToTrash(what: "the meeting"),
             Problems.signedInProfileUnreadable(account: "Work"),
             Problems.signInUnreadable(account: "Work"),
             Problems.hotkeyInUse(keys: "⌃⌥F"),
@@ -193,6 +194,7 @@ import Testing
             (Problems.speechModelUnavailable(model: "m"), .problem, [.tryAgain]),
             (Problems.couldNotSave(what: "x"), .problem, [.tryAgain]),
             (Problems.couldNotDelete(what: "x"), .problem, []),
+            (Problems.couldNotMoveToTrash(what: "x"), .problem, []),
             (Problems.signedInProfileUnreadable(account: "Work"), .problem, [.tryAgain]),
             (Problems.signInUnreadable(account: "Work"), .problem, [.signInAgain]),
             (Problems.hotkeyInUse(keys: "k"), .problem, [.recordingSettings]),
@@ -257,6 +259,10 @@ import Testing
         #expect(ProblemStage.writingRecap.phrase == "writing the recap")
         #expect(ProblemStage.writingRecap.area == .recap)
         #expect(ProblemStage.creatingDraft.area == .outlook)
+        #expect(ProblemStage.playingRecording.phrase == "playing the recording")
+        #expect(ProblemStage.playingRecording.area == .recording)
+        #expect(ProblemStage.trashingMeeting.phrase == "moving the meeting to the Trash")
+        #expect(ProblemStage.trashingMeeting.area == .app)
     }
 
     @Test func waitNeedsYouOnlyForReasonsThatDontClear() {

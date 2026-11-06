@@ -7,7 +7,7 @@ private let logger = Logger(subsystem: AppIdentity.bundleIdentifier, category: "
 extension AppModel {
     func exportToObsidian(_ id: MeetingID) {
         Task {
-            await perform(.filingNote, for: id) {
+            await perform(.filingNote, for: id, retry: .note) {
                 _ = try await export(id, askToOverwrite: true)
             }
         }
@@ -47,7 +47,7 @@ extension AppModel {
         case .file:
             break
         }
-        await perform(.filingNote, for: id) {
+        await perform(.filingNote, for: id, retry: .note) {
             if try await !export(id, askToOverwrite: false) {
                 logger.info("Not auto-filing \(id.rawValue, privacy: .public): a note already exists")
             }
@@ -71,7 +71,7 @@ extension AppModel {
             throw MeetingActionError.vaultMissing(vault.path)
         }
         let unsourced = MeetingActions.unsourcedItemCount(in: summary)
-        if unsourced > 0, !askToOverwrite || !confirmUnsourcedItems(unsourced, for: id) { return false }
+        if unsourced > 0, !askToOverwrite || confirmUnsourcedItems(unsourced, for: id) != .include { return false }
 
         var relativePath = NotePlanner.relativePath(meeting: meeting, settings: settings, timeZone: .current)
         var overwrite = false
@@ -121,12 +121,13 @@ extension AppModel {
         var outcome = try await run(overwrite: overwrite)
         if case .alreadyExists = outcome {
             guard askToOverwrite,
-                  Alerts.ask("A note already exists", "\(path) is already in the vault. Overwrite?", buttons: ["Overwrite", "Cancel"], destructiveFirst: true) == 0
+                  Alerts.ask("A note already exists", "\(path) is already in the vault. Overwrite?", buttons: ["Overwrite", "Cancel"], destructive: 0) == 0
             else { return false }
             outcome = try await run(overwrite: true)
         }
         guard case .written = outcome else { return false }
         activity.record(.info, .obsidian, "Filed in Obsidian", meeting: meeting)
+        actionSuccesses[id] = .filed(vault.appendingPathComponent(path))
         try mutate(id) { $0.exportedNotePath = path }
         return true
     }

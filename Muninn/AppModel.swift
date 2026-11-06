@@ -84,11 +84,15 @@ final class AppModel: ObservableObject {
     @Published var openMeetingsRequest = 0
     @Published private(set) var openActivityRequest = 0
     @Published private(set) var openSettingsRequest = 0
+    /// Bumped to ask an open Meetings window to show the Recap tab.
+    @Published private(set) var showRecapRequest = 0
     /// The last failed draft, export or event change per meeting, shown as that meeting's problem card.
     @Published var actionErrors: [MeetingID: Problem] = [:]
     @Published var actionNotices: [MeetingID: Problem] = [:]
-    /// The stage of a failed draft or export, so the problem card can run it again.
-    @Published var failedActions: [MeetingID: ProblemStage] = [:]
+    /// The last draft or filed note per meeting, shown as that meeting's success card until it is dismissed or another action starts.
+    @Published var actionSuccesses: [MeetingID: ActionSuccess] = [:]
+    /// What to run again for a failed draft or export, so the problem card can retry it.
+    @Published var failedActions: [MeetingID: RetryableAction] = [:]
     /// Recap edits that couldn't be saved, per meeting, kept until a save succeeds.
     @Published var unsavedSummaries: [MeetingID: UnsavedSummary] = [:]
     /// Accounts whose stored sign-in Microsoft rejected during the last calendar refresh.
@@ -108,6 +112,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var claudeKeyPresent = false
     @Published var sidebarFilter = SidebarFilter.all
     @Published var settingsTab = SettingsTab.engines
+    /// Bumped by every reload, so views that read a meeting's files or texts read them again.
+    @Published private(set) var reloadRevision = 0
 
     let paths: MuninnPaths
     let store: MeetingStore
@@ -117,6 +123,8 @@ final class AppModel: ObservableObject {
     let graph: GraphServices
     let calendar: CalendarCache
     let activity: ActivityCenter
+    let playbackPositions: PlaybackPositions
+    let player: MeetingPlayer
 
     var actionsInFlight: Set<String> = []
     private let settingsBox: SettingsBox
@@ -124,9 +132,11 @@ final class AppModel: ObservableObject {
     private var setupTask: Task<Void, Never>?
     private var lifecycleTask: Task<Void, Never>?
     private var calendarTask: Task<Void, Never>?
+    private var folderWatcher: MeetingFolderWatcher?
     /// Meetings already announced this session; processing or regenerating one on request lets it announce again.
     private var notified: Set<MeetingID> = []
-    /// Meetings deleted this session. A pipeline callback that is still in flight for one of them is dropped.
+    /// Meetings deleted or moved to the Trash, cleared again when a reload lists them. A pipeline callback that is still
+    /// in flight for one of them is dropped.
     var deletedIDs: Set<MeetingID> = []
     /// Set once the "choose your vault" notice has been shown for auto-filing, so it appears once per session.
     var vaultNoticeShown = false
@@ -157,6 +167,9 @@ final class AppModel: ObservableObject {
         self.settings = loaded
         self.settingsBox = box
         self.activity = activity
+        let playbackPositions = PlaybackPositions(file: paths.playbackFile)
+        self.playbackPositions = playbackPositions
+        self.player = MeetingPlayer(positions: playbackPositions, store: store, activity: activity)
         self.recordingGate = gate
         let graph = GraphServices(secrets: secrets)
         self.graph = graph
@@ -207,6 +220,9 @@ final class AppModel: ObservableObject {
             activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
+        folderWatcher = MeetingFolderWatcher(directory: paths.meetings, queue: .main) { [weak self] in
+            MainActor.assumeIsolated { self?.reloadMeetings() }
+        }
         refreshClaudeKey()
         SpeechModelActivity.shared.setObserver { [weak self] models in
             Task { @MainActor in self?.speechModels = models }
@@ -222,7 +238,7 @@ final class AppModel: ObservableObject {
             }
             self?.pipelineSnapshot = await pipeline.snapshot()
         }
-        RecapNotifications.start { [weak self] id in self?.showMeeting(id) }
+        RecapNotifications.start { [weak self] id in self?.showRecap(id) }
         startLifecycle()
     }
 
@@ -273,6 +289,17 @@ final class AppModel: ObservableObject {
 
     func progress(for meeting: Meeting) -> MeetingProgress {
         ProcessingDisplay.progress(for: meeting, snapshot: pipelineSnapshot, speechModel: speechModels.first)
+    }
+
+    func commandContext(for meeting: Meeting, hasRecap: Bool = false, includePreviousRecap: Bool = true) -> MeetingCommandContext {
+        MeetingCommandContext(
+            meeting: meeting,
+            progress: progress(for: meeting),
+            hasRecap: hasRecap,
+            hasPreviousRecap: includePreviousRecap && store.hasPreviousSummary(meeting.id),
+            unsavedEdits: unsavedSummaries[meeting.id] != nil,
+            eventChanging: eventChangesInFlight.contains(meeting.id)
+        )
     }
 
     func dismissEngineNotice(_ id: MeetingID) {
@@ -376,6 +403,12 @@ final class AppModel: ObservableObject {
         openMeetingsRequest += 1
     }
 
+    /// Opens the meeting on its Recap tab, even if the window is already open on the Transcript.
+    func showRecap(_ id: MeetingID) {
+        showMeeting(id)
+        showRecapRequest += 1
+    }
+
     /// Opens Settings on a pane, from anywhere, including the floating panels that have no window actions of their own.
     func showSettings(_ tab: SettingsTab) {
         settingsTab = tab
@@ -413,6 +446,8 @@ final class AppModel: ObservableObject {
             let previous = Dictionary(meetings.map { ($0.id, $0.status) }, uniquingKeysWith: { first, _ in first })
             let list = try store.list()
             meetings = list
+            deletedIDs.subtract(list.map(\.id))
+            reloadRevision += 1
             loaded = true
             for meeting in list where meeting.status == .ready && previous[meeting.id].map({ $0 != .ready }) == true {
                 recapReady(meeting)

@@ -199,15 +199,15 @@ final class CalendarCache {
 
 @MainActor
 enum Alerts {
-    /// Shows a modal question and returns the index of the pressed button (0 is the first title).
-    static func ask(_ message: String, _ detail: String, buttons: [String], destructiveFirst: Bool = false) -> Int {
+    /// Shows a modal question and returns the index of the pressed button (0 is the first title). The button at `destructive` is drawn as destructive.
+    static func ask(_ message: String, _ detail: String, buttons: [String], destructive: Int? = nil) -> Int {
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = detail
         for title in buttons {
             alert.addButton(withTitle: title)
         }
-        if destructiveFirst { alert.buttons[0].hasDestructiveAction = true }
+        if let destructive, alert.buttons.indices.contains(destructive) { alert.buttons[destructive].hasDestructiveAction = true }
         NSApp.activate()
         return alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }

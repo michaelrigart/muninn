@@ -345,7 +345,7 @@ private struct AccountsTab: View {
             "Remove \(account.displayName)?",
             "This signs the account out and deletes its stored sign-in from the Keychain. Meetings already recorded keep their data.",
             buttons: ["Remove Account", "Cancel"],
-            destructiveFirst: true
+            destructive: 0
         )
         guard answer == 0 else { return }
         do {

@@ -52,3 +52,60 @@ func darkRoleTextMeetsAA(_ colour: RGB) {
     for fill in lightFills { #expect(Contrast.ratio(Palette.accentLight, fill) >= 4.5) }
     for fill in darkFills { #expect(Contrast.ratio(Palette.accentDark, fill) >= 4.5) }
 }
+
+@Test func speakerColoursMeetAA() {
+    let lightSoft = Contrast.composite(Palette.accentLight, alpha: Palette.softLight, over: Palette.contentLight)
+    let darkSoft = Contrast.composite(Palette.accentDark, alpha: Palette.softDark, over: Palette.contentDark)
+
+    #expect(Palette.speakerLight.count == SpeakerColours.count)
+    #expect(Palette.speakerDark.count == SpeakerColours.count)
+    for colour in Palette.speakerLight {
+        #expect(Contrast.ratio(colour, Palette.contentLight) >= 4.5)
+        #expect(Contrast.ratio(colour, lightSoft) >= 4.5)
+    }
+    for colour in Palette.speakerDark {
+        #expect(Contrast.ratio(colour, Palette.contentDark) >= 4.5)
+        #expect(Contrast.ratio(colour, darkSoft) >= 4.5)
+    }
+}
+
+@Test func primaryTextMeetsAAOnTheCurrentWord() {
+    let light = Contrast.composite(Palette.accentLight, alpha: Palette.midLight, over: Palette.contentLight)
+    let dark = Contrast.composite(Palette.accentDark, alpha: Palette.midDark, over: Palette.contentDark)
+    let lightText = Contrast.composite(RGB(hex: 0x000000), alpha: Palette.primaryTextAlpha, over: light)
+    let darkText = Contrast.composite(RGB(hex: 0xFFFFFF), alpha: Palette.primaryTextAlpha, over: dark)
+
+    #expect(Contrast.ratio(lightText, light) >= 4.5)
+    #expect(Contrast.ratio(darkText, dark) >= 4.5)
+}
+
+@Test func speakerIndicesFollowFirstAppearance() {
+    func segment(_ id: Int, _ speaker: String) -> Segment {
+        Segment(id: id, track: .system, speaker: speaker, start: Double(id), end: Double(id) + 1, text: "", words: [])
+    }
+    let transcript = Transcript(
+        segments: ["S2", "you", "S1", "S3", "S4", "S5", "S6", "S2"].enumerated().map { segment($0.offset, $0.element) },
+        language: nil
+    )
+
+    #expect(SpeakerColours.indices(for: transcript) == ["you": 0, "S2": 1, "S1": 2, "S3": 3, "S4": 4, "S5": 5, "S6": 1])
+}
+
+@Test func personIndexIsStable() {
+    #expect(SpeakerColours.personIndex(name: "Ann Example", email: "") == 2)
+    #expect(SpeakerColours.personIndex(name: "ANN EXAMPLE ", email: "") == 2)
+    #expect(SpeakerColours.personIndex(name: "Bob Example", email: "") == 4)
+    #expect(SpeakerColours.personIndex(name: "", email: "ann.example@example.com") == 3)
+}
+
+@Test func tertiaryAndAttentionTextMeetAAOnTheirChipFills() {
+    let lightNeutral = Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentLight)
+    let darkNeutral = Contrast.composite(Palette.neutral, alpha: Palette.neutralSoftAlpha, over: Palette.contentDark)
+    let lightAttention = Contrast.composite(Palette.attentionFillLight, alpha: Palette.softLight, over: Palette.contentLight)
+    let darkAttention = Contrast.composite(Palette.attentionDark, alpha: Palette.softDark, over: Palette.contentDark)
+
+    #expect(Contrast.ratio(Palette.tertiaryTextLight, lightNeutral) >= 4.5)
+    #expect(Contrast.ratio(Palette.tertiaryTextDark, darkNeutral) >= 4.5)
+    #expect(Contrast.ratio(Palette.attentionTextLight, lightAttention) >= 4.5)
+    #expect(Contrast.ratio(Palette.attentionDark, darkAttention) >= 4.5)
+}

@@ -63,6 +63,12 @@ struct RecapEmailTests {
         #expect(html.contains("<li><b>Jan</b>: Send quote (07/11)</li>"))
     }
 
+    @Test func dueDateHelperFormatsValidDatesAndRejectsOthers() {
+        #expect(RecapEmail.dueDate("2026-11-07") == "07/11")
+        #expect(RecapEmail.dueDate("next week") == nil)
+        #expect(RecapEmail.dueDate("2026-13-07") == nil)
+    }
+
     @Test func ownerResolvedThroughSpeakerNames() {
         let html = RecapEmail.html(summary: Self.summary(language: "en", owner: "S1"), speakerNames: ["S1": "Sara"])
         #expect(html.contains("<b>Sara</b>"))

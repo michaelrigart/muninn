@@ -257,6 +257,14 @@ import Testing
         #expect(translate(error, ProblemContext(stage: .deletingMeeting)).title == "Muninn couldn't delete the meeting")
     }
 
+    @Test func aDiskFailureWhileTrashingSaysMovingToTheTrash() {
+        let error = NSError(domain: NSCocoaErrorDomain, code: 513, userInfo: [NSFilePathErrorKey: "/x/m"])
+        let named = translate(error, ProblemContext(stage: .trashingMeeting, subject: "the folder"))
+        #expect(named.title == "Muninn couldn't move the folder to the Trash")
+        #expect(named.details.path == "/x/m")
+        #expect(translate(error, ProblemContext(stage: .trashingMeeting)).title == "Muninn couldn't move the meeting to the Trash")
+    }
+
     @Test func otherCocoaErrorsAreGeneric() {
         let problem = translate(CocoaError(.fileNoSuchFile), ProblemContext(stage: .loadingMeetings))
         #expect(problem.title == "Something went wrong while loading the meetings")

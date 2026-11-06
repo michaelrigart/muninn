@@ -46,6 +46,14 @@ public enum Palette {
     public static let softDark = 0.13
     public static let neutral = RGB(hex: 0x808080)
     public static let neutralSoftAlpha = 0.08
+
+    /// Speaker colours, in the order `SpeakerColours` indexes them.
+    public static let speakerLight = [0x2C5DB0, 0x7A3FA8, 0xA2461C, 0x5E6B12, 0xA8336F, 0x1D6779].map { RGB(hex: $0) }
+    public static let speakerDark = [0x8AB4F5, 0xC29BEA, 0xF0946A, 0xB8C75A, 0xF08DBE, 0x5FB0C2].map { RGB(hex: $0) }
+
+    /// The accent's opacity behind the word being read along.
+    public static let midLight = 0.28
+    public static let midDark = 0.32
 }
 
 /// WCAG 2 contrast.

@@ -1,7 +1,7 @@
 # Muninn UX pass — design
 
 **Date:** 2026-11-03
-**Status:** In progress — [PR #3](https://github.com/michaelrigart/muninn/pull/3) (pull request 1 of 3)
+**Status:** In progress — [PR #3](https://github.com/michaelrigart/muninn/pull/3) (pull request 1 of 3, merged), [PR #4](https://github.com/michaelrigart/muninn/pull/4) (pull request 2 of 3)
 **Mockups:** the direction and playback mockups shown to the owner on 2026-11-03 are described in
 full below; this document is the reference, the mockups were the illustration.
 
@@ -302,9 +302,12 @@ range, duration, language); one row of chips:
 
 "Move to Trash…" replaces the permanent delete. After a confirmation that says what happens to
 an exported Obsidian note, it moves the whole meeting folder to the macOS Trash, so it can be put
-back from Finder. Muninn picks a put-back meeting up again the next time it reloads its list (at
-launch, and from a "Reload" item in the View menu). The same refusals apply as today: no removal
-while the meeting is recording, processing or queued. The confirmation's default button is Cancel.
+back from Finder. Muninn watches its meetings folder and reloads its list when a meeting folder
+appears there or goes away, so a put-back meeting shows up again by itself (owner's decision,
+2026-11-06; it first waited for the next reload). Launch and a "Reload" item in the View menu also
+reload the list. If the meetings folder itself is removed or renamed while Muninn runs, watching
+resumes at the next launch. A put-back meeting that needs attention isn't announced again. The
+same refusals apply as today: no removal while the meeting is recording, processing or queued. The confirmation's default button is Cancel.
 
 ### Outlook draft sheet
 
@@ -457,7 +460,7 @@ next starts:
 5. Playback of a recorded meeting plays both tracks in sync; the highlighted word matches the
    audio within 150 ms at 1× and 2×; clicking a recap source mark plays from that moment.
 6. ⌘Z restores a removed bullet, action and subject. A meeting moved to the Trash and put back
-   from Finder appears again after a reload, with its recording, transcript and recap intact.
+   from Finder appears again by itself, with its recording, transcript and recap intact.
 7. Each surface in light and dark passes contrast for its text colours, every icon-only control
    has an accessibility label, and every window works at its minimum size without truncated
    controls.

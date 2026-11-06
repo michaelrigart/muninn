@@ -143,6 +143,12 @@ struct ProcessingDisplayTests {
         }
     }
 
+    @Test func aMeetingTrashedAndPutBackStillNeedingAttentionIsNotAnnouncedAgain() {
+        var tracker = AttentionTracker(seed: [meeting(a, failed)])
+        #expect(tracker.update([], isRecording: false).isEmpty)
+        #expect(tracker.update([meeting(a, failed)], isRecording: false).isEmpty)
+    }
+
     @Test func announcementsWaitForTheRecordingToStop() {
         var tracker = AttentionTracker(seed: [meeting(a, .ready)])
         #expect(tracker.update([meeting(a, failed)], isRecording: true).isEmpty)

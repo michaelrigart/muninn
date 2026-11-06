@@ -12,7 +12,7 @@ public enum AutoFileDecision: Equatable, Sendable {
 
 public enum MeetingActions {
     public static func canDraft(_ m: Meeting, accounts: [AccountSettings]) -> Bool {
-        !accountRemoved(m, accounts: accounts) && m.accountID != nil && m.recipients.contains(where: \.included)
+        MeetingCommands.draftRefusal(m, accounts: accounts) == nil
     }
 
     /// The meeting names an account that is no longer in the settings; it can't draft until another account is chosen.
@@ -34,6 +34,17 @@ public enum MeetingActions {
     /// The event can be changed until a draft or an export exists for the meeting.
     public static func canChangeEvent(_ m: Meeting) -> Bool {
         m.draftWebLink == nil && m.draftID == nil && m.exportedNotePath == nil
+    }
+
+    /// Choosing `account` would leave the meeting's event behind, because the event belongs to another account.
+    public static func accountChangeDropsEvent(_ m: Meeting, to account: String?) -> Bool {
+        guard let association = m.association else { return false }
+        return association.accountID != account
+    }
+
+    /// Clearing the event would remove an association or attendees the meeting has now.
+    public static func clearingEventLosesDetails(_ m: Meeting) -> Bool {
+        m.association != nil || !m.attendees.isEmpty
     }
 
     /// Whether and how to file a meeting automatically. The eligibility checks come first (enabled, ready, not exported,

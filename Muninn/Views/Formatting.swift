@@ -2,18 +2,6 @@ import Foundation
 import MuninnCore
 import SwiftUI
 
-extension MeetingProgress {
-    /// What Muninn is doing with the meeting, in a few words; nil when it is doing nothing or the meeting waits or failed.
-    var title: String? {
-        switch self {
-        case .working(let work): work.stage.title
-        case .queued: "Waiting its turn"
-        case .preparingSpeechModel: "Getting the speech model ready"
-        case .none, .waiting, .failed: nil
-        }
-    }
-}
-
 struct CommitTextField: View {
     let title: String
     let value: String
@@ -32,6 +20,7 @@ struct CommitTextField: View {
                 if !isFocused { commit() }
             }
             .onSubmit(commit)
+            .onDisappear(perform: commit)
     }
 
     private func commit() {
@@ -64,5 +53,10 @@ enum DueDate {
         let formatter = formatter()
         guard let date = formatter.date(from: text), formatter.string(from: date) == text else { return nil }
         return date
+    }
+
+    /// The day and month, such as "4 Nov".
+    static func label(for date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated))
     }
 }

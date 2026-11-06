@@ -800,4 +800,62 @@ struct StorageTests {
         #expect(EndpointURL.parseBase("  http://studio:11434/\n")?.absoluteString == "http://studio:11434/")
         #expect(EndpointURL.parseBase("HTTPS://studio.local")?.host == "studio.local")
     }
+
+    /// Gives the store a fake `trashItem` that moves the folder into a temporary "Trash" directory, never the real one.
+    private func fakeTrash(_ store: MeetingStore, in trash: URL) {
+        store.trashItem = { url in
+            try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent))
+        }
+    }
+
+    private func savedMeeting(_ store: MeetingStore, _ id: String) throws -> Meeting {
+        let m = meeting(id)
+        try store.create(m)
+        let transcript = Transcript(segments: [
+            Segment(id: 0, track: .mic, speaker: "S1", start: 1, end: 2, text: "hello", words: [])
+        ], language: "en")
+        try store.saveTranscript(transcript, for: m.id, speakerNames: [:])
+        let summary = Summary(language: "en", subjects: [Subject(title: "Pricing", bullets: [], actions: [])],
+                              engine: .macbook, generatedAt: Date(timeIntervalSince1970: 1_792_000_000))
+        try store.saveSummary(summary, for: m.id)
+        try Data([1, 2, 3]).write(to: store.audioURL(m.id, track: .mic))
+        return m
+    }
+
+    @Test func trashedMeetingLeavesTheList() throws {
+        let root = try temporaryDirectory()
+        let trash = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: trash) }
+        let store = MeetingStore(root: root)
+        fakeTrash(store, in: trash)
+        let m = try savedMeeting(store, "trash-me")
+        try store.moveToTrash(m.id)
+        #expect(try store.list().isEmpty)
+        #expect(!store.exists(m.id))
+        #expect(FileManager.default.fileExists(atPath: trash.appendingPathComponent(m.id.rawValue).path))
+    }
+
+    @Test func putBackMeetingIsListedIntact() throws {
+        let root = try temporaryDirectory()
+        let trash = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: trash) }
+        let store = MeetingStore(root: root)
+        fakeTrash(store, in: trash)
+        let m = try savedMeeting(store, "put-back")
+        try store.moveToTrash(m.id)
+        try FileManager.default.moveItem(at: trash.appendingPathComponent(m.id.rawValue), to: store.directory(m.id))
+        #expect(try store.list().map(\.id) == [m.id])
+        #expect(try store.loadTranscript(m.id) != nil)
+        #expect(try store.loadSummary(m.id) != nil)
+        #expect(try Data(contentsOf: store.audioURL(m.id, track: .mic)) == Data([1, 2, 3]))
+    }
+
+    @Test func trashingAMissingMeetingDoesNothing() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingStore(root: root)
+        store.trashItem = { _ in Issue.record("trashItem must not run for a missing folder") }
+        try store.moveToTrash(MeetingID(rawValue: "never-existed"))
+    }
 }
