@@ -38,8 +38,8 @@ whether it is compatible with the one before. Each section says what changed.
 - The Meetings window has a toolbar for the recap, the transcript, the engine, the Outlook draft
   and Obsidian, and a calmer header, recap and transcript.
 - Recipients are chosen in the Outlook draft sheet, which also shows the subject and a preview.
-- Meetings move to the Trash instead of being deleted, so they can be put back from Finder;
-  View › Reload picks them up again.
+- Meetings move to the Trash instead of being deleted, so they can be put back from Finder, and
+  they reappear in Muninn by themselves.
 - Sidebar search also looks in recaps and transcripts, and each row shows the time, duration,
   client and status.
 - Recap sources show the time in the transcript instead of a segment number.

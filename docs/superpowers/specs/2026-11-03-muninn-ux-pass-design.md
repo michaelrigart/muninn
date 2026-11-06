@@ -302,8 +302,10 @@ range, duration, language); one row of chips:
 
 "Move to Trash…" replaces the permanent delete. After a confirmation that says what happens to
 an exported Obsidian note, it moves the whole meeting folder to the macOS Trash, so it can be put
-back from Finder. Muninn picks a put-back meeting up again the next time it reloads its list (at
-launch, and from a "Reload" item in the View menu). The same refusals apply as today: no removal
+back from Finder. Muninn watches its meetings folder and reloads its list when a meeting folder
+appears there or goes away, so a put-back meeting shows up again by itself (owner's decision,
+2026-11-06; it first waited for the next reload). Launch and a "Reload" item in the View menu also
+reload the list. The same refusals apply as today: no removal
 while the meeting is recording, processing or queued. The confirmation's default button is Cancel.
 
 ### Outlook draft sheet
