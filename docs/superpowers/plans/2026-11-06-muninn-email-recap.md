@@ -297,7 +297,7 @@ git commit -m "Replace the Outlook draft sheet with the Email recap sheet"
 - `ProblemTranslatorTests`: drop `.creatingDraft` from `connectionWithoutAnEngineAtAMicrosoftStage`'s arguments; `graphErrorWhileDrafting` becomes `graphErrorDetails` at `.readingCalendar` with `RequestFacts(method: "GET", path: "/v1.0/me/calendarView", host: "graph.microsoft.com")`, expecting the title "Muninn couldn't read the Work calendar" and the same detail assertions; in `graphErrorAtAnotherStageIsGeneric` the decoding case uses `.searchingPeople` ("Something went wrong while searching for people"); `microsoftUnreachableWhileDrafting` becomes `microsoftUnreachableWhileSearchingPeople` at `.searchingPeople`.
 - `ProblemTests`: remove `outlookDraftFailed()` and `draftWithoutLink()` from every list; `stagePhrasesAndAreas` asserts `ProblemStage.searchingPeople.area == .outlook`; add `#expect(Problems.signInExpired(account: "Work").explanation == "Sign in again so Muninn can read the calendar and search people.")`.
 - `MeetingCommandsTests`: delete `draftRefusalNamesWhatIsMissing`.
-- `MeetingPreparationTests`: delete `canDraftRequiresAccountAndRecipient` and `noEventToDraftable`; `aMeetingWhoseAccountWasRemovedCannotDraft` becomes `accountRemovedNamesAMissingAccount`, keeping only its `accountRemoved` and `accountRemovedLabel` assertions.
+- `MeetingPreparationTests`: delete `noEventToDraftable`; `canDraftRequiresAccountAndRecipient` becomes `setIncludedTicksAndUnticksByAddressInAnyCase`, which keeps its steps without `canDraft`: after adding `jan@acme.be`, `setIncluded("JAN@acme.be", false, in: m)` leaves `m.recipients.map(\.included) == [false]`, and `setIncluded("jan@ACME.be", true, in: m)` gives `[true]` (the only test of `setIncluded`); `aMeetingWhoseAccountWasRemovedCannotDraft` becomes `accountRemovedNamesAMissingAccount`, keeping only its `accountRemoved` and `accountRemovedLabel` assertions.
 
 Run `swift test --package-path Packages/MuninnCore --filter 'GraphTests|ProblemTests|ProblemTranslatorTests'`; expected: the scope and sign-in tests fail.
 
@@ -386,12 +386,16 @@ git commit -m "Drop the stored draft fields; only a filed note locks the event"
 - [ ] **Step 3: Sweep**
 
 Run: `rg -n -i 'draft|outlook|Mail\.ReadWrite' --glob '!docs/superpowers/**' --glob '!CHANGELOG.md' Muninn Packages docs README.md`
-Expected, and nothing else: `ActivityArea.outlook` ("Outlook", people search's area), the `outlook.timezone` Prefer header and its tests, `TranscriptTextView`'s `draft` name field, the generic "draft recap" in `README.md`, `docs/spike.md` and the spike's `EndToEnd` output, and the redaction fixtures in `DiagnosticsTests`. Anything else is fixed in this task.
+Expected, and nothing else:
+- references that are there on purpose: `docs/setup.md`'s sentence that `Mail.ReadWrite` can be removed, `GraphTests.scopesLeaveOutMailReadWrite`, and `ModelTests.olderFilesWithDraftFieldsDecode`'s legacy `draftID`/`draftWebLink` keys;
+- uses unrelated to the Outlook draft: `ActivityArea.outlook` ("Outlook", people search's area), the `outlook.timezone` Prefer header and its tests, `TranscriptTextView`'s `draft` name field, the generic "draft recap" in `README.md`, `docs/spike.md` and the spike's `EndToEnd` output, and the redaction fixtures in `DiagnosticsTests`.
+
+Any other match is a leftover mention of the draft, fixed in this task.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/setup.md CHANGELOG.md
+git add -A docs/setup.md CHANGELOG.md Muninn Packages
 git commit -m "Describe the email recap in the setup guide and changelog"
 ```
 
