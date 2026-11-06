@@ -30,8 +30,9 @@ import Testing
             Recipient(attendee: Attendee(name: "Dr. Who", email: "who@example.com"), included: true),
             Recipient(attendee: Attendee(name: "   ", email: "blank@example.com"), included: true),
             Recipient(attendee: Attendee(name: "Zoë Peeters", email: "zoe@example.be"), included: true),
+            Recipient(attendee: Attendee(name: "Bob@Client.com", email: "bob@client.com"), included: true),
         ]
-        #expect(EmailRecipients.line(recipients) == #"Ann Peeters <ann@example.com>, bob@example.com, "Peeters, Ann" <ann2@example.com>, "Ann \"Boss\" \\ P" <boss@example.com>, "Dr. Who" <who@example.com>, blank@example.com, Zoë Peeters <zoe@example.be>"#)
+        #expect(EmailRecipients.line(recipients) == #"Ann Peeters <ann@example.com>, bob@example.com, "Peeters, Ann" <ann2@example.com>, "Ann \"Boss\" \\ P" <boss@example.com>, "Dr. Who" <who@example.com>, blank@example.com, Zoë Peeters <zoe@example.be>, bob@client.com"#)
     }
 
     @Test func lineIsEmptyWhenNobodyIsTicked() {

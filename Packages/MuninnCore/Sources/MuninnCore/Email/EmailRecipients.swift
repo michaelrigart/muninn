@@ -16,11 +16,12 @@ public enum EmailRecipients {
     }
 
     /// The ticked recipients, in list order, as "Name <address>" or "address", joined by ", ".
+    /// A blank name, or one that only repeats the address (ignoring case), gives the bare address.
     public static func line(_ recipients: [Recipient]) -> String {
         recipients.filter(\.included).map { recipient in
             let address = recipient.attendee.email
             let name = recipient.attendee.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if name.isEmpty { return address }
+            if name.isEmpty || name.caseInsensitiveCompare(address) == .orderedSame { return address }
             guard name.rangeOfCharacter(from: needsQuotes) != nil else { return "\(name) <\(address)>" }
             let escaped = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
             return "\"\(escaped)\" <\(address)>"
