@@ -109,6 +109,7 @@ struct MeetingDetail: View {
             guard let document else { return }
             document.endTyping(undoManager: undoManager)
             undoManager?.removeAllActions(withTarget: document)
+            self.document = nil
         }
         .task(id: LoadKey(id: meeting.id, status: meeting.status, engine: meeting.summaryEngine, reloadRevision: model.reloadRevision)) {
             let store = model.store
