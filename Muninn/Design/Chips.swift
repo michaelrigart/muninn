@@ -34,20 +34,39 @@ struct Chip: View {
     }
 }
 
-/// A header chip: an icon and a short label on a soft fill. Wrap it in a `Button` with `.token` to open a popover.
+/// A header chip: an icon or a coloured dot and a short label on a soft fill. Wrap it in a `Button` with `.token` to open a popover.
 struct Token: View {
     enum Role { case normal, attention, placeholder }
+    enum Mark { case symbol(String), dot(Color) }
 
     let label: String
-    let systemImage: String?
+    let mark: Mark?
     var role: Role = .normal
+
+    init(label: String, mark: Mark?, role: Role = .normal) {
+        self.label = label
+        self.mark = mark
+        self.role = role
+    }
+
+    init(label: String, systemImage: String?, role: Role = .normal) {
+        self.init(label: label, mark: systemImage.map(Mark.symbol), role: role)
+    }
 
     var body: some View {
         HStack(spacing: Space.xs) {
-            if let systemImage {
-                Image(systemName: systemImage)
+            switch mark {
+            case .symbol(let name):
+                Image(systemName: name)
                     .imageScale(.small)
                     .accessibilityHidden(true)
+            case .dot(let colour):
+                Circle()
+                    .fill(colour)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+            case nil:
+                EmptyView()
             }
             Text(label)
                 .multilineTextAlignment(.leading)

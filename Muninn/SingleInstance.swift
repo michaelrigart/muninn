@@ -13,7 +13,7 @@ enum SingleInstance {
     /// Call before anything touches the store. Returns when this process holds the lock, which it keeps until it exits.
     /// A holder that is still quitting gets up to ten seconds to let go. A lock that can't be taken for any other reason
     /// (a filesystem without locking, an unwritable folder) is logged, and Muninn starts without it.
-    static func claim() {
+    @MainActor static func claim() {
         let paths = MuninnPaths(home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
         do {
             try FileManager.default.createDirectory(at: paths.data, withIntermediateDirectories: true)
@@ -44,14 +44,14 @@ enum SingleInstance {
         lock = held
     }
 
-    private static func handOver(lockPath: String) -> Never {
+    @MainActor private static func handOver(lockPath: String) -> Never {
         if let bundleID = Bundle.main.bundleIdentifier, Bundle.main.bundleURL.pathExtension == "app" {
             if let other = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { $0.processIdentifier != getpid() }) {
                 logger.notice("Muninn is already running (\(lockPath, privacy: .public) is held); activating it and quitting this copy")
                 other.activate()
             } else {
                 logger.notice("\(lockPath, privacy: .public) is held by a process that is not a bundled Muninn; telling the user and quitting")
-                let alert = NSAlert()
+                let alert = Alerts.makeAlert()
                 alert.messageText = "Muninn can't start"
                 alert.informativeText = "Another Muninn process is using its data folder (for example a development build). Quit it and open Muninn again."
                 alert.addButton(withTitle: "OK")

@@ -18,6 +18,8 @@ struct MeetingDetail: View {
     @State private var lanes: [PlaybackLane] = []
     @State private var speakerIndices: [String: Int] = [:]
     @State private var saveError: Problem?
+    @State private var speakerError: Problem?
+    @State private var transcriptFilesProblem: Problem?
     @State private var showingDraft = false
     @StateObject private var transcriptController = TranscriptController()
 
@@ -33,6 +35,12 @@ struct MeetingDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let speakerError {
+                problemCard(speakerError, onDismiss: { self.speakerError = nil })
+            }
+            if let transcriptFilesProblem {
+                problemCard(transcriptFilesProblem, tryAgain: retryTranscriptFiles, onDismiss: { self.transcriptFilesProblem = nil })
+            }
             if let saveError {
                 problemCard(saveError, tryAgain: saveRetry, onDismiss: { self.saveError = nil })
             }
@@ -50,7 +58,14 @@ struct MeetingDetail: View {
                 successCard(success)
             }
             MeetingStatusCards(meeting: meeting)
-            MeetingHeader(meeting: meeting, edit: edit, report: report)
+            MeetingHeader(
+                meeting: meeting,
+                transcript: transcript,
+                speakerIndices: speakerIndices,
+                edit: edit,
+                report: report,
+                onRename: renameSpeaker
+            )
             Divider()
             switch tab {
             case .recap:
@@ -69,7 +84,13 @@ struct MeetingDetail: View {
                         clean: clean,
                         mode: transcriptMode,
                         controller: transcriptController,
+                        speakerChangeRefusal: MeetingCommands.speakerChangeRefusal(
+                            status: meeting.status,
+                            progress: model.progress(for: meeting),
+                            hasJob: model.pipelineSnapshot.jobs.contains(meeting.id)
+                        ),
                         onRename: renameSpeaker,
+                        onChangeSpeaker: changeSpeaker,
                         onSeek: listen(from:)
                     )
                     .overlay(alignment: .bottomTrailing) {
@@ -287,11 +308,58 @@ struct MeetingDetail: View {
     }
 
     private func renameSpeaker(_ speaker: String, to name: String) {
-        guard let transcript else { return }
         do {
-            try model.renameSpeaker(speaker, to: name, in: meeting.id, transcript: transcript, clean: clean)
+            let result = try model.renameSpeaker(speaker, to: name, in: meeting.id)
+            speakerError = nil
+            showTranscriptFiles(result.filesError)
         } catch {
-            report(error)
+            showSpeakerError(error)
+        }
+    }
+
+    private func changeSpeaker(_ segmentIDs: Set<Int>, to target: SpeakerTarget) {
+        let id = meeting.id
+        Task {
+            do {
+                let result = try await model.changeSpeaker(of: segmentIDs, to: target, in: id)
+                transcript = result.transcript
+                lanes = PlaybackLanes.lanes(for: result.transcript)
+                speakerIndices = SpeakerColours.indices(for: result.transcript)
+                speakerError = nil
+                showTranscriptFiles(result.filesError)
+            } catch {
+                showSpeakerError(error)
+            }
+        }
+    }
+
+    private func showSpeakerError(_ error: Error) {
+        let failure = problem(for: error)
+        if speakerError != failure {
+            model.activity.record(failure, area: .transcription, meeting: meeting)
+        }
+        speakerError = failure
+    }
+
+    /// A result that reports on the Markdown files sets or clears their card; a failure that never reached them leaves it.
+    private func showTranscriptFiles(_ error: TranscriptFilesNotUpdated?) {
+        guard let error else {
+            transcriptFilesProblem = nil
+            return
+        }
+        let failure = problem(for: error)
+        if transcriptFilesProblem != failure {
+            model.activity.record(failure, area: .transcription, meeting: meeting)
+        }
+        transcriptFilesProblem = failure
+    }
+
+    private func retryTranscriptFiles() {
+        do {
+            try model.store.rewriteTranscriptMarkdown(meeting.id, userName: model.resolvedUserName)
+            transcriptFilesProblem = nil
+        } catch {
+            showTranscriptFiles(TranscriptFilesNotUpdated(error))
         }
     }
 }

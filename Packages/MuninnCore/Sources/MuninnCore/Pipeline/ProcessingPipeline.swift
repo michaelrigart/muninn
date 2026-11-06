@@ -70,6 +70,16 @@ public actor ProcessingPipeline {
         activeJobs[id, default: 0] > 0
     }
 
+    /// Gives the chosen transcript lines to a speaker, unless Muninn is recording or working on the meeting. The check and the change
+    /// run in one step on the actor, which never suspends here, so no job is admitted, started or reads the transcript in between.
+    public func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID, userName: String) throws -> SpeakerChangeResult {
+        let meeting = try store.load(id)
+        if let reason = MeetingCommands.speakerChangeRefusal(status: meeting.status, progress: .none, hasJob: hasJob(for: id)) {
+            throw SpeakerChangeRefused(reason: reason)
+        }
+        return try store.changeSpeaker(of: segmentIDs, to: target, in: id, userName: userName)
+    }
+
     /// How many callers wait on the meeting's queued job and which engine it forces. A test waits on it to know its requests have arrived.
     func queuedJobState(for id: MeetingID) -> (callers: Int, engine: EngineKind?)? {
         queuedJobs[id].map { ($0.waiters.count, $0.request.forced) }
@@ -85,7 +95,7 @@ public actor ProcessingPipeline {
     }
 
     public func snapshot() -> PipelineSnapshot {
-        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id))
+        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id), jobs: Set(activeJobs.keys))
     }
 
     private func publishIfChanged() {
@@ -202,12 +212,12 @@ public actor ProcessingPipeline {
             await execute(id, job.request)
         }
         currentWork = nil
-        publishIfChanged()
         if let remaining = activeJobs[id], remaining > 1 {
             activeJobs[id] = remaining - 1
         } else {
             activeJobs[id] = nil
         }
+        publishIfChanged()
         releaseTurn()
         job.finished = true
         let waiters = job.waiters
@@ -310,9 +320,11 @@ public actor ProcessingPipeline {
         }
 
         let transcript: Transcript
+        var reusedTranscript = false
         if let existing = try store.loadTranscript(id) {
             store.deleteTrackResults(id)
             transcript = existing
+            reusedTranscript = true
         } else {
             let tracks: [Track]
             switch meeting.captureMode {
@@ -419,6 +431,9 @@ public actor ProcessingPipeline {
                 clean = result
                 cleanedWithLLM = settings.useLLMCleanup
             }
+        }
+        if reusedTranscript {
+            try store.rewriteTranscriptMarkdown(id, userName: settings.userName)
         }
         // LLM cleanup can take minutes, so what was true when it started may not be true now: a recording may have begun.
         if cleanedWithLLM, case .run = decision {

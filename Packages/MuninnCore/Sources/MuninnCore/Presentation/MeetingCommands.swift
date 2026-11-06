@@ -37,6 +37,7 @@ public struct MeetingCommandContext: Sendable {
 
 public enum MeetingCommands {
     private static let wait = "Wait until Muninn has finished this meeting"
+    private static let stopRecording = "Stop the recording first"
     private static let save = "Save your recap edits first"
     private static let eventChange = "Wait for the event change"
 
@@ -61,10 +62,24 @@ public enum MeetingCommands {
             if c.isBusy { return wait }
             if c.unsavedEdits { return save }
         case .moveToTrash:
-            if recording { return "Stop the recording first" }
+            if recording { return stopRecording }
             if !MeetingActions.canDelete(c.meeting) || c.isBusy { return wait }
         }
         return nil
+    }
+
+    /// Why a speaker can't be changed now, or nil when it can: the transcript is only edited while Muninn isn't working on the meeting.
+    public static func speakerChangeRefusal(status: ProcessingStatus, progress: MeetingProgress, hasJob: Bool) -> String? {
+        switch status {
+        case .recording: return stopRecording
+        case .transcribing, .diarizing, .cleaning, .summarizing, .waiting: return wait
+        case .ready, .failed: break
+        }
+        switch progress {
+        case .working, .preparingSpeechModel, .queued, .waiting: return wait
+        case .none, .failed: break
+        }
+        return hasJob ? wait : nil
     }
 
     /// Why a draft can't be made for the meeting, or nil when it can.
@@ -73,5 +88,18 @@ public enum MeetingCommands {
         if MeetingActions.accountRemoved(m, accounts: accounts) { return MeetingActions.accountRemovedLabel }
         if !m.recipients.contains(where: \.included) { return "Choose at least one recipient" }
         return nil
+    }
+}
+
+/// A speaker change refused because Muninn is recording or working on the meeting.
+public struct SpeakerChangeRefused: ProblemConvertible, Sendable {
+    public let reason: String
+
+    public init(reason: String) {
+        self.reason = reason
+    }
+
+    public func problem(in context: ProblemContext) -> Problem {
+        Problem(severity: .warning, title: "The speaker wasn't changed", explanation: "\(reason).", actions: [], details: ProblemDetails())
     }
 }

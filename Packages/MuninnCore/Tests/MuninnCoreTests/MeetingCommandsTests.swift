@@ -127,6 +127,20 @@ struct MeetingCommandsTests {
         #expect(!MeetingActions.accountChangeDropsEvent(Self.meeting(), to: "other"))
     }
 
+    @Test func speakerChangesWaitForProcessing() {
+        #expect(MeetingCommands.speakerChangeRefusal(status: .recording, progress: .none, hasJob: false) == "Stop the recording first")
+        for status: ProcessingStatus in [.transcribing, .diarizing, .cleaning, .summarizing, .waiting(.studioUnreachable), .waiting(.queued), .waiting(.recording)] {
+            #expect(MeetingCommands.speakerChangeRefusal(status: status, progress: .none, hasJob: false) == Self.wait)
+        }
+        for progress: MeetingProgress in [.working(Self.work), .preparingSpeechModel(SpeechModelPreparation(model: "m", fraction: nil)), .queued(ahead: 0), .waiting(.memoryPressure)] {
+            #expect(MeetingCommands.speakerChangeRefusal(status: .ready, progress: progress, hasJob: false) == Self.wait)
+        }
+        #expect(MeetingCommands.speakerChangeRefusal(status: .ready, progress: .none, hasJob: true) == Self.wait)
+        #expect(MeetingCommands.speakerChangeRefusal(status: .ready, progress: .none, hasJob: false) == nil)
+        let problem = Problems.claudeBusy()
+        #expect(MeetingCommands.speakerChangeRefusal(status: .failed(problem), progress: .failed(problem), hasJob: false) == nil)
+    }
+
     @Test func clearingAsksOnlyWhenSomethingIsLost() {
         let person = Attendee(name: "Sam", email: "sam@example.com")
         #expect(MeetingActions.clearingEventLosesDetails(Self.meeting(association: EventAssociation(accountID: "work", eventID: "e", iCalUID: nil))))

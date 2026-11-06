@@ -364,7 +364,7 @@ private struct AccountsTab: View {
     }
 
     private static func askForName() -> String? {
-        let alert = NSAlert()
+        let alert = Alerts.makeAlert()
         alert.messageText = "Add an account"
         alert.informativeText = "Name it after the organisation whose calendar and mail it signs in to, for example Work or Acme."
         alert.addButton(withTitle: "Add")

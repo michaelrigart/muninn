@@ -481,7 +481,7 @@ struct StorageTests {
         #expect(throws: (any Error).self) { try store.update(MeetingID(rawValue: "missing")) { _ in } }
     }
 
-    @Test func failedMarkdownWriteLeavesNoTranscriptJSON() throws {
+    @Test func transcriptJSONIsWrittenBeforeItsMarkdown() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = MeetingStore(root: root)
@@ -493,16 +493,231 @@ struct StorageTests {
         try FileManager.default.createDirectory(at: store.cleanTranscriptMarkdownURL(meeting.id), withIntermediateDirectories: false)
 
         #expect(throws: (any Error).self) { try store.saveTranscript(transcript, for: meeting.id, speakerNames: [:]) }
-        #expect(try store.loadTranscript(meeting.id) == nil)
-        #expect(throws: (any Error).self) { try store.saveClean(clean, transcript: transcript, for: meeting.id, speakerNames: [:]) }
-        #expect(try store.loadClean(meeting.id) == nil)
-
-        try FileManager.default.removeItem(at: store.transcriptMarkdownURL(meeting.id))
-        try FileManager.default.removeItem(at: store.cleanTranscriptMarkdownURL(meeting.id))
-        try store.saveTranscript(transcript, for: meeting.id, speakerNames: [:])
-        try store.saveClean(clean, transcript: transcript, for: meeting.id, speakerNames: [:])
         #expect(try store.loadTranscript(meeting.id) == transcript)
+        #expect(throws: (any Error).self) { try store.saveClean(clean, transcript: transcript, for: meeting.id, speakerNames: [:]) }
         #expect(try store.loadClean(meeting.id) == clean)
+    }
+
+    private struct SpeakerFixture {
+        let store: MeetingStore
+        let id: MeetingID
+        let root: URL
+
+        var transcriptJSON: URL { store.directory(id).appendingPathComponent("transcript.json") }
+
+        func md() throws -> String { try String(contentsOf: store.transcriptMarkdownURL(id), encoding: .utf8) }
+        func cleanMD() throws -> String { try String(contentsOf: store.cleanTranscriptMarkdownURL(id), encoding: .utf8) }
+
+        /// The Markdown line of the segment that starts at `timestamp`.
+        func line(_ markdown: String, at timestamp: String) -> String {
+            markdown.components(separatedBy: "\n").first { $0.contains("[\(timestamp)]") } ?? ""
+        }
+    }
+
+    private func speakerFixture(id: String = "2026-10-22-1400-acme", names: [String: String] = ["S1": "Ada"]) throws -> SpeakerFixture {
+        let root = try temporaryDirectory()
+        let store = MeetingStore(root: root)
+        var stored = meeting(id)
+        stored.speakerNames = names
+        try store.create(stored)
+        let transcript = Transcript(segments: [
+            Segment(id: 0, track: .mic, speaker: "you", start: 0, end: 4, text: "Hello all", words: [Word(text: "Hello", start: 0, end: 1), Word(text: "all", start: 1, end: 2)]),
+            Segment(id: 1, track: .system, speaker: "S1", start: 5, end: 9, text: "Good morning", words: [Word(text: "Good", start: 5, end: 6), Word(text: "morning", start: 6, end: 7)]),
+            Segment(id: 2, track: .system, speaker: "S1", start: 10, end: 14, text: "Let us begin", words: [Word(text: "Let", start: 10, end: 11)]),
+        ], language: "en")
+        let clean = CleanTranscript(segments: [CleanSegment(id: 0, text: "Hello, all."), CleanSegment(id: 1, text: "Good morning."), CleanSegment(id: 2, text: "Let us begin.")])
+        try store.saveTranscript(transcript, for: stored.id, speakerNames: names, userName: "Me")
+        try store.saveClean(clean, transcript: transcript, for: stored.id, speakerNames: names, userName: "Me")
+        return SpeakerFixture(store: store, id: stored.id, root: root)
+    }
+
+    private func failing(_ name: String, with error: Error = CocoaError(.fileWriteNoPermission)) -> (URL) throws -> Void {
+        { url in
+            if url.lastPathComponent == name { throw error }
+        }
+    }
+
+    @Test func speakerChangeWritesOnlyTheChosenSegments() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let before = try #require(try f.store.loadTranscript(f.id))
+
+        let result = try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me")
+
+        #expect(result.filesError == nil)
+        #expect(try f.store.loadTranscript(f.id) == result.transcript)
+        #expect(result.transcript.segments.map(\.speaker) == ["you", "you", "S1"])
+        #expect(result.transcript.segments.map(\.track) == before.segments.map(\.track))
+        #expect(result.transcript.segments.map(\.start) == before.segments.map(\.start))
+        #expect(result.transcript.segments.map(\.end) == before.segments.map(\.end))
+        #expect(result.transcript.segments.map(\.words) == before.segments.map(\.words))
+        #expect(result.transcript.segments.map(\.text) == before.segments.map(\.text))
+        #expect(result.transcript.language == before.language)
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Me:**"))
+        #expect(f.line(try f.cleanMD(), at: "00:05").hasPrefix("**[00:05] Me:**"))
+        #expect(f.line(try f.md(), at: "00:10").hasPrefix("**[00:10] Ada:**"))
+    }
+
+    @Test func newSpeakerTakesTheNextFreeLabel() throws {
+        func recap(owner: String) -> Summary {
+            Summary(language: "en", subjects: [Subject(title: "Plan", bullets: [], actions: [ActionPoint(owner: owner, text: "Send it", due: nil, sources: [])])], engine: .macbook, generatedAt: Date(timeIntervalSince1970: 1_792_000_000))
+        }
+        func newLabel(id: String, current: String, previous: String) throws -> String {
+            let f = try speakerFixture(id: id, names: ["S1": "Ada", "S4": "Old"])
+            defer { try? FileManager.default.removeItem(at: f.root) }
+            try f.store.saveSummary(recap(owner: previous), for: f.id)
+            try f.store.replaceSummary(recap(owner: current), for: f.id)
+            #expect(try f.store.loadPreviousSummary(f.id) != nil)
+            return try f.store.changeSpeaker(of: [2], to: .new, in: f.id, userName: "Me").transcript.segments[2].speaker
+        }
+
+        #expect(try newLabel(id: "2026-10-22-1500-current", current: "S9", previous: "S7") == "S10")
+        #expect(try newLabel(id: "2026-10-22-1500-previous", current: "S6", previous: "S7") == "S8")
+
+        let fresh = try speakerFixture(id: "2026-10-22-1500-fresh", names: ["S1": "Ada", "S4": "Old"])
+        defer { try? FileManager.default.removeItem(at: fresh.root) }
+        #expect(try fresh.store.changeSpeaker(of: [2], to: .new, in: fresh.id, userName: "Me").transcript.segments[2].speaker == "S5")
+    }
+
+    @Test func anUnreadableRecapRefusesANewSpeaker() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        try Data("{".utf8).write(to: f.store.directory(f.id).appendingPathComponent("summary.json"))
+        let before = try Data(contentsOf: f.transcriptJSON)
+
+        #expect(throws: (any Error).self) { try f.store.changeSpeaker(of: [2], to: .new, in: f.id, userName: "Me") }
+        #expect(try Data(contentsOf: f.transcriptJSON) == before)
+
+        let result = try f.store.changeSpeaker(of: [2], to: .speaker("you"), in: f.id, userName: "Me")
+        #expect(result.transcript.segments[2].speaker == "you")
+    }
+
+    @Test func choosingTheSameSpeakerOnlyRewritesTheMarkdown() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var written: [String] = []
+        f.store.beforeSpeakerEditWrite = { written.append($0.lastPathComponent) }
+
+        let result = try f.store.changeSpeaker(of: [1], to: .speaker("S1"), in: f.id, userName: "Me")
+
+        #expect(written == ["transcript.md", "transcript.clean.md"])
+        #expect(result.transcript == (try f.store.loadTranscript(f.id)))
+        #expect(result.filesError == nil)
+    }
+
+    @Test func failedSpeakerCommitChangesNothing() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let json = try Data(contentsOf: f.transcriptJSON)
+        let md = try Data(contentsOf: f.store.transcriptMarkdownURL(f.id))
+        let cleanMD = try Data(contentsOf: f.store.cleanTranscriptMarkdownURL(f.id))
+        var written: [String] = []
+        f.store.beforeSpeakerEditWrite = { url in
+            written.append(url.lastPathComponent)
+            if url.lastPathComponent == "transcript.json" { throw CocoaError(.fileWriteNoPermission) }
+        }
+
+        #expect(throws: CocoaError.self) { try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me") }
+
+        #expect(try Data(contentsOf: f.transcriptJSON) == json)
+        #expect(try Data(contentsOf: f.store.transcriptMarkdownURL(f.id)) == md)
+        #expect(try Data(contentsOf: f.store.cleanTranscriptMarkdownURL(f.id)) == cleanMD)
+        #expect(written == ["transcript.json"])
+    }
+
+    @Test func failedMarkdownKeepsTheSpeakerChange() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        f.store.beforeSpeakerEditWrite = failing("transcript.md")
+
+        let result = try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me")
+
+        #expect(result.filesError != nil)
+        #expect(try f.store.loadTranscript(f.id)?.segments[1].speaker == "you")
+        #expect(f.line(try f.cleanMD(), at: "00:05").hasPrefix("**[00:05] Me:**"))
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Ada:**"))
+
+        let again = try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me")
+        #expect(again.filesError != nil)
+
+        f.store.beforeSpeakerEditWrite = nil
+        let repaired = try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me")
+        #expect(repaired.filesError == nil)
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Me:**"))
+    }
+
+    @Test func renameCommitsWithTheNames() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let before = try Data(contentsOf: f.transcriptJSON)
+
+        let result = try f.store.renameSpeaker("S1", to: "  Bea ", in: f.id, userName: "Me")
+
+        #expect(result.meeting.speakerNames["S1"] == "Bea" && result.filesError == nil)
+        #expect(try f.store.load(f.id).speakerNames["S1"] == "Bea")
+        #expect(try Data(contentsOf: f.transcriptJSON) == before)
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Bea:**"))
+        #expect(f.line(try f.cleanMD(), at: "00:10").hasPrefix("**[00:10] Bea:**"))
+
+        let cleared = try f.store.renameSpeaker("S1", to: "  ", in: f.id, userName: "Me")
+        #expect(cleared.meeting.speakerNames["S1"] == nil && cleared.filesError == nil)
+        #expect(try f.store.load(f.id).speakerNames["S1"] == nil)
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] S1:**"))
+        #expect(f.line(try f.cleanMD(), at: "00:05").hasPrefix("**[00:05] S1:**"))
+    }
+
+    @Test func failedRenameCommitChangesNothing() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let md = try Data(contentsOf: f.store.transcriptMarkdownURL(f.id))
+        let cleanMD = try Data(contentsOf: f.store.cleanTranscriptMarkdownURL(f.id))
+        f.store.beforeSpeakerEditWrite = failing("meeting.json")
+
+        #expect(throws: CocoaError.self) { try f.store.renameSpeaker("S1", to: "Bea", in: f.id, userName: "Me") }
+
+        #expect(try f.store.load(f.id).speakerNames == ["S1": "Ada"])
+        #expect(try Data(contentsOf: f.store.transcriptMarkdownURL(f.id)) == md)
+        #expect(try Data(contentsOf: f.store.cleanTranscriptMarkdownURL(f.id)) == cleanMD)
+    }
+
+    @Test func failedMarkdownKeepsTheRename() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        f.store.beforeSpeakerEditWrite = failing("transcript.md")
+
+        let result = try f.store.renameSpeaker("S1", to: "Bea", in: f.id, userName: "Me")
+
+        #expect(result.filesError != nil)
+        #expect(try f.store.load(f.id).speakerNames["S1"] == "Bea")
+        #expect(f.line(try f.cleanMD(), at: "00:05").hasPrefix("**[00:05] Bea:**"))
+    }
+
+    @Test func rewritingMarkdownCatchesUp() throws {
+        let f = try speakerFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        f.store.beforeSpeakerEditWrite = failing("transcript.md")
+        _ = try f.store.changeSpeaker(of: [1], to: .speaker("you"), in: f.id, userName: "Me")
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Ada:**"))
+
+        #expect(throws: CocoaError.self) { try f.store.rewriteTranscriptMarkdown(f.id, userName: "Me") }
+
+        f.store.beforeSpeakerEditWrite = nil
+        try f.store.rewriteTranscriptMarkdown(f.id, userName: "Me")
+        #expect(f.line(try f.md(), at: "00:05").hasPrefix("**[00:05] Me:**"))
+    }
+
+    @Test func aMeetingWithoutATranscriptHasNothingToChangeOrRewrite() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MeetingStore(root: root)
+        let stored = meeting("2026-10-22-1400-acme")
+        try store.create(stored)
+
+        #expect(throws: MeetingStoreError.noTranscript) { try store.changeSpeaker(of: [0], to: .new, in: stored.id, userName: "Me") }
+        try store.rewriteTranscriptMarkdown(stored.id, userName: "Me")
+        #expect(!FileManager.default.fileExists(atPath: store.transcriptMarkdownURL(stored.id).path))
+        let renamed = try store.renameSpeaker("S1", to: "Bea", in: stored.id, userName: "Me")
+        #expect(renamed.meeting.speakerNames["S1"] == "Bea" && renamed.filesError == nil)
     }
 
     @Test func defaultValues() {

@@ -199,9 +199,16 @@ final class CalendarCache {
 
 @MainActor
 enum Alerts {
+    /// An alert carrying the app's own icon, because AppKit's default resolves to the generic placeholder for this app.
+    static func makeAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        return alert
+    }
+
     /// Shows a modal question and returns the index of the pressed button (0 is the first title). The button at `destructive` is drawn as destructive.
     static func ask(_ message: String, _ detail: String, buttons: [String], destructive: Int? = nil) -> Int {
-        let alert = NSAlert()
+        let alert = makeAlert()
         alert.messageText = message
         alert.informativeText = detail
         for title in buttons {

@@ -333,4 +333,28 @@ import Testing
         let encoded = String(decoding: try JSONEncoder().encode(problem), as: UTF8.self)
         #expect(!encoded.contains("Henderson"))
     }
+
+    @Test func refusedSpeakerChangeSaysWhy() {
+        let problem = translate(SpeakerChangeRefused(reason: "Wait until Muninn has finished this meeting"), ProblemContext(stage: .savingEdits))
+        #expect(problem.severity == .warning)
+        #expect(problem.title == "The speaker wasn't changed")
+        #expect(problem.explanation == "Wait until Muninn has finished this meeting.")
+        #expect(problem.actions.isEmpty)
+    }
+
+    @Test func transcriptFilesProblemOffersTryAgain() {
+        let error = TranscriptFilesNotUpdated(CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: "/tmp/m/transcript.md"]))
+        let problem = translate(error, ProblemContext(stage: .savingEdits))
+        #expect(problem.severity == .problem)
+        #expect(problem.title == "Muninn couldn't update all the transcript files")
+        #expect(problem.explanation == "Your change is saved in Muninn, but the Markdown transcript in the meeting's folder may still show the earlier speakers. Try again to update it.")
+        #expect(problem.actions == [.tryAgain])
+        #expect(problem.details.errorDomain == NSCocoaErrorDomain && problem.details.errorCode == CocoaError.fileWriteNoPermission.rawValue)
+        #expect(problem.details.path == "/tmp/m/transcript.md")
+    }
+
+    @Test func transcriptFilesProblemTakesThePathFromTheURLKey() {
+        let error = TranscriptFilesNotUpdated(CocoaError(.fileWriteNoPermission, userInfo: [NSURLErrorKey: URL(fileURLWithPath: "/tmp/m/transcript.clean.md")]))
+        #expect(error.details.path == "/tmp/m/transcript.clean.md")
+    }
 }

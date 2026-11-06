@@ -293,6 +293,38 @@ struct DetailsChip: View {
     }
 }
 
+/// A speaker of a meeting with no attendees other than rooms and resources: a coloured dot and the shown name, and the popover for renaming it everywhere.
+struct SpeakerChip: View {
+    let choice: SpeakerChoice
+    let colourIndex: Int
+    let initialName: String
+    let onRename: (_ speaker: String, _ name: String) -> Void
+
+    @State private var showing = false
+
+    var body: some View {
+        Button {
+            showing = true
+        } label: {
+            Token(label: choice.title, mark: .dot(Theme.speaker(colourIndex)))
+        }
+        .buttonStyle(.token)
+        .help("Rename this speaker everywhere")
+        .accessibilityLabel(choice.title)
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            SpeakerRenameForm(
+                name: choice.title,
+                initial: initialName,
+                onCancel: { showing = false },
+                onSave: { name in
+                    showing = false
+                    onRename(choice.label, name)
+                }
+            )
+        }
+    }
+}
+
 private extension CalendarEvent {
     var pickerID: String { "\(accountID)|\(eventID)" }
 }
