@@ -178,7 +178,7 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
   - `TranscriptLayout.segmentIDs(selection: NSRange, offset: Int?) -> [Int]` — with `selection.length > 0`: the ids of the segments whose `line` overlaps the selection (`line.location < NSMaxRange(selection) && selection.location < NSMaxRange(line)`), in layout order. Otherwise the id of the segment with `line.location <= offset <= NSMaxRange(line)`, or `[]` (nil offset, a speaker name line, past the end).
   - `MeetingCommands.speakerChangeRefusal(status: ProcessingStatus, progress: MeetingProgress, hasJob: Bool) -> String?` — first match wins: status `.recording` → "Stop the recording first"; status `.transcribing`, `.diarizing`, `.cleaning`, `.summarizing` or `.waiting(_)`, progress `.working`, `.preparingSpeechModel`, `.queued` or `.waiting`, or `hasJob` → "Wait until Muninn has finished this meeting" (the existing private `wait` constant; move the inline "Stop the recording first" into a constant shared with `.moveToTrash`); else nil.
   - `struct SpeakerChangeRefused: ProblemConvertible, Sendable { let reason: String; init(reason:) }` — `Problem(severity: .warning, title: "The speaker wasn't changed", explanation: "\(reason).", actions: [], details: ProblemDetails())`.
-  - `ProcessingPipeline.withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T` — runs `body` synchronously on the actor with `hasJob(for: id)`; since it never suspends, no job is admitted, started or reads the meeting's files while it runs.
+  - `ProcessingPipeline.withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T` — an actor-isolated, synchronous method (neither `async` nor `nonisolated`) that runs `body` on the actor with `hasJob(for: id)`; since it never suspends, no job is admitted, started or reads the meeting's files while it runs.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -229,6 +229,15 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     #expect(await h.pipeline.withJobState(for: h.id) { $0 } == false)
     // hold a job in the summarizer (holdFirstCall, entered): the body gets true; release it, await the run: false again
     // a body that throws: withJobState rethrows the same error
+}
+@Test(.timeLimit(.minutes(1))) func aJobWaitsForTheSpeakerEditToCommit() async throws {
+    // FakeSummarizer also records the transcript it was given (`transcripts`). A ready meeting with a stored recap and a
+    // one-segment "you" transcript. The edit's body reaches a Milestone, then blocks on a DispatchSemaphore, then saves
+    // the transcript with segment 0 moved to "S1".
+    // start the edit; await its milestone; start regenerate(h.id, engine: .claude) in a Task; sleep 500 ms
+    // → the summarizer has not been called; signal the semaphore; await both
+    // → the summarizer's last transcript has segment 0 spoken by "S1"
+    // (Checked by revert: running the body after leaving the actor lets the regeneration read "you" and fails this test.)
 }
 
 // ProblemTranslatorTests
