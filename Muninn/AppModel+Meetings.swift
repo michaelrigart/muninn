@@ -74,22 +74,25 @@ extension AppModel {
         apply(meeting)
     }
 
-    /// Names a transcript speaker for the meeting (a blank name puts the default back) and rewrites the transcript files,
-    /// which carry the names.
-    func renameSpeaker(_ speaker: String, to name: String, in id: MeetingID, transcript: Transcript, clean: CleanTranscript?) throws {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        var names: [String: String] = [:]
-        try mutate(id) { current in
-            if trimmed.isEmpty {
-                current.speakerNames.removeValue(forKey: speaker)
-            } else {
-                current.speakerNames[speaker] = trimmed
+    /// Names a transcript speaker for the meeting (a blank name puts the default back). The result says whether the Markdown
+    /// transcript files carry the name.
+    func renameSpeaker(_ speaker: String, to name: String, in id: MeetingID) throws -> SpeakerRenameResult {
+        let result = try store.renameSpeaker(speaker, to: name, in: id, userName: resolvedUserName)
+        apply(result.meeting)
+        return result
+    }
+
+    /// Gives the chosen transcript lines to a speaker, unless Muninn is recording or working on the meeting. The check and
+    /// the change happen in one step on the pipeline, so no job can be admitted between them.
+    func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID) async throws -> SpeakerChangeResult {
+        let store = store
+        let userName = resolvedUserName
+        return try await pipeline.withJobState(for: id) { hasJob in
+            let current = try store.load(id)
+            if let reason = MeetingCommands.speakerChangeRefusal(status: current.status, progress: .none, hasJob: hasJob) {
+                throw SpeakerChangeRefused(reason: reason)
             }
-            names = current.speakerNames
-        }
-        try store.saveTranscript(transcript, for: id, speakerNames: names, userName: resolvedUserName)
-        if let clean {
-            try store.saveClean(clean, transcript: transcript, for: id, speakerNames: names, userName: resolvedUserName)
+            return try store.changeSpeaker(of: segmentIDs, to: target, in: id, userName: userName)
         }
     }
 

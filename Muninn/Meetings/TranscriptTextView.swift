@@ -216,7 +216,10 @@ struct TranscriptTextView: NSViewRepresentable {
     let clean: CleanTranscript?
     let mode: TranscriptMode
     let controller: TranscriptController
+    /// Why the lines' speaker can't be changed now, or nil when it can.
+    let speakerChangeRefusal: String?
     let onRename: (_ speaker: String, _ name: String) -> Void
+    let onChangeSpeaker: (_ segmentIDs: Set<Int>, _ target: SpeakerTarget) -> Void
     let onSeek: (TimeInterval) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -234,7 +237,7 @@ struct TranscriptTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         let controller = controller
         textView.onClick = { [weak coordinator] event in coordinator?.click(event) }
-        textView.renameAction = { [weak coordinator] event in coordinator?.renameAction(for: event) }
+        textView.contextItems = { [weak coordinator] event in coordinator?.contextItems(for: event) ?? [] }
         scrollView.onUserScroll = { [weak controller] in controller?.userScrolled() }
         scrollView.onLayout = { [weak controller] in controller?.viewDidLayout() }
         coordinator.textView = textView
@@ -345,16 +348,52 @@ struct TranscriptTextView: NSViewRepresentable {
             }
         }
 
-        /// For the context menu: renaming the speaker of the line under the pointer, or, off the text (as when VoiceOver
-        /// or the keyboard opens the menu), of the line holding the selection.
-        func renameAction(for event: NSEvent) -> (() -> Void)? {
-            guard let textView, let layout = parent.controller.layout else { return nil }
-            let offset = textView.characterIndex(at: event) ?? textView.selectedRange().location
-            guard let line = layout.speakerLine(atOffset: offset) else { return nil }
-            return { [weak self, weak textView] in
-                guard let self, let textView else { return }
-                self.rename(line, in: textView)
+        /// The context menu's own items for this event: "Change speaker" for the lines chosen, then "Rename speaker…".
+        func contextItems(for event: NSEvent) -> [NSMenuItem] {
+            guard let textView, let layout = parent.controller.layout else { return [] }
+            let pointed = textView.characterIndex(at: event)
+            var items: [NSMenuItem] = []
+            if let item = changeSpeakerItem(for: event, pointed: pointed, in: textView, layout: layout) { items.append(item) }
+            if let line = layout.speakerLine(atOffset: pointed ?? textView.selectedRange().location) {
+                items.append(ActionMenuItem(title: "Rename speaker…") { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.rename(line, in: textView)
+                })
             }
+            return items
+        }
+
+        /// A selection decides which lines change; without one, the line under the pointer for a menu opened by the mouse,
+        /// else the one holding the insertion point.
+        private func changeSpeakerItem(for event: NSEvent, pointed: Int?, in textView: TranscriptNSTextView, layout: TranscriptLayout) -> NSMenuItem? {
+            let opened: Int?
+            switch event.type {
+            case .rightMouseDown, .leftMouseDown, .otherMouseDown: opened = pointed
+            default: opened = textView.selectedRange().location
+            }
+            let ids = layout.segmentIDs(selection: textView.selectedRange(), offset: opened)
+            guard !ids.isEmpty else { return nil }
+            let item = NSMenuItem(title: "Change speaker", action: nil, keyEquivalent: "")
+            if let reason = parent.speakerChangeRefusal {
+                item.toolTip = reason
+                return item
+            }
+            let chosen = Set(ids)
+            let current = TranscriptSpeakers.commonSpeaker(of: chosen, in: parent.transcript)
+            let submenu = NSMenu(title: "Change speaker")
+            for choice in TranscriptSpeakers.menuChoices(transcript: parent.transcript, speakerNames: parent.meeting.speakerNames, userName: inputs?.userName ?? "") {
+                let option = ActionMenuItem(title: choice.title) { [weak self] in
+                    self?.parent.onChangeSpeaker(chosen, .speaker(choice.label))
+                }
+                option.state = choice.label == current ? .on : .off
+                submenu.addItem(option)
+            }
+            submenu.addItem(.separator())
+            submenu.addItem(ActionMenuItem(title: "New speaker") { [weak self] in
+                self?.parent.onChangeSpeaker(chosen, .new)
+            })
+            item.submenu = submenu
+            return item
         }
 
         func dismantle() {
@@ -404,7 +443,7 @@ struct SpeakerRenameForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Rename \(name)")
+            Text("Rename \(name) everywhere")
                 .font(.headline)
             TextField("Name", text: $draft)
                 .frame(width: 200)
@@ -487,13 +526,31 @@ final class TranscriptScrollView: NSScrollView {
     }
 }
 
+/// A menu item that is its own target and runs a closure.
+final class ActionMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    @objc private func run() {
+        handler()
+    }
+}
+
 /// The transcript's text view, on TextKit 1 with non-contiguous layout so it stays lazy, and so read-along can mark
 /// text with the layout manager's temporary attributes without laying it out again.
 final class TranscriptNSTextView: NSTextView {
     var onClick: ((NSEvent) -> Void)?
-    /// What "Rename speaker…" in the context menu does for this event, or nil when the menu has no such item.
-    var renameAction: ((NSEvent) -> (() -> Void)?)?
-    private var menuRename: (() -> Void)?
+    /// The items the context menu starts with for this event: "Change speaker" and "Rename speaker…" where they apply.
+    var contextItems: ((NSEvent) -> [NSMenuItem])?
     /// The reading width plus the timestamp margin: the column is at most this wide, centred.
     var columnWidth = Theme.readingWidth + TranscriptStyle.minimumMargin {
         didSet {
@@ -543,18 +600,12 @@ final class TranscriptNSTextView: NSTextView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
-        menuRename = renameAction?(event)
-        guard menuRename != nil else { return menu }
+        let items = contextItems?(event) ?? []
+        guard !items.isEmpty else { return menu }
         let result = (menu?.copy() as? NSMenu) ?? NSMenu()
         if !result.items.isEmpty { result.insertItem(.separator(), at: 0) }
-        let item = NSMenuItem(title: "Rename speaker…", action: #selector(renameSpeakerFromMenu), keyEquivalent: "")
-        item.target = self
-        result.insertItem(item, at: 0)
+        for (index, item) in items.enumerated() { result.insertItem(item, at: index) }
         return result
-    }
-
-    @objc private func renameSpeakerFromMenu() {
-        menuRename?()
     }
 
     /// Sets the inset before the frame, so the container never keeps a width for the old inset.
@@ -703,7 +754,7 @@ private enum TranscriptStyle {
             result.addAttributes([
                 .font: speakerFont,
                 .foregroundColor: Theme.AppKit.speaker(colours[line.speaker] ?? 0),
-                .toolTip: "Rename speaker",
+                .toolTip: "Rename this speaker everywhere",
                 .cursor: NSCursor.pointingHand,
             ], range: line.range)
         }
