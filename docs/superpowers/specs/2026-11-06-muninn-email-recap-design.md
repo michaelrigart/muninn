@@ -1,6 +1,6 @@
 # Muninn email recap — design
 
-**Status:** Approved
+**Status:** In progress — [PR #6](https://github.com/michaelrigart/muninn/pull/6)
 
 Follows the transcript speakers work ([design](2026-11-06-muninn-transcript-speakers-design.md)).
 The UX pass ([design](2026-11-03-muninn-ux-pass-design.md)) sets the design system, copy style and
