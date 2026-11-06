@@ -39,7 +39,7 @@ struct MeetingDetail: View {
                 problemCard(speakerError, onDismiss: { self.speakerError = nil })
             }
             if let transcriptFilesProblem {
-                problemCard(transcriptFilesProblem, tryAgain: retryTranscriptFiles)
+                problemCard(transcriptFilesProblem, tryAgain: retryTranscriptFiles, onDismiss: { self.transcriptFilesProblem = nil })
             }
             if let saveError {
                 problemCard(saveError, tryAgain: saveRetry, onDismiss: { self.saveError = nil })
@@ -259,7 +259,7 @@ struct MeetingDetail: View {
         return { saveSummary(summary) }
     }
 
-    private func problemCard(_ problem: Problem, tryAgain: (() -> Void)? = nil, onDismiss: (() -> Void)? = nil) -> some View {
+    private func problemCard(_ problem: Problem, tryAgain: (() -> Void)? = nil, onDismiss: @escaping () -> Void) -> some View {
         ProblemCard(
             problem: problem,
             role: problem.severity == .warning ? .attention : nil,

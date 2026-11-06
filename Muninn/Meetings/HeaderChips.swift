@@ -293,7 +293,7 @@ struct DetailsChip: View {
     }
 }
 
-/// A speaker of a meeting with no event: a coloured dot and the shown name, and the popover for renaming it everywhere.
+/// A speaker of a meeting with no attendees other than rooms and resources: a coloured dot and the shown name, and the popover for renaming it everywhere.
 struct SpeakerChip: View {
     let choice: SpeakerChoice
     let colourIndex: Int
@@ -306,25 +306,7 @@ struct SpeakerChip: View {
         Button {
             showing = true
         } label: {
-            HStack(spacing: Space.xs) {
-                Circle()
-                    .fill(Theme.speaker(colourIndex))
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-                Text(choice.title)
-                    .multilineTextAlignment(.leading)
-            }
-            .font(Theme.meta)
-            .foregroundStyle(Theme.secondaryText)
-            .padding(.horizontal, Space.s)
-            .padding(.vertical, Space.xs)
-            .background {
-                let shape = RoundedRectangle(cornerRadius: Radius.chip)
-                ZStack {
-                    shape.fill(Theme.contentBackground)
-                    shape.fill(Theme.neutralSoft)
-                }
-            }
+            Token(label: choice.title, mark: .dot(Theme.speaker(colourIndex)))
         }
         .buttonStyle(.token)
         .help("Rename this speaker everywhere")

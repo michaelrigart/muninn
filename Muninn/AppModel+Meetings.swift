@@ -85,15 +85,7 @@ extension AppModel {
     /// Gives the chosen transcript lines to a speaker, unless Muninn is recording or working on the meeting. The check and
     /// the change happen in one step on the pipeline, so no job can be admitted between them.
     func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID) async throws -> SpeakerChangeResult {
-        let store = store
-        let userName = resolvedUserName
-        return try await pipeline.withJobState(for: id) { hasJob in
-            let current = try store.load(id)
-            if let reason = MeetingCommands.speakerChangeRefusal(status: current.status, progress: .none, hasJob: hasJob) {
-                throw SpeakerChangeRefused(reason: reason)
-            }
-            return try store.changeSpeaker(of: segmentIDs, to: target, in: id, userName: userName)
-        }
+        try await pipeline.changeSpeaker(of: segmentIDs, to: target, in: id, userName: resolvedUserName)
     }
 
     /// Asks first, then moves the meeting's folder to the Trash. A meeting that is recording, being processed or has a job queued is refused;

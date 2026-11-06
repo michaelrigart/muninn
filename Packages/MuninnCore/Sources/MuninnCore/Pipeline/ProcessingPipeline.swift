@@ -70,9 +70,14 @@ public actor ProcessingPipeline {
         activeJobs[id, default: 0] > 0
     }
 
-    /// Runs `body` on the actor with whether the meeting has a job. It never suspends, so no job is admitted, started or reads the meeting's files while it runs.
-    public func withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T {
-        try body(hasJob(for: id))
+    /// Gives the chosen transcript lines to a speaker, unless Muninn is recording or working on the meeting. The check and the change
+    /// run in one step on the actor, which never suspends here, so no job is admitted, started or reads the transcript in between.
+    public func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID, userName: String) throws -> SpeakerChangeResult {
+        let meeting = try store.load(id)
+        if let reason = MeetingCommands.speakerChangeRefusal(status: meeting.status, progress: .none, hasJob: hasJob(for: id)) {
+            throw SpeakerChangeRefused(reason: reason)
+        }
+        return try store.changeSpeaker(of: segmentIDs, to: target, in: id, userName: userName)
     }
 
     /// How many callers wait on the meeting's queued job and which engine it forces. A test waits on it to know its requests have arrived.

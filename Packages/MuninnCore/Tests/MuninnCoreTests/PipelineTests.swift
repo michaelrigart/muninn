@@ -1407,21 +1407,47 @@ struct PipelineTests {
         #expect(!(await h.pipeline.hasJob(for: h.id)))
     }
 
-    @Test(.timeLimit(.minutes(1))) func jobStateHoldsOffJobsWhileItRuns() async throws {
-        struct Refused: Error {}
+    @Test(.timeLimit(.minutes(1))) func speakerChangeIsRefusedWhileAJobIsHeld() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
-        #expect(await h.pipeline.withJobState(for: h.id) { $0 } == false)
+        let file = h.store.directory(h.id).appendingPathComponent("transcript.json")
         h.summarizer.holdFirstCall.set(true)
         let run = Task { await h.pipeline.process(h.id) }
         try await h.summarizer.entered.wait()
-        #expect(await h.pipeline.withJobState(for: h.id) { $0 } == true)
+        let held = try Data(contentsOf: file)
+        let first = try #require(try h.store.loadTranscript(h.id)?.segments.first?.id)
+        do {
+            _ = try await h.pipeline.changeSpeaker(of: [first], to: .speaker("S9"), in: h.id, userName: "Sam")
+            Issue.record("the speaker change was not refused while a job was held")
+        } catch let refused as SpeakerChangeRefused {
+            #expect(refused.reason == "Wait until Muninn has finished this meeting")
+        }
+        #expect(try Data(contentsOf: file) == held)
         h.summarizer.released.reach()
         await run.value
-        #expect(await h.pipeline.withJobState(for: h.id) { $0 } == false)
-        await #expect(throws: Refused.self) {
-            try await h.pipeline.withJobState(for: h.id) { _ throws -> Void in throw Refused() }
+        let result = try await h.pipeline.changeSpeaker(of: [first], to: .speaker("S9"), in: h.id, userName: "Sam")
+        #expect(result.transcript.segments.first { $0.id == first }?.speaker == "S9")
+        #expect(try Data(contentsOf: file) != held)
+    }
+
+    @Test func speakerChangeIsRefusedWhileRecording() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let transcript = Transcript(segments: [Segment(id: 0, track: .mic, speaker: Transcript.youSpeaker, start: 0, end: 1, text: "Hello", words: [])], language: "en")
+        try h.store.saveTranscript(transcript, for: h.id, speakerNames: [:])
+        _ = try h.store.update(h.id) { $0.status = .recording }
+        let json = h.store.directory(h.id).appendingPathComponent("transcript.json")
+        let markdown = h.store.directory(h.id).appendingPathComponent("transcript.md")
+        let jsonBefore = try Data(contentsOf: json)
+        let markdownBefore = try Data(contentsOf: markdown)
+        do {
+            _ = try await h.pipeline.changeSpeaker(of: [0], to: .speaker("S1"), in: h.id, userName: "Sam")
+            Issue.record("the speaker change was not refused while recording")
+        } catch let refused as SpeakerChangeRefused {
+            #expect(refused.reason == "Stop the recording first")
         }
+        #expect(try Data(contentsOf: json) == jsonBefore)
+        #expect(try Data(contentsOf: markdown) == markdownBefore)
     }
 
     @Test(.timeLimit(.minutes(1))) func aJobWaitsForTheSpeakerEditToCommit() async throws {
@@ -1433,24 +1459,21 @@ struct PipelineTests {
         #expect(try h.meetingNow().status == .ready)
         let before = h.summarizer.engines.get().count
 
-        let moved = Transcript(segments: [Segment(id: 0, track: .mic, speaker: "S1", start: 0, end: 1, text: "Hello", words: [])], language: "en")
-        let store = h.store
-        let id = h.id
         let reached = Milestone()
         let commit = DispatchSemaphore(value: 0)
-        let edit = Task {
-            try await h.pipeline.withJobState(for: id) { _ in
-                reached.reach()
-                commit.wait()
-                try store.saveTranscript(moved, for: id, speakerNames: [:])
-            }
+        h.store.beforeSpeakerEditWrite = { url in
+            guard url.lastPathComponent == "transcript.json" else { return }
+            reached.reach()
+            #expect(commit.wait(timeout: .now() + 30) == .success)
         }
+        let id = h.id
+        let edit = Task { try await h.pipeline.changeSpeaker(of: [0], to: .speaker("S1"), in: id, userName: "Sam") }
         try await reached.wait()
         let regeneration = Task { await h.pipeline.regenerate(id, engine: .claude) }
         try await Task.sleep(nanoseconds: 500_000_000)
         #expect(h.summarizer.engines.get().count == before, "a job ran while the speaker edit held the pipeline")
         commit.signal()
-        try await edit.value
+        _ = try await edit.value
         await regeneration.value
         #expect(h.summarizer.engines.get().count == before + 1)
         #expect(h.summarizer.transcripts.get().last?.segments.first?.speaker == "S1")

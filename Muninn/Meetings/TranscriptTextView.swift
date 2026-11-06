@@ -364,18 +364,21 @@ struct TranscriptTextView: NSViewRepresentable {
         }
 
         /// A selection decides which lines change; without one, the line under the pointer for a menu opened by the mouse,
-        /// else the one holding the insertion point.
+        /// else (keyboard, VoiceOver) the one holding the insertion point.
         private func changeSpeakerItem(for event: NSEvent, pointed: Int?, in textView: TranscriptNSTextView, layout: TranscriptLayout) -> NSMenuItem? {
             let opened: Int?
             switch event.type {
-            case .rightMouseDown, .leftMouseDown, .otherMouseDown: opened = pointed
-            default: opened = textView.selectedRange().location
+            case .rightMouseDown, .leftMouseDown, .otherMouseDown:
+                opened = textView.menuOpenedByAccessibility ? textView.selectedRange().location : pointed
+            default:
+                opened = textView.selectedRange().location
             }
             let ids = layout.segmentIDs(selection: textView.selectedRange(), offset: opened)
             guard !ids.isEmpty else { return nil }
             let item = NSMenuItem(title: "Change speaker", action: nil, keyEquivalent: "")
             if let reason = parent.speakerChangeRefusal {
                 item.toolTip = reason
+                item.isEnabled = false
                 return item
             }
             let chosen = Set(ids)
@@ -560,6 +563,9 @@ final class TranscriptNSTextView: NSTextView {
         }
     }
 
+    /// True while VoiceOver or Full Keyboard Access opens the context menu, whose event may be a synthesised mouse-down.
+    private(set) var menuOpenedByAccessibility = false
+
     private let storage: NSTextStorage
 
     init() {
@@ -596,6 +602,12 @@ final class TranscriptNSTextView: NSTextView {
         super.mouseDown(with: event)
         guard selectedRange().length == 0 else { return }
         onClick?(event)
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        menuOpenedByAccessibility = true
+        defer { menuOpenedByAccessibility = false }
+        return super.accessibilityPerformShowMenu()
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

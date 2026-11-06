@@ -1,7 +1,7 @@
 import MuninnCore
 import SwiftUI
 
-/// The selected meeting's title, one meta line and one row of chips: its event, account and client, and attendees.
+/// The selected meeting's title, one meta line and one row of chips: its event, account and client, its speakers (a meeting with no attendees other than rooms and resources) and attendees.
 struct MeetingHeader: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting

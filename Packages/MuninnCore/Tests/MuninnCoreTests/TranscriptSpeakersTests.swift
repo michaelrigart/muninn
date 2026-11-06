@@ -73,6 +73,13 @@ struct TranscriptSpeakersTests {
         #expect(TranscriptSpeakers.commonSpeaker(of: [0, 99], in: t) == "S1")
     }
 
+    @Test func orderAndHeaderLeaveOutYouWithoutLines() {
+        let t = transcript(["S1"])
+
+        #expect(TranscriptSpeakers.ordered(in: t) == ["S1"])
+        #expect(TranscriptSpeakers.headerSpeakers(meeting: meeting(attendees: []), transcript: t, userName: "Me") == [SpeakerChoice(label: "S1", title: "S1")])
+    }
+
     @Test func menuOffersYouAlwaysAndTellsTwinsApart() {
         let t = Transcript(segments: ["S1", "S2", "S1"].enumerated().map { segment($0.offset, $0.element, track: .mic) }, language: nil)
         let names = ["S1": "Sarah", "S2": "Sarah", "S3": "Old"]
@@ -82,6 +89,9 @@ struct TranscriptSpeakersTests {
         ])
         #expect(TranscriptSpeakers.menuChoices(transcript: t, speakerNames: ["S1": "Me"], userName: "Me") == [
             SpeakerChoice(label: "you", title: "Me (you)"), SpeakerChoice(label: "S1", title: "Me (S1)"), SpeakerChoice(label: "S2", title: "S2"),
+        ])
+        #expect(TranscriptSpeakers.menuChoices(transcript: transcript(["you", "S1", "you"]), speakerNames: [:], userName: "Me") == [
+            SpeakerChoice(label: "you", title: "Me"), SpeakerChoice(label: "S1", title: "S1"),
         ])
     }
 

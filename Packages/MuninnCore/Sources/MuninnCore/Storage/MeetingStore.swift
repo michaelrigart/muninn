@@ -375,7 +375,7 @@ public final class MeetingStore: @unchecked Sendable {
         try StorageJSON.encoder().encode(value).write(to: url, options: .atomic)
     }
 
-    func writeText(_ text: String, to url: URL) throws {
+    private func writeText(_ text: String, to url: URL) throws {
         try Data(text.utf8).write(to: url, options: .atomic)
     }
 
@@ -383,7 +383,7 @@ public final class MeetingStore: @unchecked Sendable {
         try StorageJSON.decoder().decode(type, from: Data(contentsOf: url))
     }
 
-    func readIfPresent<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
+    private func readIfPresent<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try read(type, from: url)
     }

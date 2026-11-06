@@ -559,16 +559,20 @@ struct StorageTests {
     }
 
     @Test func newSpeakerTakesTheNextFreeLabel() throws {
-        let f = try speakerFixture(names: ["S1": "Ada", "S4": "Old"])
-        defer { try? FileManager.default.removeItem(at: f.root) }
         func recap(owner: String) -> Summary {
             Summary(language: "en", subjects: [Subject(title: "Plan", bullets: [], actions: [ActionPoint(owner: owner, text: "Send it", due: nil, sources: [])])], engine: .macbook, generatedAt: Date(timeIntervalSince1970: 1_792_000_000))
         }
-        try f.store.saveSummary(recap(owner: "S7"), for: f.id)
-        try f.store.replaceSummary(recap(owner: "S6"), for: f.id)
-        #expect(try f.store.loadPreviousSummary(f.id) != nil)
+        func newLabel(id: String, current: String, previous: String) throws -> String {
+            let f = try speakerFixture(id: id, names: ["S1": "Ada", "S4": "Old"])
+            defer { try? FileManager.default.removeItem(at: f.root) }
+            try f.store.saveSummary(recap(owner: previous), for: f.id)
+            try f.store.replaceSummary(recap(owner: current), for: f.id)
+            #expect(try f.store.loadPreviousSummary(f.id) != nil)
+            return try f.store.changeSpeaker(of: [2], to: .new, in: f.id, userName: "Me").transcript.segments[2].speaker
+        }
 
-        #expect(try f.store.changeSpeaker(of: [2], to: .new, in: f.id, userName: "Me").transcript.segments[2].speaker == "S8")
+        #expect(try newLabel(id: "2026-10-22-1500-current", current: "S9", previous: "S7") == "S10")
+        #expect(try newLabel(id: "2026-10-22-1500-previous", current: "S6", previous: "S7") == "S8")
 
         let fresh = try speakerFixture(id: "2026-10-22-1500-fresh", names: ["S1": "Ada", "S4": "Old"])
         defer { try? FileManager.default.removeItem(at: fresh.root) }
