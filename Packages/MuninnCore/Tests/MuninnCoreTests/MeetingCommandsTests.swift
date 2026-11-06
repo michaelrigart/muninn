@@ -11,13 +11,13 @@ struct MeetingCommandsTests {
     private static let eventChange = "Wait for the event change"
 
     private static func meeting(
-        _ status: ProcessingStatus = .ready, accountID: String? = nil, association: EventAssociation? = nil,
-        candidates: [CalendarEventRef] = [], attendees: [Attendee] = [], recipients: [Recipient] = []
+        _ status: ProcessingStatus = .ready, association: EventAssociation? = nil,
+        candidates: [CalendarEventRef] = [], attendees: [Attendee] = []
     ) -> Meeting {
         Meeting(
             id: MeetingID(rawValue: "a"), title: "Sync", startedAt: t, endedAt: t.addingTimeInterval(600),
-            captureMode: .micOnly, language: "en", accountID: accountID, association: association, client: nil,
-            candidateEvents: candidates, attendees: attendees, recipients: recipients, flags: [], speakerNames: [:],
+            captureMode: .micOnly, language: "en", accountID: nil, association: association, client: nil,
+            candidateEvents: candidates, attendees: attendees, recipients: [], flags: [], speakerNames: [:],
             status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }

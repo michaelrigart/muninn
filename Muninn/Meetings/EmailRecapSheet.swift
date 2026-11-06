@@ -97,6 +97,7 @@ struct EmailRecapSheet: View {
             .keyboardShortcut(.cancelAction)
             .opacity(0)
             .allowsHitTesting(false)
+            .focusable(false)
             .accessibilityHidden(true)
     }
 
@@ -237,7 +238,7 @@ private struct RecipientsEditor: View {
             } else {
                 rows
             }
-            TextField(meeting.accountID == nil ? "Email address" : "Search people or type an email address", text: $query)
+            TextField(searchAccount == nil ? "Email address" : "Search people or type an email address", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .focused(focused)
                 .onSubmit {
@@ -276,6 +277,11 @@ private struct RecipientsEditor: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The account to search people in; nil when the meeting has none or its account was removed from Settings.
+    private var searchAccount: String? {
+        MeetingActions.accountRemoved(meeting, accounts: model.settings.accounts) ? nil : meeting.accountID
+    }
+
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -309,7 +315,7 @@ private struct RecipientsEditor: View {
 
     private func search() async {
         let term = trimmedQuery
-        guard let account = meeting.accountID, term.count >= 2 else {
+        guard let account = searchAccount, term.count >= 2 else {
             results = []
             return
         }
