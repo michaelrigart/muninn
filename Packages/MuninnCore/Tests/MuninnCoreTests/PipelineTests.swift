@@ -1430,6 +1430,43 @@ struct PipelineTests {
         #expect(try Data(contentsOf: file) != held)
     }
 
+    @Test(.timeLimit(.minutes(1))) func speakerChangeIsRefusedWhileAJobIsQueued() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let a = h.id
+        let b = MeetingID(rawValue: "m2")
+        try h.store.create(Harness.meeting("m2", mode: .call(appBundleID: "x")))
+        let you = Transcript(segments: [Segment(id: 0, track: .mic, speaker: Transcript.youSpeaker, start: 0, end: 1, text: "Hello", words: [])], language: "en")
+        try h.store.saveTranscript(you, for: b, speakerNames: [:])
+        await h.pipeline.process(b)
+        #expect(try status(h, b) == .ready)
+        let file = h.store.directory(b).appendingPathComponent("transcript.json")
+        let stored = try Data(contentsOf: file)
+
+        let enteredA = Milestone()
+        let releaseA = Milestone()
+        h.summarizer.gate.set(releaseA)
+        h.summarizer.onSummarize.set { enteredA.reach() }
+        let pipeline = h.pipeline
+        let holder = Task { await pipeline.process(a) }
+        try await enteredA.wait()
+        let regeneration = Task { await pipeline.regenerate(b, engine: .claude) }
+        await waitForQueuedJob(pipeline, b, callers: 1, engine: .claude)
+        #expect(try status(h, b) == .ready, "the queued meeting is no longer ready, so only its job can refuse the change")
+
+        do {
+            _ = try await pipeline.changeSpeaker(of: [0], to: .speaker("S1"), in: b, userName: "Sam")
+            Issue.record("the speaker change was not refused while a job was queued")
+        } catch let refused as SpeakerChangeRefused {
+            #expect(refused.reason == "Wait until Muninn has finished this meeting")
+        }
+        #expect(try Data(contentsOf: file) == stored)
+
+        releaseA.reach()
+        await holder.value
+        await regeneration.value
+    }
+
     @Test func speakerChangeIsRefusedWhileRecording() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }
