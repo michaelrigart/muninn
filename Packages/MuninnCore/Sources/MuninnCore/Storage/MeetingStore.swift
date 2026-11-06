@@ -22,12 +22,14 @@ struct TrackResults: Codable, Equatable {
 
 public enum MeetingStoreError: Error, Equatable {
     case noPreviousSummary
+    case noTranscript
 }
 
 extension MeetingStoreError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .noPreviousSummary: "There is no previous recap to restore"
+        case .noTranscript: "There is no transcript to change"
         }
     }
 }
@@ -36,6 +38,8 @@ public final class MeetingStore: @unchecked Sendable {
     private let root: URL
     /// Called with each file the three-step restore is about to write or replace; lets a test make a step fail.
     var beforeRestoreWrite: ((URL) throws -> Void)?
+    /// Called with each file a speaker change, rename or Markdown rewrite is about to write; lets a test make a step fail.
+    var beforeSpeakerEditWrite: ((URL) throws -> Void)?
     /// Swaps two files atomically and returns 0, or the errno. A test replaces it to simulate a volume without swap support.
     var swapFiles: (URL, URL) -> Int32 = { first, second in
         renamex_np(first.path, second.path, UInt32(RENAME_SWAP)) == 0 ? 0 : errno
@@ -48,6 +52,8 @@ public final class MeetingStore: @unchecked Sendable {
     private var loggedRecoveryFailures: Set<MeetingID> = []
     private static let writeLock = NSLock()
     private static let summaryLock = NSLock()
+    /// Serialises speaker edits and Markdown rewrites. Taken before, never inside, `writeLock` and `summaryLock`.
+    static let transcriptLock = NSLock()
 
     public init(root: URL) {
         self.root = root
@@ -130,11 +136,8 @@ public final class MeetingStore: @unchecked Sendable {
     }
 
     public func saveTranscript(_ transcript: Transcript, for id: MeetingID, speakerNames: [String: String], userName: String = SummaryRequestBuilder.defaultUserName) throws {
-        let segments = transcript.segments.map {
-            (id: $0.id, start: $0.start, speaker: SummaryRequestBuilder.displayName($0.speaker, speakerNames: speakerNames, userName: userName), text: $0.text)
-        }
-        try writeText(TranscriptMarkdown.render(segments: segments, title: title(id)), to: transcriptMarkdownURL(id))
         try write(transcript, to: file(id, "transcript.json"))
+        try writeTranscriptMarkdown(transcript, clean: nil, to: transcriptMarkdownURL(id), title: title(id), speakerNames: speakerNames, userName: userName)
     }
 
     func saveTrackResults(_ results: TrackResults, for id: MeetingID) throws {
@@ -154,11 +157,8 @@ public final class MeetingStore: @unchecked Sendable {
     }
 
     public func saveClean(_ clean: CleanTranscript, transcript: Transcript, for id: MeetingID, speakerNames: [String: String], userName: String = SummaryRequestBuilder.defaultUserName) throws {
-        let segments = transcript.segments.map {
-            (id: $0.id, start: $0.start, speaker: SummaryRequestBuilder.displayName($0.speaker, speakerNames: speakerNames, userName: userName), text: clean.text(for: $0))
-        }
-        try writeText(TranscriptMarkdown.render(segments: segments, title: title(id)), to: cleanTranscriptMarkdownURL(id))
         try write(clean, to: file(id, "transcript.clean.json"))
+        try writeTranscriptMarkdown(transcript, clean: clean, to: cleanTranscriptMarkdownURL(id), title: title(id), speakerNames: speakerNames, userName: userName)
     }
 
     public func loadClean(_ id: MeetingID) throws -> CleanTranscript? {
@@ -355,7 +355,15 @@ public final class MeetingStore: @unchecked Sendable {
         return sections.joined(separator: "\n\n") + "\n"
     }
 
-    private func file(_ id: MeetingID, _ name: String) -> URL {
+    /// Renders a transcript, or its clean text when `clean` is given, with the speakers' shown names.
+    func writeTranscriptMarkdown(_ transcript: Transcript, clean: CleanTranscript?, to url: URL, title: String, speakerNames: [String: String], userName: String) throws {
+        let segments = transcript.segments.map {
+            (id: $0.id, start: $0.start, speaker: SummaryRequestBuilder.displayName($0.speaker, speakerNames: speakerNames, userName: userName), text: clean?.text(for: $0) ?? $0.text)
+        }
+        try writeText(TranscriptMarkdown.render(segments: segments, title: title), to: url)
+    }
+
+    func file(_ id: MeetingID, _ name: String) -> URL {
         directory(id).appendingPathComponent(name)
     }
 
@@ -363,11 +371,11 @@ public final class MeetingStore: @unchecked Sendable {
         (try? load(id))?.title ?? id.rawValue
     }
 
-    private func write<T: Encodable>(_ value: T, to url: URL) throws {
+    func write<T: Encodable>(_ value: T, to url: URL) throws {
         try StorageJSON.encoder().encode(value).write(to: url, options: .atomic)
     }
 
-    private func writeText(_ text: String, to url: URL) throws {
+    func writeText(_ text: String, to url: URL) throws {
         try Data(text.utf8).write(to: url, options: .atomic)
     }
 
@@ -375,7 +383,7 @@ public final class MeetingStore: @unchecked Sendable {
         try StorageJSON.decoder().decode(type, from: Data(contentsOf: url))
     }
 
-    private func readIfPresent<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
+    func readIfPresent<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try read(type, from: url)
     }

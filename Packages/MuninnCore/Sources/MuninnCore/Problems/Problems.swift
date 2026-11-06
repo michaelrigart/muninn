@@ -123,6 +123,10 @@ public enum Problems {
         Problem(severity: .problem, title: "Muninn couldn't save \(what)", explanation: "The disk may be full, or Muninn may not be allowed to write there. Free some space, then try again.", actions: [.tryAgain], details: details)
     }
 
+    public static func transcriptFilesNotUpdated(details: ProblemDetails = ProblemDetails()) -> Problem {
+        Problem(severity: .problem, title: "Muninn couldn't update all the transcript files", explanation: "Your change is saved in Muninn, but the Markdown transcript in the meeting's folder may still show the earlier speakers. Try again to update it.", actions: [.tryAgain], details: details)
+    }
+
     public static func hotkeyInUse(keys: String, details: ProblemDetails = ProblemDetails()) -> Problem {
         Problem(severity: .problem, title: "The shortcut \(keys) is used by another app", explanation: "Choose another shortcut in Recording settings, or quit the app that uses it.", actions: [.recordingSettings], details: details)
     }

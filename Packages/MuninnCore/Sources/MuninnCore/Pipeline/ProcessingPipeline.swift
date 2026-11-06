@@ -315,9 +315,11 @@ public actor ProcessingPipeline {
         }
 
         let transcript: Transcript
+        var reusedTranscript = false
         if let existing = try store.loadTranscript(id) {
             store.deleteTrackResults(id)
             transcript = existing
+            reusedTranscript = true
         } else {
             let tracks: [Track]
             switch meeting.captureMode {
@@ -424,6 +426,9 @@ public actor ProcessingPipeline {
                 clean = result
                 cleanedWithLLM = settings.useLLMCleanup
             }
+        }
+        if reusedTranscript {
+            try store.rewriteTranscriptMarkdown(id, userName: settings.userName)
         }
         // LLM cleanup can take minutes, so what was true when it started may not be true now: a recording may have begun.
         if cleanedWithLLM, case .run = decision {

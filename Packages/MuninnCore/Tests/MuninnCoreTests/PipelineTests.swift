@@ -828,6 +828,30 @@ struct PipelineTests {
         #expect(problem.details.stage == .other)
     }
 
+    @Test(arguments: ["transcript.md", "transcript.clean.md"])
+    func aRetryRepairsTheTranscriptMarkdown(file: String) async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        let blocker = h.store.directory(h.id).appendingPathComponent(file)
+        try FileManager.default.createDirectory(at: blocker, withIntermediateDirectories: false)
+
+        await h.pipeline.process(h.id)
+        guard case .failed = try h.meetingNow().status else {
+            Issue.record("expected failed, got \(try h.meetingNow().status)")
+            return
+        }
+        #expect(try h.store.loadTranscript(h.id) != nil)
+
+        try FileManager.default.removeItem(at: blocker)
+        await h.pipeline.process(h.id)
+
+        #expect(try h.meetingNow().status == .ready)
+        var isDirectory: ObjCBool = true
+        #expect(FileManager.default.fileExists(atPath: h.store.transcriptMarkdownURL(h.id).path, isDirectory: &isDirectory) && !isDirectory.boolValue)
+        #expect(FileManager.default.fileExists(atPath: h.store.cleanTranscriptMarkdownURL(h.id).path, isDirectory: &isDirectory) && !isDirectory.boolValue)
+        #expect(h.transcriber.calls.get() == [.mic, .system])
+    }
+
     @Test func theFailureKnowsWhetherAClaudeKeyIsSaved() async throws {
         let withKey = try await Harness()
         defer { withKey.cleanUp() }
