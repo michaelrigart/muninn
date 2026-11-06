@@ -10,7 +10,7 @@ struct EmailRecapSheet: View {
 
     @State private var subject: String
     @State private var editError: Problem?
-    @FocusState private var recipientsFocused: Bool
+    @FocusState private var focusedField: RecapField?
 
     private static let noRecap = "There's no recap yet"
 
@@ -38,7 +38,7 @@ struct EmailRecapSheet: View {
                     RecapPasteboard.copy(EmailRecipients.line(meeting.recipients))
                     return true
                 }
-                RecipientsEditor(meeting: meeting, edit: edit, focused: $recipientsFocused)
+                RecipientsEditor(meeting: meeting, edit: edit, focused: $focusedField)
             }
             VStack(alignment: .leading, spacing: Space.xs) {
                 header(
@@ -53,6 +53,7 @@ struct EmailRecapSheet: View {
                 TextField("Subject", text: $subject)
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
+                    .focused($focusedField, equals: .subject)
             }
             VStack(alignment: .leading, spacing: Space.xs) {
                 header(
@@ -146,7 +147,7 @@ struct EmailRecapSheet: View {
         HStack(spacing: Space.s) {
             Spacer()
             Button("Done") { dismiss() }
-                .keyboardShortcut(recipientsFocused ? nil : .defaultAction)
+                .keyboardShortcut(focusedField == nil ? .defaultAction : nil)
         }
     }
 
@@ -176,6 +177,12 @@ struct EmailRecapSheet: View {
             editError = problem
         }
     }
+}
+
+/// The sheet's text fields that take Return themselves, so Done is not the default action while one has focus.
+private enum RecapField: Hashable {
+    case recipients
+    case subject
 }
 
 /// A borderless Copy button that reads "Copied" for 1.5 s after `copy` returns true.
@@ -216,7 +223,7 @@ private struct RecipientsEditor: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let edit: ((inout Meeting) -> Void) -> Void
-    var focused: FocusState<Bool>.Binding
+    var focused: FocusState<RecapField?>.Binding
 
     @State private var query = ""
     @State private var results: [Attendee] = []
@@ -230,7 +237,7 @@ private struct RecipientsEditor: View {
             }
             TextField(searchAccount == nil ? "Email address" : "Search people or type an email address", text: $query)
                 .textFieldStyle(.roundedBorder)
-                .focused(focused)
+                .focused(focused, equals: .recipients)
                 .onSubmit {
                     if let manual { add(manual) }
                 }
