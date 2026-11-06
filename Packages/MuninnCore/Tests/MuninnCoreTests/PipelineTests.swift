@@ -1516,6 +1516,31 @@ struct PipelineTests {
         #expect(h.summarizer.transcripts.get().last?.segments.first?.speaker == "S1")
     }
 
+    @Test(.timeLimit(.minutes(1))) func snapshotListsAMeetingWhoseJobIsBetweenStages() async throws {
+        let h = try await Harness()
+        defer { h.cleanUp() }
+        await h.pipeline.process(h.id)
+        #expect(try h.meetingNow().status == .ready)
+        let seen = await recordSnapshots(h)
+        let gate = Milestone()
+        h.probe.gateNext.set(gate)
+        let pipeline = h.pipeline
+        let id = h.id
+        let regeneration = Task { await pipeline.regenerate(id, engine: .claude) }
+        try await h.probe.gated.wait()
+
+        let during = await pipeline.snapshot()
+        #expect(during.current == nil)
+        #expect(!during.queued.contains(id))
+        #expect(during.jobs == [id])
+
+        gate.reach()
+        await regeneration.value
+        let last = try #require(seen.get().last)
+        #expect(last.jobs.isEmpty)
+        #expect(await pipeline.snapshot().jobs.isEmpty)
+    }
+
     @Test(.timeLimit(.minutes(1))) func aSecondJobForTheSameMeetingKeepsItReportedUntilItFinishes() async throws {
         let h = try await Harness()
         defer { h.cleanUp() }

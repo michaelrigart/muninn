@@ -65,10 +65,13 @@ public struct PipelineWork: Equatable, Sendable {
 public struct PipelineSnapshot: Equatable, Sendable {
     public var current: PipelineWork?
     public var queued: [MeetingID]
+    /// The meetings with a job queued or running, including one that has its turn but has not begun a stage.
+    public var jobs: Set<MeetingID>
 
-    public init(current: PipelineWork?, queued: [MeetingID]) {
+    public init(current: PipelineWork?, queued: [MeetingID], jobs: Set<MeetingID> = []) {
         self.current = current
         self.queued = queued
+        self.jobs = jobs
     }
 
     public static let idle = PipelineSnapshot(current: nil, queued: [])

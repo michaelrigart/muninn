@@ -87,7 +87,7 @@ struct MeetingDetail: View {
                         speakerChangeRefusal: MeetingCommands.speakerChangeRefusal(
                             status: meeting.status,
                             progress: model.progress(for: meeting),
-                            hasJob: false
+                            hasJob: model.pipelineSnapshot.jobs.contains(meeting.id)
                         ),
                         onRename: renameSpeaker,
                         onChangeSpeaker: changeSpeaker,

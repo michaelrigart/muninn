@@ -95,7 +95,7 @@ public actor ProcessingPipeline {
     }
 
     public func snapshot() -> PipelineSnapshot {
-        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id))
+        PipelineSnapshot(current: currentWork, queued: turnOrder.map(\.id), jobs: Set(activeJobs.keys))
     }
 
     private func publishIfChanged() {
@@ -212,12 +212,12 @@ public actor ProcessingPipeline {
             await execute(id, job.request)
         }
         currentWork = nil
-        publishIfChanged()
         if let remaining = activeJobs[id], remaining > 1 {
             activeJobs[id] = remaining - 1
         } else {
             activeJobs[id] = nil
         }
+        publishIfChanged()
         releaseTurn()
         job.finished = true
         let waiters = job.waiters
