@@ -74,16 +74,6 @@ struct EmailRecapSheet: View {
                     onDismiss: { self.editError = nil }
                 )
             }
-            if let problem = model.actionErrors[meeting.id] {
-                ProblemCard(
-                    problem: problem,
-                    role: problem.severity == .warning ? .attention : nil,
-                    compact: true,
-                    handlers: model.problemHandlers(),
-                    showInActivity: { model.showInActivity(problem, meeting: meeting.id) },
-                    onDismiss: { model.actionErrors[meeting.id] = nil }
-                )
-            }
             buttons
         }
         .padding(Space.l)
