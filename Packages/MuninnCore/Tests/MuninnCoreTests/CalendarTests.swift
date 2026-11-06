@@ -93,6 +93,16 @@ import Testing
         #expect(recipients.map(\.included) == [true, false, true])
     }
 
+    @Test func recipientsLeaveOutUnusableAddresses() {
+        let e = event(attendees: [
+            Attendee(name: "Ann", email: "ann@example.com"),
+            Attendee(name: "Last", email: "last,first@example.com"),
+            Attendee(name: "Bob", email: "<bob@example.com>"),
+        ])
+        let recipients = RecipientBuilder.recipients(for: e, selfAddresses: [])
+        #expect(recipients.map(\.attendee.email) == ["ann@example.com"])
+    }
+
     @Test func untitledTitle() {
         let zone = TimeZone(identifier: "Europe/Brussels")!
         var calendar = Calendar(identifier: .gregorian)

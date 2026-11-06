@@ -5,7 +5,7 @@ public enum RecipientBuilder {
         var seen = Set(selfAddresses.map { $0.lowercased() })
         var result: [Recipient] = []
         for attendee in [event.organizer].compactMap({ $0 }) + event.attendees {
-            guard !attendee.isResource, seen.insert(attendee.email.lowercased()).inserted else { continue }
+            guard !attendee.isResource, EmailRecipients.isValidAddress(attendee.email), seen.insert(attendee.email.lowercased()).inserted else { continue }
             result.append(Recipient(attendee: attendee, included: !attendee.hasDeclined))
         }
         return result

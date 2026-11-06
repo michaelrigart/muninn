@@ -27,6 +27,11 @@ import Testing
         )
     }
 
+    @Test func addRecipientRefusesAnUnusableAddress() {
+        let m = MeetingActions.addRecipient(Attendee(name: "X", email: "a;b@example.com"), to: prepare(.none), selfAddresses: [])
+        #expect(m.recipients.isEmpty)
+    }
+
     @Test func noEventGivesUntitledAndNoAccount() {
         let m = prepare(.none)
         #expect(m.title == RecipientBuilder.untitledTitle(appName: "Teams", at: start, timeZone: zone))

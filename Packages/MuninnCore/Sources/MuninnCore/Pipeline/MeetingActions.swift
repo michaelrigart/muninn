@@ -108,6 +108,7 @@ public enum MeetingActions {
     }
 
     public static func addRecipient(_ a: Attendee, to m: Meeting, selfAddresses: [String]) -> Meeting {
+        guard EmailRecipients.isValidAddress(a.email) else { return m }
         let email = a.email.lowercased()
         guard !selfAddresses.contains(where: { $0.lowercased() == email }),
               !m.recipients.contains(where: { $0.attendee.email.lowercased() == email })
