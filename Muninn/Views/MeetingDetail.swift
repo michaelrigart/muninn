@@ -20,7 +20,7 @@ struct MeetingDetail: View {
     @State private var saveError: Problem?
     @State private var speakerError: Problem?
     @State private var transcriptFilesProblem: Problem?
-    @State private var showingDraft = false
+    @State private var showingEmailRecap = false
     @StateObject private var transcriptController = TranscriptController()
 
     private var summaryUnsaved: Bool { model.unsavedSummaries[meeting.id] != nil }
@@ -117,10 +117,10 @@ struct MeetingDetail: View {
                 transcript: transcriptController,
                 hasTranscript: transcript != nil,
                 restorePrevious: restorePrevious,
-                openDraft: { showingDraft = true }
+                openEmailRecap: { showingEmailRecap = true }
             )
         }
-        .sheet(isPresented: $showingDraft) { DraftSheet(meeting: meeting, summary: summary) }
+        .sheet(isPresented: $showingEmailRecap) { EmailRecapSheet(meeting: meeting, summary: summary) }
         .onReceive(player.seeks) { _ in
             if player.meetingID == meeting.id { transcriptController.following = true }
         }

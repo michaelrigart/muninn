@@ -279,13 +279,13 @@ extension AppModel {
         count == 1 ? "1 recap item has no transcript source" : "\(count) recap items have no transcript source"
     }
 
-    /// Before a recap leaves Muninn (draft or note): asks whether items without a transcript source may go along.
+    /// Before a recap leaves Muninn (copied or filed): asks whether items without a transcript source may go along.
     /// "Review first" opens the meeting and stops, so the items can be checked in the editor.
     func confirmUnsourcedItems(_ count: Int, for id: MeetingID) -> UnsourcedChoice {
         guard count > 0 else { return .include }
         switch Alerts.ask(
             "\(Self.unsourcedPhrase(count)). Include \(count == 1 ? "it" : "them") anyway?",
-            "They are marked in the recap editor. Nothing is sent or filed unless you include them.",
+            "They are marked in the recap editor. Nothing is copied or filed unless you include them.",
             buttons: ["Include", "Review first", "Cancel"]
         ) {
         case 0:

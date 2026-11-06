@@ -76,7 +76,7 @@ struct MeetingCommandsTests {
         Case(name: "no recap before unsaved", context: context(hasRecap: false, unsavedEdits: true), reason: "There's no recap yet"),
     ]
 
-    @Test(arguments: export, [MeetingCommand.outlookDraft, .obsidian])
+    @Test(arguments: export, [MeetingCommand.emailRecap, .obsidian])
     func exportReasons(_ c: Case, _ command: MeetingCommand) {
         #expect(MeetingCommands.disabledReason(command, c.context) == c.reason)
     }
