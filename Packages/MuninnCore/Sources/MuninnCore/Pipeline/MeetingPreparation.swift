@@ -32,7 +32,6 @@ public enum MeetingPreparation {
             summaryEngine: nil,
             engineNotice: nil,
             exportedNotePath: nil,
-            draftWebLink: nil,
             metrics: ProcessingMetrics(),
             timeZone: timeZone.identifier
         )

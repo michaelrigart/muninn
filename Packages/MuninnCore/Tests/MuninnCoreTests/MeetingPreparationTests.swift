@@ -108,21 +108,13 @@ import Testing
         #expect(cleared.id == m.id)
     }
 
-    @Test func aFetchedEventIsAppliedOnlyWhileNoDraftOrNoteExists() {
+    @Test func aFetchedEventIsAppliedOnlyWhileNoNoteExists() {
         let original = prepare(.single(event("e1")))
         let other = event("e2", subject: "Retro")
 
         let changed = MeetingActions.changeEvent(original, to: other, accounts: accounts, clientDomains: domains)
         #expect(changed?.title == "Retro")
         #expect(changed?.association?.eventID == "e2")
-
-        var drafted = original
-        drafted.draftID = "d1"
-        #expect(MeetingActions.changeEvent(drafted, to: other, accounts: accounts, clientDomains: domains) == nil)
-
-        var linked = original
-        linked.draftWebLink = "https://outlook.test/d1"
-        #expect(MeetingActions.changeEvent(linked, to: other, accounts: accounts, clientDomains: domains) == nil)
 
         var exported = original
         exported.exportedNotePath = "Work/note.md"

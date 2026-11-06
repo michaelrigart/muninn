@@ -27,9 +27,9 @@ public enum MeetingActions {
         }
     }
 
-    /// The event can be changed until a draft or an export exists for the meeting.
+    /// The event can be changed until a note is filed for the meeting.
     public static func canChangeEvent(_ m: Meeting) -> Bool {
-        m.draftWebLink == nil && m.draftID == nil && m.exportedNotePath == nil
+        m.exportedNotePath == nil
     }
 
     /// Choosing `account` would leave the meeting's event behind, because the event belongs to another account.
@@ -69,7 +69,7 @@ public enum MeetingActions {
     }
 
     /// How many bullets and action points cite no transcript segment. They are kept in the recap and marked in the editor,
-    /// but a recap should not carry them to a client unnoticed.
+    /// but a copied recap or a note should not carry them to a client unnoticed.
     public static func unsourcedItemCount(in summary: Summary) -> Int {
         summary.subjects.reduce(0) { total, subject in
             total + subject.bullets.filter { $0.sources.isEmpty }.count + subject.actions.filter { $0.sources.isEmpty }.count

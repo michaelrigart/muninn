@@ -16,7 +16,7 @@ struct TranscriptSpeakersTests {
             id: MeetingID(rawValue: "m1"), title: "Sync", startedAt: Date(timeIntervalSince1970: 1_792_000_000), endedAt: nil,
             captureMode: .micOnly, language: "en", accountID: "work", association: nil, client: nil,
             candidateEvents: [], attendees: attendees, recipients: [], flags: [], speakerNames: [:], status: .ready,
-            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics()
+            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

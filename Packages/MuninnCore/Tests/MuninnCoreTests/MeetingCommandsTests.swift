@@ -18,8 +18,7 @@ struct MeetingCommandsTests {
             id: MeetingID(rawValue: "a"), title: "Sync", startedAt: t, endedAt: t.addingTimeInterval(600),
             captureMode: .micOnly, language: "en", accountID: accountID, association: association, client: nil,
             candidateEvents: candidates, attendees: attendees, recipients: recipients, flags: [], speakerNames: [:],
-            status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil,
-            metrics: ProcessingMetrics()
+            status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

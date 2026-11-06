@@ -258,8 +258,6 @@ private struct SidebarRow: View {
                 .foregroundStyle(Theme.recording)
                 .help("Recording")
                 .accessibilityLabel("Recording")
-        case .draftCreated:
-            note("Draft created")
         case .filed:
             note("Filed")
         case .none:

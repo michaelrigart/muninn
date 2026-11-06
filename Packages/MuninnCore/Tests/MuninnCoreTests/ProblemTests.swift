@@ -80,6 +80,10 @@ import Testing
         #expect(explanation(.openAICompatible, key: true, waiting: false) == "Muninn writes recaps on This Mac with its model server. Start it, then try again, or write this recap with another engine.")
     }
 
+    @Test func eventNotChangedNamesTheNote() {
+        #expect(Problems.eventNotChanged().explanation == "A note already exists for this meeting.")
+    }
+
     @Test func couldNotDeleteTellsWhereToLookAndOffersNoRetry() {
         let problem = Problems.couldNotDelete(what: "the meeting")
         #expect(problem.explanation == "Muninn may not be allowed to change that folder. Check the folder's permissions in Finder, then delete it again.")

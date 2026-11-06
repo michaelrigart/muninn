@@ -38,7 +38,6 @@ import Testing
             summaryEngine: .studio,
             engineNotice: nil,
             exportedNotePath: nil,
-            draftWebLink: nil,
             metrics: ProcessingMetrics(transcribeSeconds: 1.5, diarizeSeconds: nil, cleanSeconds: nil, summarizeSeconds: 3)
         )
     }
@@ -51,17 +50,17 @@ import Testing
         #expect(decoded.flags.count == 2)
     }
 
-    @Test func draftIDRoundTripsAndOlderFilesDecode() throws {
-        var original = Self.meeting()
-        original.draftID = "AAMk-draft"
-        let decoded = try JSONDecoder().decode(Meeting.self, from: JSONEncoder().encode(original))
-        #expect(decoded.draftID == "AAMk-draft")
+    @Test func olderFilesWithDraftFieldsDecode() throws {
+        let original = Self.meeting()
+        var object = try #require(try JSONSerialization.jsonObject(with: StorageJSON.encoder().encode(original)) as? [String: Any])
+        object["draftID"] = "AAMk-draft"
+        object["draftWebLink"] = "https://outlook.test/d"
+        let decoded = try StorageJSON.decoder().decode(Meeting.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(decoded == original)
 
-        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.meeting())) as? [String: Any])
-        object.removeValue(forKey: "draftID")
-        let older = try JSONDecoder().decode(Meeting.self, from: JSONSerialization.data(withJSONObject: object))
-        #expect(older.draftID == nil)
+        let reencoded = try #require(try JSONSerialization.jsonObject(with: StorageJSON.encoder().encode(decoded)) as? [String: Any])
+        #expect(reencoded["draftID"] == nil)
+        #expect(reencoded["draftWebLink"] == nil)
     }
 
     @Test func timeZoneRoundTripsAndDecodesLossily() throws {

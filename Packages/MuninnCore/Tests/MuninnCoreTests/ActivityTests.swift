@@ -158,7 +158,7 @@ struct ActivityTests {
             id: MeetingID(rawValue: "m1"), title: "Sync", startedAt: Self.now, endedAt: Self.now.addingTimeInterval(42 * 60),
             captureMode: .micOnly, language: "en", accountID: nil, association: nil, client: nil, candidateEvents: [],
             attendees: [], recipients: [], flags: [], speakerNames: [:], status: status, summaryEngine: nil,
-            engineNotice: engineNotice, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics(),
+            engineNotice: engineNotice, exportedNotePath: nil, metrics: ProcessingMetrics(),
             transcriptNotice: transcriptNotice
         )
     }

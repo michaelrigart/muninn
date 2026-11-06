@@ -200,7 +200,7 @@ public enum Problems {
     }
 
     public static func eventNotChanged(details: ProblemDetails = ProblemDetails()) -> Problem {
-        Problem(severity: .info, title: "The event wasn't changed", explanation: "A draft or a note already exists for this meeting.", actions: [], details: details)
+        Problem(severity: .info, title: "The event wasn't changed", explanation: "A note already exists for this meeting.", actions: [], details: details)
     }
 
     public static func vaultNotChosen(details: ProblemDetails = ProblemDetails()) -> Problem {

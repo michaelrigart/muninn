@@ -15,8 +15,7 @@ struct StorageTests {
             captureMode: .call(appBundleID: "us.zoom.xos"), language: "en", accountID: "work",
             association: nil, client: "Acme", candidateEvents: [], attendees: [Attendee(name: "Ada", email: "ada@acme.test")],
             recipients: [], flags: [Flag(offset: 5)], speakerNames: ["S1": "Ada"], status: .ready,
-            summaryEngine: .macbook, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil,
-            metrics: ProcessingMetrics()
+            summaryEngine: .macbook, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 
@@ -750,7 +749,7 @@ struct StorageTests {
             id: MeetingID(rawValue: "m"), title: "Sync", startedAt: Date(timeIntervalSince1970: 0), endedAt: nil,
             captureMode: .micOnly, language: "en", accountID: nil, association: nil, client: nil,
             candidateEvents: [], attendees: [], recipients: [], flags: [], speakerNames: [:], status: .ready,
-            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics()
+            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

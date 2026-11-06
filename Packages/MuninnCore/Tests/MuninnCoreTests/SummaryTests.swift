@@ -11,7 +11,7 @@ struct SummaryTests {
             captureMode: .micOnly, language: language, accountID: nil, association: nil, client: nil,
             candidateEvents: [], attendees: [], recipients: [], flags: flags, speakerNames: speakerNames,
             status: .summarizing, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil,
-            draftWebLink: nil, metrics: ProcessingMetrics()
+            metrics: ProcessingMetrics()
         )
     }
 

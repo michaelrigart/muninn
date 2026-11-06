@@ -13,16 +13,14 @@ struct PresentationTests {
 
     private func meeting(
         _ id: String = "a", title: String = "Sync", startedAt: Date? = nil, status: ProcessingStatus = .ready, client: String? = nil,
-        attendees: [Attendee] = [], exportedNotePath: String? = nil, draftID: String? = nil
+        attendees: [Attendee] = [], exportedNotePath: String? = nil
     ) -> Meeting {
-        var meeting = Meeting(
+        Meeting(
             id: MeetingID(rawValue: id), title: title, startedAt: startedAt ?? t, endedAt: (startedAt ?? t).addingTimeInterval(600),
             captureMode: .micOnly, language: "en", accountID: nil, association: nil, client: client, candidateEvents: [],
             attendees: attendees, recipients: [], flags: [], speakerNames: [:], status: status, summaryEngine: nil,
-            engineNotice: nil, exportedNotePath: exportedNotePath, draftWebLink: nil, metrics: ProcessingMetrics()
+            engineNotice: nil, exportedNotePath: exportedNotePath, metrics: ProcessingMetrics()
         )
-        meeting.draftID = draftID
-        return meeting
     }
 
     @Test func timestamps() {
@@ -99,7 +97,6 @@ struct PresentationTests {
         let problem = Problems.claudeBusy()
         #expect(SidebarSign.sign(for: meeting(status: .failed(problem)), progress: .failed(problem), needsAttention: true) == .attention)
         #expect(SidebarSign.sign(for: meeting(status: .recording), progress: .none, needsAttention: false) == .recording)
-        #expect(SidebarSign.sign(for: meeting(exportedNotePath: "n.md", draftID: "d"), progress: .none, needsAttention: false) == .draftCreated)
         #expect(SidebarSign.sign(for: meeting(exportedNotePath: "n.md"), progress: .none, needsAttention: false) == .filed)
         #expect(SidebarSign.sign(for: ready, progress: .none, needsAttention: false) == .none)
     }
