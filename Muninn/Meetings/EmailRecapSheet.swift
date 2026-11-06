@@ -10,7 +10,7 @@ struct EmailRecapSheet: View {
 
     @State private var subject: String
     @State private var editError: Problem?
-    @FocusState private var focusedField: RecapField?
+    @FocusState private var focusedField: EmailRecapField?
 
     private static let noRecap = "There's no recap yet"
 
@@ -180,7 +180,7 @@ struct EmailRecapSheet: View {
 }
 
 /// The sheet's text fields that take Return themselves, so Done is not the default action while one has focus.
-private enum RecapField: Hashable {
+private enum EmailRecapField: Hashable {
     case recipients
     case subject
 }
@@ -223,7 +223,7 @@ private struct RecipientsEditor: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let edit: ((inout Meeting) -> Void) -> Void
-    var focused: FocusState<RecapField?>.Binding
+    var focused: FocusState<EmailRecapField?>.Binding
 
     @State private var query = ""
     @State private var results: [Attendee] = []
