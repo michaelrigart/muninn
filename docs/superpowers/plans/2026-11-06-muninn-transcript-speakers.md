@@ -37,8 +37,8 @@ Run outside any agent sandbox. `X` stands for `DEVELOPER_DIR=/Applications/Xcode
 
 1. **A selection whose ends sit on a speaker name, a timestamp or the newline between lines**: it chooses exactly the segments whose lines it overlaps; a selection only over a name chooses none, and the menu then has no "Change speaker". Pinned in Task 2 (`selectionChoosesEveryLineItTouches`, `selectionOnlyOnANameChoosesNothing`).
 2. **Two speakers with the same shown name**, including an `S` label named after the owner: the menu tells them apart by label, and the tick still lands on the right one. Pinned in Task 1 (`menuOffersYouAlwaysAndTellsTwinsApart`).
-3. **A pipeline job that starts after the menu opened** (Regenerate clicked, or a waiting meeting released when its engine comes back): the change is checked again when applied and refused with a warning card; nothing is written. Core rule pinned in Task 2 (`speakerChangesWaitForProcessing`); the re-check is in Task 4 and the manual acceptance.
-4. **A full disk or a read-only meeting folder** at either step: a failed commit changes nothing and leaves the Markdown alone; a failed Markdown write keeps the change and offers "Try again", which catches the files up. Pinned in Task 3 (`failedSpeakerCommitChangesNothing`, `failedMarkdownKeepsTheSpeakerChange`, `failedRenameCommitChangesNothing`, `failedMarkdownKeepsTheRename`, `rewritingMarkdownCatchesUp`).
+3. **A pipeline job that starts after the menu opened** (Regenerate clicked, or a waiting meeting released when its engine comes back): the change is checked again, and committed, in one step on the pipeline actor, so no job is admitted or reads the transcript in between; refused, a warning card shows and nothing is written. Pinned in Task 2 (`speakerChangesWaitForProcessing`, `jobStateHoldsOffJobsWhileItRuns`).
+4. **A full disk or a read-only meeting folder** at either step: a failed commit changes nothing and leaves the Markdown alone; a failed Markdown write keeps the change and offers "Try again", which catches the files up, and a later no-op change never hides that the files are behind. A pipeline run that failed after its JSON was written repairs the Markdown on its retry. Pinned in Task 3 (`failedSpeakerCommitChangesNothing`, `failedMarkdownKeepsTheSpeakerChange`, `failedRenameCommitChangesNothing`, `failedMarkdownKeepsTheRename`, `rewritingMarkdownCatchesUp`, `choosingTheSameSpeakerOnlyRewritesTheMarkdown`, `aRetryRepairsTheTranscriptMarkdown`).
 5. **Keyboard and the Clean view**: an insertion point at the end of a line (after End) chooses that line; in Clean, segments the clean transcript leaves out are never chosen. Pinned in Task 2 (`noSelectionChoosesTheLineAtTheOffset`, `cleanViewNeverChoosesHiddenSegments`).
 
 ## Rulings made while planning
@@ -48,13 +48,13 @@ Record these under "Rulings" in the pull request.
 1. "Change speaker" sits above "Rename speaker…" at the top of the context menu. Its submenu lists the speakers, a separator, then "New speaker". Refused, it is a plain disabled item (no submenu) whose `toolTip` is the reason.
 2. With a non-empty selection, the selection decides. Otherwise a menu opened by the mouse uses the character under the pointer only (off the text: no item), and one opened another way (keyboard, VoiceOver) uses the insertion point. An insertion point at the end of a line counts as that line. "Rename speaker…" keeps today's resolution.
 3. Waiting meetings (status `.waiting`, any reason) are refused, as acceptance 5 asks, although Move to Trash allows them. Reasons: "Stop the recording first" while recording, otherwise Move to Trash's "Wait until Muninn has finished this meeting".
-4. The rule is checked when the menu opens (status and the pipeline snapshot) and again when the change is applied (status reloaded and `pipeline.hasJob`), as Move to Trash does. Refused at that point, a warning card says "The speaker wasn't changed".
+4. The rule is checked when the menu opens (status and the pipeline snapshot) and again when the change is applied: the reloaded status and whether the meeting has a job are checked and the change committed in one step on the pipeline actor (`ProcessingPipeline.withJobState`), so no job can be admitted or read the transcript between the check and the commit. Refused at that point, a warning card says "The speaker wasn't changed".
 5. A label that is neither `you` nor `S<n>` takes colours after the numbered ones: the k-th such label (from 0, by first appearance) takes `1 + (m + k) mod 5`, where m is the highest `S` number in the transcript (0 when none).
 6. The menu tells speakers apart when their shown names are exactly equal, by appending " (label)"; "you" counts as a label ("Sarah (you)"). Labels with lines that are neither `you` nor `S<n>` (none exist today) are offered after the numbered ones.
-7. `saveClean` also writes its JSON before its Markdown, so every Markdown file is written after what it derives from. In the pipeline a Markdown failure still fails the job; its retry keeps the JSON already written instead of transcribing or cleaning again, and the Markdown catches up on the next speaker change or rename.
-8. An unreadable current or previous recap counts as naming no owners when choosing a new label.
-9. Speaker problems (refusal, failed commit, files behind) show on their own card above the meeting, recorded in Activity under Transcription; "Try again" appears only when the Markdown files are behind. A later change or rename whose files all write clears the card.
-10. Choosing the speaker every chosen line already has writes nothing.
+7. `saveClean` also writes its JSON before its Markdown, so every Markdown file is written after what it derives from. In the pipeline a Markdown failure still fails the job; its retry keeps the JSON already written instead of transcribing or cleaning again, and a run that reuses an existing `transcript.json` rewrites the Markdown files from it, so the retry repairs them.
+8. A missing current or previous recap names no owners; one that exists but can't be read refuses "New speaker" (its read error is the problem shown), because its owners can't be ruled out. Moving lines to an existing speaker never reads the recaps.
+9. Speaker problems show on two cards of their own above the meeting, both recorded in Activity under Transcription: one for a refused or failed change or rename (no "Try again"), cleared by the next one that commits; one for Markdown files that are behind, with "Try again", set or cleared by every result that reports on the files and never by a failure that didn't reach them.
+10. Choosing the speaker every chosen line already has leaves `transcript.json` alone but still rewrites the Markdown files, so a change's result always says whether the files are current and the card never clears on a repair that didn't happen.
 11. The transcript's speaker-name tooltip becomes "Rename this speaker everywhere", the header chips' help text.
 
 ## File map
@@ -67,6 +67,7 @@ MuninnCore (`Packages/MuninnCore/Sources/MuninnCore/`):
 | `Design/SpeakerColours.swift` | The label-number colour rule | 1 |
 | `ReadAlong/TranscriptLayout.swift` | Which segments a selection or offset chooses | 2 |
 | `Presentation/MeetingCommands.swift` | When a speaker change is allowed; `SpeakerChangeRefused` | 2 |
+| `Pipeline/ProcessingPipeline.swift` | `withJobState` (2); Markdown repair on a reused transcript (3) | 2, 3 |
 | `Storage/MeetingStore.swift`, `Storage/MeetingStore+Speakers.swift` (new) | Save order; change, rename and Markdown rewrite | 3 |
 | `Problems/Problems.swift` | `transcriptFilesNotUpdated` copy | 3 |
 
@@ -168,15 +169,16 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 **Depends on:** Task 1
 
 **Files:**
-- Modify: `Packages/MuninnCore/Sources/MuninnCore/ReadAlong/TranscriptLayout.swift`, `Presentation/MeetingCommands.swift`
-- Test: `TranscriptLayoutTests.swift`, `MeetingCommandsTests.swift`, `ProblemTranslatorTests.swift`
+- Modify: `Packages/MuninnCore/Sources/MuninnCore/ReadAlong/TranscriptLayout.swift`, `Presentation/MeetingCommands.swift`, `Pipeline/ProcessingPipeline.swift`
+- Test: `TranscriptLayoutTests.swift`, `MeetingCommandsTests.swift`, `ProblemTranslatorTests.swift`, `PipelineTests.swift`
 
 **Interfaces:**
 - Consumes: `TranscriptLayout.segments[].line`, `ProcessingStatus`, `MeetingProgress`, `ProblemConvertible`.
 - Produces (all `public`):
   - `TranscriptLayout.segmentIDs(selection: NSRange, offset: Int?) -> [Int]` — with `selection.length > 0`: the ids of the segments whose `line` overlaps the selection (`line.location < NSMaxRange(selection) && selection.location < NSMaxRange(line)`), in layout order. Otherwise the id of the segment with `line.location <= offset <= NSMaxRange(line)`, or `[]` (nil offset, a speaker name line, past the end).
   - `MeetingCommands.speakerChangeRefusal(status: ProcessingStatus, progress: MeetingProgress, hasJob: Bool) -> String?` — first match wins: status `.recording` → "Stop the recording first"; status `.transcribing`, `.diarizing`, `.cleaning`, `.summarizing` or `.waiting(_)`, progress `.working`, `.preparingSpeechModel`, `.queued` or `.waiting`, or `hasJob` → "Wait until Muninn has finished this meeting" (the existing private `wait` constant; move the inline "Stop the recording first" into a constant shared with `.moveToTrash`); else nil.
-  - `struct SpeakerChangeRefused: ProblemConvertible { let reason: String; init(reason:) }` — `Problem(severity: .warning, title: "The speaker wasn't changed", explanation: "\(reason).", actions: [], details: ProblemDetails())`.
+  - `struct SpeakerChangeRefused: ProblemConvertible, Sendable { let reason: String; init(reason:) }` — `Problem(severity: .warning, title: "The speaker wasn't changed", explanation: "\(reason).", actions: [], details: ProblemDetails())`.
+  - `ProcessingPipeline.withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T` — runs `body` synchronously on the actor with `hasJob(for: id)`; since it never suspends, no job is admitted, started or reads the meeting's files while it runs.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -222,6 +224,13 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     // a .failed meeting with progress .failed → nil
 }
 
+// PipelineTests (the Harness; summarizer.holdFirstCall / entered / released as in aMeetingWithAQueuedOrRunningJobReportsIt)
+@Test(.timeLimit(.minutes(1))) func jobStateHoldsOffJobsWhileItRuns() async throws {
+    #expect(await h.pipeline.withJobState(for: h.id) { $0 } == false)
+    // hold a job in the summarizer (holdFirstCall, entered): the body gets true; release it, await the run: false again
+    // a body that throws: withJobState rethrows the same error
+}
+
 // ProblemTranslatorTests
 @Test func refusedSpeakerChangeSaysWhy() {
     let problem = ProblemTranslator.problem(for: SpeakerChangeRefused(reason: "Wait until Muninn has finished this meeting"), in: ProblemContext(stage: .savingEdits))
@@ -232,8 +241,8 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptLayoutTests|MeetingCommandsTests|ProblemTranslatorTests"` — expect a build failure.
-- [ ] **Step 3: Implement** the three interfaces.
+- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptLayoutTests|MeetingCommandsTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
+- [ ] **Step 3: Implement** the four interfaces.
 - [ ] **Step 4: Run** the same filter, then the whole Core suite — expect PASS.
 - [ ] **Step 5: Commit** — `Choose the lines a speaker change applies to, and refuse it while Muninn works on the meeting`
 
@@ -245,25 +254,26 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 
 **Files:**
 - Create: `Packages/MuninnCore/Sources/MuninnCore/Storage/MeetingStore+Speakers.swift`
-- Modify: `Packages/MuninnCore/Sources/MuninnCore/Storage/MeetingStore.swift`, `Problems/Problems.swift`
-- Test: `StorageTests.swift` (replace `failedMarkdownWriteLeavesNoTranscriptJSON`), `ProblemTranslatorTests.swift`
+- Modify: `Packages/MuninnCore/Sources/MuninnCore/Storage/MeetingStore.swift`, `Problems/Problems.swift`, `Pipeline/ProcessingPipeline.swift`
+- Test: `StorageTests.swift` (replace `failedMarkdownWriteLeavesNoTranscriptJSON`), `ProblemTranslatorTests.swift`, `PipelineTests.swift`
 
 **Interfaces:**
 - Consumes: `TranscriptSpeakers.newLabel`, `.changing`, `TranscriptMarkdown.render`, `SummaryRequestBuilder.displayName`, `MeetingStore.update`, `loadSummary`, `loadPreviousSummary`, `loadClean`.
 - Produces (all `public`):
   - `enum SpeakerTarget: Equatable, Sendable { case speaker(String), new }`
-  - `struct SpeakerChangeResult { var transcript: Transcript; var filesError: TranscriptFilesNotUpdated? }`
-  - `struct SpeakerRenameResult { var meeting: Meeting; var filesError: TranscriptFilesNotUpdated? }`
-  - `struct TranscriptFilesNotUpdated: ProblemConvertible { let underlying: Error; init(underlying:) }` — its problem is `Problems.transcriptFilesNotUpdated(details:)` with `errorDomain`, `errorCode` and `path` (`NSFilePathErrorKey`, else `NSURLErrorKey`'s path) taken from `underlying`.
+  - `struct SpeakerChangeResult: Equatable, Sendable { var transcript: Transcript; var filesError: TranscriptFilesNotUpdated? }` — `filesError` nil means both Markdown files now match `transcript.json`.
+  - `struct SpeakerRenameResult: Equatable, Sendable { var meeting: Meeting; var filesError: TranscriptFilesNotUpdated? }`
+  - `struct TranscriptFilesNotUpdated: ProblemConvertible, Equatable, Sendable { var details: ProblemDetails; init(_ error: Error) }` — `init` keeps the error's `errorDomain`, `errorCode` and `path` (`NSFilePathErrorKey`, else `NSURLErrorKey`'s path); its problem is `Problems.transcriptFilesNotUpdated(details: details)`.
   - `Problems.transcriptFilesNotUpdated(details: ProblemDetails = ProblemDetails()) -> Problem` — severity `.problem`, title "Muninn couldn't update all the transcript files", explanation "Your change is saved in Muninn, but the Markdown transcript in the meeting's folder may still show the earlier speakers. Try again to update it.", actions `[.tryAgain]`.
   - `MeetingStoreError.noTranscript` — `errorDescription` "There is no transcript to change".
   - On `MeetingStore`:
     - `var beforeSpeakerEditWrite: ((URL) throws -> Void)?` (declared in the class body, internal) — called with each file the methods below are about to write: `meeting.json` (rename), `transcript.json`, `transcript.md`, `transcript.clean.md`.
-    - `func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID, userName: String) throws -> SpeakerChangeResult` — under a new `static let transcriptLock = NSLock()` (taken before, never inside, `writeLock` and `summaryLock`): load `transcript.json` (missing → `MeetingStoreError.noTranscript`) and the meeting; resolve `.new` with `newLabel` over the meeting's `speakerNames` and the action owners of the current and previous recap (`try?` each: unreadable → no owners); apply `changing`; if the result equals what was loaded, return it with no write. Otherwise write `transcript.json` (the commit; a throw leaves everything as it was), then the Markdown files (below); return the changed transcript and the files error.
+    - `func changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID, userName: String) throws -> SpeakerChangeResult` — under a new `static let transcriptLock = NSLock()` (taken before, never inside, `writeLock` and `summaryLock`): load `transcript.json` (missing → `MeetingStoreError.noTranscript`) and the meeting; resolve `.new` with `newLabel` over the meeting's `speakerNames` and the action owners of the current and previous recap (`loadSummary`, `loadPreviousSummary`: nil → no owners, a throw propagates and nothing is written; ruling 8); apply `changing`; unless the result equals what was loaded, write `transcript.json` (the commit; a throw leaves everything as it was). Then, in both cases, the Markdown files (below); return the transcript as stored and the files error (ruling 10).
     - `func renameSpeaker(_ speaker: String, to name: String, in id: MeetingID, userName: String) throws -> SpeakerRenameResult` — under `transcriptLock`: trim `name`; commit with `update(id)` (blank removes the key, else sets it); then, when `transcript.json` exists, the Markdown files from it and the committed meeting (a transcript that can't be read is a files error); `transcript.json` is never written.
-    - `func rewriteTranscriptMarkdown(_ id: MeetingID, userName: String) throws` — under `transcriptLock`: the Markdown files from the stored meeting, transcript and clean transcript; any error is thrown as `TranscriptFilesNotUpdated`; no transcript → nothing to do.
+    - `func rewriteTranscriptMarkdown(_ id: MeetingID, userName: String) throws` — under `transcriptLock`: the Markdown files from the stored meeting, transcript and clean transcript; the first error is thrown as it came (the app wraps it in `TranscriptFilesNotUpdated`; the pipeline lets it fail the job as a save failure); no transcript → nothing to do.
     - The Markdown files (private helper): `transcript.md` from the transcript, then, when `transcript.clean.json` exists, `transcript.clean.md` from it; both are attempted, the first error is kept. Rendering is today's `saveTranscript`/`saveClean` rendering (title from the meeting, names via `displayName`).
   - `saveTranscript` writes `transcript.json` before `transcript.md`; `saveClean` writes `transcript.clean.json` before `transcript.clean.md` (ruling 7). Signatures unchanged. Relax `file(_:_:)`, `write(_:to:)`, `writeText(_:to:)` and `readIfPresent<T>` from `private` to internal so the extension can use them.
+  - `ProcessingPipeline.stages`: when it reuses an existing `transcript.json`, it calls `store.rewriteTranscriptMarkdown(id, userName: settings.userName)` once the clean transcript is settled (reused or newly saved) and before the engine decision is acted on; a throw fails the job like any save failure (ruling 7).
 
 - [ ] **Step 1: Write the failing tests** (`StorageTests`; a helper stores `meeting` with `speakerNames: ["S1": "Ada"]`, a three-segment transcript `you` / `S1` / `S1` with words, and a clean transcript, through `saveTranscript` and `saveClean`; `md(id)` and `cleanMD(id)` read the two Markdown files)
 
@@ -282,11 +292,14 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 @Test func newSpeakerTakesTheNextFreeLabel() {
     // speakerNames ["S1": "Ada", "S4": "Old"]; current recap with an action owned by "S6"; previous recap owned by "S7"
     #expect(try store.changeSpeaker(of: [2], to: .new, in: id, userName: "Me").transcript.segments[2].speaker == "S8")
-    // a fresh meeting with names ["S1": "Ada", "S4": "Old"], summary.json holding "{" (unreadable) and no previous recap:
-    // .new gives "S5"
+    // a fresh meeting with names ["S1": "Ada", "S4": "Old"] and neither recap: .new gives "S5"
 }
-@Test func choosingTheSameSpeakerWritesNothing() {
-    // beforeSpeakerEditWrite records URLs; change [1] to .speaker("S1") → no URL recorded, result.transcript == stored
+@Test func anUnreadableRecapRefusesANewSpeaker() {
+    // summary.json holds "{": .new throws and transcript.json's bytes are unchanged; .speaker("you") on the same meeting succeeds
+}
+@Test func choosingTheSameSpeakerOnlyRewritesTheMarkdown() {
+    // beforeSpeakerEditWrite records URLs; change [1] to .speaker("S1") → transcript.md and transcript.clean.md recorded,
+    // transcript.json not; result.transcript == stored; result.filesError == nil
 }
 @Test func failedSpeakerCommitChangesNothing() {
     // hook throws CocoaError(.fileWriteNoPermission) for transcript.json
@@ -299,6 +312,8 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     #expect(result.filesError != nil)
     #expect(try store.loadTranscript(id)?.segments[1].speaker == "you")
     // transcript.clean.md was still rewritten (shows "Me:" on segment 1's line)
+    // a no-op change ([1] to .speaker("you")) while the hook still throws: filesError != nil;
+    // with the hook removed: filesError == nil and md(id) shows "Me:" on segment 1's line
 }
 @Test func renameCommitsWithTheNames() {
     let before = try Data(contentsOf: transcriptJSON)
@@ -316,12 +331,19 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 @Test func rewritingMarkdownCatchesUp() {
     // after failedMarkdownKeepsTheSpeakerChange's state: hook removed; rewriteTranscriptMarkdown(id, userName: "Me")
-    // → md(id) shows the change; with the hook throwing for transcript.md it throws TranscriptFilesNotUpdated
+    // → md(id) shows the change; with the hook throwing CocoaError(.fileWriteNoPermission) for transcript.md it throws that error
+}
+
+// PipelineTests (the Harness)
+@Test func aRetryRepairsTheTranscriptMarkdown() async throws {
+    // a directory at transcript.md: process(h.id) → status .failed, transcript.json exists
+    // remove the directory, process(h.id) again → status .ready, transcript.md exists, the transcriber ran once in all
+    // the same with a directory at transcript.clean.md: the retry leaves transcript.clean.md in place
 }
 
 // ProblemTranslatorTests
 @Test func transcriptFilesProblemOffersTryAgain() {
-    let error = TranscriptFilesNotUpdated(underlying: CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: "/tmp/m/transcript.md"]))
+    let error = TranscriptFilesNotUpdated(CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: "/tmp/m/transcript.md"]))
     let problem = ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingEdits))
     #expect(problem.title == "Muninn couldn't update all the transcript files")
     #expect(problem.actions == [.tryAgain])
@@ -330,8 +352,8 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "StorageTests|ProblemTranslatorTests"` — expect a build failure.
-- [ ] **Step 3: Implement** the interfaces; reorder `saveTranscript` and `saveClean`.
+- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "StorageTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
+- [ ] **Step 3: Implement** the interfaces; reorder `saveTranscript` and `saveClean`; add the pipeline's repair.
 - [ ] **Step 4: Run** the same filter, then the whole Core suite (the pipeline tests cover `saveTranscript`'s callers) — expect PASS.
 - [ ] **Step 5: Commit** — `Commit speaker changes and renames before rewriting the transcript Markdown`
 
@@ -345,10 +367,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 - Modify: `Muninn/AppModel+Meetings.swift`, `Muninn/Meetings/TranscriptTextView.swift`, `Muninn/Views/MeetingDetail.swift`
 
 **Interfaces:**
-- Consumes: Tasks 1–3's interfaces; `AppModel.progress(for:)`, `pipeline.hasJob(for:)`, `apply(_:)`, `resolvedUserName`, `activity.record(_:area:meeting:)`.
+- Consumes: Tasks 1–3's interfaces; `AppModel.progress(for:)`, `pipeline.withJobState(for:_:)`, `apply(_:)`, `resolvedUserName`, `activity.record(_:area:meeting:)`.
 - Produces:
   - `AppModel.renameSpeaker(_ speaker: String, to name: String, in id: MeetingID) throws -> SpeakerRenameResult` — replaces today's version (the transcript and clean parameters go): `store.renameSpeaker(…, userName: resolvedUserName)`, then `apply(result.meeting)`.
-  - `AppModel.changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID) async throws -> SpeakerChangeResult` — reloads the meeting; throws `SpeakerChangeRefused(reason:)` when `MeetingCommands.speakerChangeRefusal(status: current.status, progress: progress(for: current), hasJob: await pipeline.hasJob(for: id))` is not nil; else `store.changeSpeaker(…, userName: resolvedUserName)`.
+  - `AppModel.changeSpeaker(of segmentIDs: Set<Int>, to target: SpeakerTarget, in id: MeetingID) async throws -> SpeakerChangeResult` — `try await pipeline.withJobState(for: id) { hasJob in … }` whose body reloads the meeting, throws `SpeakerChangeRefused(reason:)` when `MeetingCommands.speakerChangeRefusal(status: current.status, progress: .none, hasJob: hasJob)` is not nil, and else returns `store.changeSpeaker(…, userName:)` (the user name read before the call; the closure captures only Sendable values).
   - `TranscriptTextView` gains `speakerChangeRefusal: String?` (`MeetingDetail` passes `MeetingCommands.speakerChangeRefusal(status: meeting.status, progress: model.progress(for: meeting), hasJob: false)`) and `onChangeSpeaker: (_ segmentIDs: Set<Int>, _ target: SpeakerTarget) -> Void`.
   - `TranscriptNSTextView.contextItems: ((NSEvent) -> [NSMenuItem])?` replaces `renameAction` and `menuRename`: `menu(for:)` inserts the items at the top of a copy of `super`'s menu, then a separator when that menu has items; no items → `super`'s menu unchanged.
   - `final class ActionMenuItem: NSMenuItem` — `init(title: String, handler: @escaping () -> Void)`, its own target, runs `handler`.
@@ -357,8 +379,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     2. "Rename speaker…", resolved as today.
   - `SpeakerRenameForm` title: "Rename \(name) everywhere"; the speaker-name tooltip in `TranscriptStyle.text`: "Rename this speaker everywhere".
   - `MeetingDetail`:
-    - `@State private var speakerProblem: SpeakerProblem?` with `private struct SpeakerProblem: Equatable { var problem: Problem; var filesBehind: Bool }`, shown as the first problem card; its "Try again" (only when `filesBehind`) calls `model.store.rewriteTranscriptMarkdown(meeting.id, userName: model.resolvedUserName)`: success clears the card, failure shows the new problem. Setting a problem that differs from the one shown records it with `model.activity.record(problem, area: .transcription, meeting: meeting)`. Problems come from `ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingEdits, subject: "your changes"))` (a failed commit reads "Muninn couldn't save your changes").
-    - `changeSpeaker(_:to:)` runs `model.changeSpeaker` in a `Task`; on success it sets `transcript`, `lanes = PlaybackLanes.lanes(for:)` and `speakerIndices = SpeakerColours.indices(for:)`, then `filesError` → `speakerProblem` with `filesBehind: true`, or nil clears it; a throw shows its problem and leaves the view's transcript as it was.
+    - Two states, shown as the first problem cards (ruling 9), each recorded with `model.activity.record(problem, area: .transcription, meeting: meeting)` when it is set to a problem different from the one shown. Problems come from `ProblemTranslator.problem(for: error, in: ProblemContext(stage: .savingEdits, subject: "your changes"))` (a failed commit reads "Muninn couldn't save your changes"; a refusal is its warning).
+      - `@State private var speakerError: Problem?` — a refused or failed change or rename; dismissible, no "Try again"; cleared when a change or rename commits.
+      - `@State private var transcriptFilesProblem: Problem?` — set from a result's `filesError`, cleared by a result whose `filesError` is nil; a throw never touches it. Its "Try again" calls `model.store.rewriteTranscriptMarkdown(meeting.id, userName: model.resolvedUserName)`: success clears it, a throw sets `TranscriptFilesNotUpdated(error)`'s problem.
+    - `changeSpeaker(_:to:)` runs `model.changeSpeaker` in a `Task`; on success it sets `transcript`, `lanes = PlaybackLanes.lanes(for:)` and `speakerIndices = SpeakerColours.indices(for:)` and applies the result to both states; a throw sets `speakerError` and leaves the view's transcript as it was.
     - `renameSpeaker(_:to:)` uses the new `model.renameSpeaker` with the same result and error handling (no longer through `report`/`saveError`).
 
 - [ ] **Step 1: Implement.**
