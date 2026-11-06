@@ -89,9 +89,9 @@ small borderless **Copy** button with the `doc.on.doc` symbol.
    - **RTF:** the same content as an attributed string, for native apps that read RTF before HTML;
    - **plain text:** `RecapEmail.plainText(...)` (new), described below.
 
-The footer has one button, **Done** (the default action, unless the recipients field has focus,
-as today; Escape also closes). An edit error or an action problem shows as a compact problem card
-above the footer, as today.
+The footer has one button, **Done** (the default action, unless the recipients field or the
+Subject field has focus; Escape also closes). An edit error shows as a compact problem card above
+the footer, as today. The sheet shows no action-problem card: copying never produces one.
 
 After a successful copy, that part's button shows a checkmark and "Copied" for about 1.5 seconds,
 then goes back to "Copy". VoiceOver announces "Copied". Each Copy button's accessibility label names

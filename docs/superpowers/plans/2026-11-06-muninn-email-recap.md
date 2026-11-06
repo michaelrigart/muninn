@@ -43,6 +43,8 @@ Decided in the task and final reviews; the pull request records them under "Ruli
 2. A recipient name equal to its address, ignoring case, counts as empty in the copied line, so an external attendee reads `bob@client.com`, not `"bob@client.com" <bob@client.com>` (final review).
 3. A meeting whose account was removed from Settings is treated like one without an account in the sheet: the field says "Email address" and doesn't search people (final review).
 4. The shared unsourced-items question's explanation reads "Nothing is copied or filed unless you include them." (Task 3, as planned).
+5. Michael's decision before merge: the sheet shows only the edit-error card. The action-problem card is removed, because copying never produces an action problem, so it could only show an unrelated filing or event-change problem.
+6. Michael's decision before merge: Return in the Subject field doesn't trigger Done. Done is the default action only while neither the recipients field nor the Subject field has focus, tracked by one `@FocusState` over both fields.
 
 ---
 
