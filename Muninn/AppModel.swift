@@ -132,6 +132,7 @@ final class AppModel: ObservableObject {
     private var setupTask: Task<Void, Never>?
     private var lifecycleTask: Task<Void, Never>?
     private var calendarTask: Task<Void, Never>?
+    private var folderWatcher: MeetingFolderWatcher?
     /// Meetings already announced this session; processing or regenerating one on request lets it announce again.
     private var notified: Set<MeetingID> = []
     /// Meetings deleted or moved to the Trash, cleared again when a reload lists them. A pipeline callback that is still
@@ -219,6 +220,9 @@ final class AppModel: ObservableObject {
             activity.record(failure: error, in: ProblemContext(stage: .readingCalendar, accountName: accountName(id)))
         }
         reloadMeetings()
+        folderWatcher = MeetingFolderWatcher(directory: paths.meetings, queue: .main) { [weak self] in
+            MainActor.assumeIsolated { self?.reloadMeetings() }
+        }
         refreshClaudeKey()
         SpeechModelActivity.shared.setObserver { [weak self] models in
             Task { @MainActor in self?.speechModels = models }
