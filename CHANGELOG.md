@@ -49,4 +49,8 @@ whether it is compatible with the one before. Each section says what changed.
 - Renaming a speaker says that it renames them everywhere.
 - Each speaker keeps their colour when lines move between speakers.
 
+### Fixed
+
+- Muninn's dialogs show the Muninn icon instead of a blank placeholder.
+
 [Unreleased]: https://github.com/michaelrigart/muninn/commits/main
