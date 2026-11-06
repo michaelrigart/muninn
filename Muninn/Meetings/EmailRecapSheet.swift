@@ -88,7 +88,16 @@ struct EmailRecapSheet: View {
         }
         .padding(Space.l)
         .frame(minWidth: 520, minHeight: 480)
-        .onExitCommand { dismiss() }
+        .background(escapeToClose)
+    }
+
+    /// Escape reaches a focused text field's editor before SwiftUI's exit command, so a cancel-action button catches it as a key equivalent. It stays invisible, unclickable and out of VoiceOver.
+    private var escapeToClose: some View {
+        Button("Close") { dismiss() }
+            .keyboardShortcut(.cancelAction)
+            .opacity(0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private func header(_ label: String, part: String, help: String, disabledReason: String?, copy: @escaping () -> Bool) -> some View {
