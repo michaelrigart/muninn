@@ -5,8 +5,11 @@ import SwiftUI
 struct MeetingHeader: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
+    let transcript: Transcript?
+    let speakerIndices: [String: Int]
     let edit: ((inout Meeting) -> Void) -> Void
     let report: (Error) -> Void
+    let onRename: (_ speaker: String, _ name: String) -> Void
 
     private static let shownAttendees = 4
 
@@ -28,6 +31,7 @@ struct MeetingHeader: View {
             ChipRow {
                 EventChip(meeting: meeting, report: report)
                 DetailsChip(meeting: meeting, edit: edit)
+                speakerChips
                 attendeeChips
             }
         }
@@ -47,6 +51,19 @@ struct MeetingHeader: View {
         }
         .font(Theme.meta)
         .foregroundStyle(Theme.secondaryText)
+    }
+
+    @ViewBuilder
+    private var speakerChips: some View {
+        let speakers = TranscriptSpeakers.headerSpeakers(meeting: meeting, transcript: transcript, userName: model.resolvedUserName)
+        ForEach(speakers, id: \.label) { choice in
+            SpeakerChip(
+                choice: choice,
+                colourIndex: speakerIndices[choice.label] ?? 0,
+                initialName: meeting.speakerNames[choice.label] ?? "",
+                onRename: onRename
+            )
+        }
     }
 
     @ViewBuilder

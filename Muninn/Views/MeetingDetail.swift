@@ -58,7 +58,14 @@ struct MeetingDetail: View {
                 successCard(success)
             }
             MeetingStatusCards(meeting: meeting)
-            MeetingHeader(meeting: meeting, edit: edit, report: report)
+            MeetingHeader(
+                meeting: meeting,
+                transcript: transcript,
+                speakerIndices: speakerIndices,
+                edit: edit,
+                report: report,
+                onRename: renameSpeaker
+            )
             Divider()
             switch tab {
             case .recap:
