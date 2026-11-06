@@ -1,6 +1,8 @@
 # Muninn transcript speakers — Implementation Plan
 
-**Status:** In progress — [PR #5](https://github.com/michaelrigart/muninn/pull/5)
+**Status:** Implemented — [PR #5](https://github.com/michaelrigart/muninn/pull/5)
+
+> **Execution complete (2026-11-06).** All 6 tasks are implemented, with the final whole-branch review's fixes (see "Changes during execution"). Do not run this plan again. The "Manual acceptance" checks are done by hand on the owner's Mac.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -57,6 +59,16 @@ Record these under "Rulings" in the pull request.
 10. Choosing the speaker every chosen line already has leaves `transcript.json` alone but still rewrites the Markdown files, so a change's result always says whether the files are current and the card never clears on a repair that didn't happen.
 11. The transcript's speaker-name tooltip becomes "Rename this speaker everywhere", the header chips' help text.
 
+## Changes during execution
+
+Decided in the final whole-branch review; record these under "Rulings" in the pull request with the ones above.
+
+1. `ProcessingPipeline.withJobState` gave way to `ProcessingPipeline.changeSpeaker(of:to:in:userName:)`: the reload, the refusal and the commit run in one actor-isolated step in MuninnCore, where they are tested (`speakerChangeIsRefusedWhileAJobIsHeld`, `speakerChangeIsRefusedWhileRecording`, `aJobWaitsForTheSpeakerEditToCommit`). `AppModel.changeSpeaker` only calls it.
+2. A menu opened through accessibility (VoiceOver, Full Keyboard Access) is recognised by overriding `accessibilityPerformShowMenu()`, and uses the insertion point whatever event AppKit synthesises; mouse-downs keep using the pointer (ruling 2).
+3. The "files behind" card can be dismissed like every other card; Activity keeps the record and the next result that reports on the files sets it again (amends ruling 9).
+4. `Token` takes a leading mark (a symbol or a dot), and `SpeakerChip` is built on it, so the chip look lives in one place.
+5. The header names same-named speakers by their shown name only, as the spec says; their colours tell them apart.
+
 ## File map
 
 MuninnCore (`Packages/MuninnCore/Sources/MuninnCore/`):
@@ -98,7 +110,7 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     - `static func headerSpeakers(meeting: Meeting, transcript: Transcript?, userName: String) -> [SpeakerChoice]` — empty when `transcript` is nil or any attendee is not a resource; else `ordered(in:)` with title = `displayName` (no disambiguation).
   - `SpeakerColours.indices(for: Transcript) -> [String: Int]` (same signature): `you` → 0; a numbered label → `1 + (n − 1) % 5`; other labels per ruling 5.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 // TranscriptSpeakersTests — segment(_ id, _ speaker, track: .system) helper; times = id…id+1
@@ -157,10 +169,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptSpeakersTests|PaletteTests"` — expect a build failure, then (after a stub) the colour tests failing on the old rule.
-- [ ] **Step 3: Implement** `TranscriptSpeakers` and the new `SpeakerColours.indices` rule; update its doc comment.
-- [ ] **Step 4: Run** the same filter, then the whole Core suite — expect PASS.
-- [ ] **Step 5: Commit** — `Add transcript speaker labels and colour speakers by their number`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptSpeakersTests|PaletteTests"` — expect a build failure, then (after a stub) the colour tests failing on the old rule.
+- [x] **Step 3: Implement** `TranscriptSpeakers` and the new `SpeakerColours.indices` rule; update its doc comment.
+- [x] **Step 4: Run** the same filter, then the whole Core suite — expect PASS.
+- [x] **Step 5: Commit** — `Add transcript speaker labels and colour speakers by their number`
 
 ---
 
@@ -180,7 +192,7 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
   - `struct SpeakerChangeRefused: ProblemConvertible, Sendable { let reason: String; init(reason:) }` — `Problem(severity: .warning, title: "The speaker wasn't changed", explanation: "\(reason).", actions: [], details: ProblemDetails())`.
   - `ProcessingPipeline.withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T` — an actor-isolated, synchronous method (neither `async` nor `nonisolated`) that runs `body` on the actor with `hasJob(for: id)`; since it never suspends, no job is admitted, started or reads the meeting's files while it runs.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 // TranscriptLayoutTests (the suite's three-segment transcript; `layout(.verbatim)`)
@@ -250,10 +262,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptLayoutTests|MeetingCommandsTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
-- [ ] **Step 3: Implement** the four interfaces.
-- [ ] **Step 4: Run** the same filter, then the whole Core suite — expect PASS.
-- [ ] **Step 5: Commit** — `Choose the lines a speaker change applies to, and refuse it while Muninn works on the meeting`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "TranscriptLayoutTests|MeetingCommandsTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
+- [x] **Step 3: Implement** the four interfaces.
+- [x] **Step 4: Run** the same filter, then the whole Core suite — expect PASS.
+- [x] **Step 5: Commit** — `Choose the lines a speaker change applies to, and refuse it while Muninn works on the meeting`
 
 ---
 
@@ -284,7 +296,7 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
   - `saveTranscript` writes `transcript.json` before `transcript.md`; `saveClean` writes `transcript.clean.json` before `transcript.clean.md` (ruling 7). Signatures unchanged. Relax `file(_:_:)`, `write(_:to:)`, `writeText(_:to:)` and `readIfPresent<T>` from `private` to internal so the extension can use them.
   - `ProcessingPipeline.stages`: when it reuses an existing `transcript.json`, it calls `store.rewriteTranscriptMarkdown(id, userName: settings.userName)` once the clean transcript is settled (reused or newly saved) and before the engine decision is acted on; a throw fails the job like any save failure (ruling 7).
 
-- [ ] **Step 1: Write the failing tests** (`StorageTests`; a helper stores `meeting` with `speakerNames: ["S1": "Ada"]`, a three-segment transcript `you` / `S1` / `S1` with words, and a clean transcript, through `saveTranscript` and `saveClean`; `md(id)` and `cleanMD(id)` read the two Markdown files)
+- [x] **Step 1: Write the failing tests** (`StorageTests`; a helper stores `meeting` with `speakerNames: ["S1": "Ada"]`, a three-segment transcript `you` / `S1` / `S1` with words, and a clean transcript, through `saveTranscript` and `saveClean`; `md(id)` and `cleanMD(id)` read the two Markdown files)
 
 ```swift
 @Test func transcriptJSONIsWrittenBeforeItsMarkdown() {
@@ -361,10 +373,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 }
 ```
 
-- [ ] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "StorageTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
-- [ ] **Step 3: Implement** the interfaces; reorder `saveTranscript` and `saveClean`; add the pipeline's repair.
-- [ ] **Step 4: Run** the same filter, then the whole Core suite (the pipeline tests cover `saveTranscript`'s callers) — expect PASS.
-- [ ] **Step 5: Commit** — `Commit speaker changes and renames before rewriting the transcript Markdown`
+- [x] **Step 2: Run** `X swift test --package-path Packages/MuninnCore --filter "StorageTests|ProblemTranslatorTests|PipelineTests"` — expect a build failure.
+- [x] **Step 3: Implement** the interfaces; reorder `saveTranscript` and `saveClean`; add the pipeline's repair.
+- [x] **Step 4: Run** the same filter, then the whole Core suite (the pipeline tests cover `saveTranscript`'s callers) — expect PASS.
+- [x] **Step 5: Commit** — `Commit speaker changes and renames before rewriting the transcript Markdown`
 
 ---
 
@@ -394,10 +406,10 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
     - `changeSpeaker(_:to:)` runs `model.changeSpeaker` in a `Task`; on success it sets `transcript`, `lanes = PlaybackLanes.lanes(for:)` and `speakerIndices = SpeakerColours.indices(for:)` and applies the result to both states; a throw sets `speakerError` and leaves the view's transcript as it was.
     - `renameSpeaker(_:to:)` uses the new `model.renameSpeaker` with the same result and error handling (no longer through `report`/`saveError`).
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** the app build — expect PASS with no new warnings.
-- [ ] **Step 3: Run** `rg -n 'renameAction =|var renameAction|menuRename|Rename \\\(name\)"' Muninn` — expect no output.
-- [ ] **Step 4: Commit** — `Change the speaker of transcript lines from the context menu`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** the app build — expect PASS with no new warnings.
+- [x] **Step 3: Run** `rg -n 'renameAction =|var renameAction|menuRename|Rename \\\(name\)"' Muninn` — expect no output.
+- [x] **Step 4: Commit** — `Change the speaker of transcript lines from the context menu`
 
 ---
 
@@ -414,9 +426,9 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
   - `MeetingHeader` gains `transcript: Transcript?`, `speakerIndices: [String: Int]` and `onRename: (_ speaker: String, _ name: String) -> Void`; `MeetingDetail` passes its state and `renameSpeaker`. The chip row shows `SpeakerChip`s for `TranscriptSpeakers.headerSpeakers(meeting:transcript:userName: model.resolvedUserName)` after the details chip; attendee chips stay as today (the two never show together).
   - `struct SpeakerChip: View` (in `HeaderChips.swift`; `choice: SpeakerChoice`, `colourIndex: Int`, `initialName: String`, `onRename`): a `Button` with `.buttonStyle(.token)` whose label is an 8 pt circle in `Theme.speaker(colourIndex)` (accessibility hidden) and the title in `Theme.meta`, on the `Token` fill and padding; `.help("Rename this speaker everywhere")`; `.accessibilityLabel(choice.title)`; it opens a popover (arrow edge `.bottom`) with `SpeakerRenameForm(name: choice.title, initial: initialName, …)` whose save calls `onRename(choice.label, name)` and closes it. `initialName` is `meeting.speakerNames[label] ?? ""`.
 
-- [ ] **Step 1: Implement.**
-- [ ] **Step 2: Run** the app build — expect PASS with no new warnings.
-- [ ] **Step 3: Commit** — `Show a meeting's speakers in the header when it has no event`
+- [x] **Step 1: Implement.**
+- [x] **Step 2: Run** the app build — expect PASS with no new warnings.
+- [x] **Step 3: Commit** — `Show a meeting's speakers in the header when it has no event`
 
 ---
 
@@ -427,7 +439,7 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 **Files:**
 - Modify: `CHANGELOG.md`, this plan (tick boxes), `docs/superpowers/specs/2026-11-06-muninn-transcript-speakers-design.md` (Status)
 
-- [ ] **Step 1:** Add under `## [Unreleased]`, at the end of the existing sections:
+- [x] **Step 1:** Add under `## [Unreleased]`, at the end of the existing sections:
 
 ```markdown
 ### Added
@@ -442,9 +454,9 @@ App (`Muninn/`): `AppModel+Meetings.swift`, `Meetings/TranscriptTextView.swift`,
 - Each speaker keeps their colour when lines move between speakers.
 ```
 
-- [ ] **Step 2: Run** the full verification and record the totals as passed/total: the Core suite, `X swift test --package-path Packages/MuninnPlatform`, `mise exec -- xcodegen generate`, the app build, Task 4's search, `rg -n 'localizedDescription|String\(describing: error\)' Muninn | rg -v 'logger\.'` (expect no output) and `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`.
-- [ ] **Step 3:** `rm -rf build/adhoc` (no ad hoc copy may outlive the run).
-- [ ] **Step 4: Commit** — `Add the changelog entries for transcript speakers`
+- [x] **Step 2: Run** the full verification and record the totals as passed/total: the Core suite, `X swift test --package-path Packages/MuninnPlatform`, `mise exec -- xcodegen generate`, the app build, Task 4's search, `rg -n 'localizedDescription|String\(describing: error\)' Muninn | rg -v 'logger\.'` (expect no output) and `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'`.
+- [x] **Step 3:** `rm -rf build/adhoc` (no ad hoc copy may outlive the run).
+- [x] **Step 4: Commit** — `Add the changelog entries for transcript speakers`
 
 ## Manual acceptance (the owner, on his Mac)
 

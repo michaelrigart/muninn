@@ -1,6 +1,6 @@
 # Muninn transcript speakers — design
 
-**Status:** In progress — [PR #5](https://github.com/michaelrigart/muninn/pull/5)
+**Status:** Implemented — [PR #5](https://github.com/michaelrigart/muninn/pull/5)
 
 Follows the UX pass ([design](2026-11-03-muninn-ux-pass-design.md)), after its pull request 2 (the
 Meetings window). Its design system, copy style, accessibility rules and constraints apply here
