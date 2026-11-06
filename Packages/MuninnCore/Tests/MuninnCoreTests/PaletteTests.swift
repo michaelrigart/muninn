@@ -79,16 +79,34 @@ func darkRoleTextMeetsAA(_ colour: RGB) {
     #expect(Contrast.ratio(darkText, dark) >= 4.5)
 }
 
-@Test func speakerIndicesFollowFirstAppearance() {
-    func segment(_ id: Int, _ speaker: String) -> Segment {
-        Segment(id: id, track: .system, speaker: speaker, start: Double(id), end: Double(id) + 1, text: "", words: [])
-    }
-    let transcript = Transcript(
-        segments: ["S2", "you", "S1", "S3", "S4", "S5", "S6", "S2"].enumerated().map { segment($0.offset, $0.element) },
+private func speakerTranscript(_ speakers: [String]) -> Transcript {
+    Transcript(
+        segments: speakers.enumerated().map {
+            Segment(id: $0.offset, track: .system, speaker: $0.element, start: Double($0.offset), end: Double($0.offset) + 1, text: "", words: [])
+        },
         language: nil
     )
+}
 
-    #expect(SpeakerColours.indices(for: transcript) == ["you": 0, "S2": 1, "S1": 2, "S3": 3, "S4": 4, "S5": 5, "S6": 1])
+@Test func speakerColoursFollowTheLabelNumber() {
+    let t = speakerTranscript(["S2", "you", "S1", "S3", "S4", "S5", "S6", "S2"])
+
+    #expect(SpeakerColours.indices(for: t) == ["you": 0, "S1": 1, "S2": 2, "S3": 3, "S4": 4, "S5": 5, "S6": 1])
+}
+
+@Test func movingALineKeepsEveryOtherColour() {
+    let before = speakerTranscript(["S1", "S2", "S3", "S2"])
+    let after = TranscriptSpeakers.changing([1], to: "S3", in: before)
+    let beforeIndices = SpeakerColours.indices(for: before)
+    let afterIndices = SpeakerColours.indices(for: after)
+
+    for (label, index) in afterIndices where beforeIndices[label] != nil {
+        #expect(beforeIndices[label] == index)
+    }
+}
+
+@Test func unnumberedLabelsFollowTheNumberedOnes() {
+    #expect(SpeakerColours.indices(for: speakerTranscript(["Guest", "S2", "Host"])) == ["you": 0, "S2": 2, "Guest": 3, "Host": 4])
 }
 
 @Test func personIndexIsStable() {

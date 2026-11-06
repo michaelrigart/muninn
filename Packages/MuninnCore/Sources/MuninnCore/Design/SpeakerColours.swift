@@ -4,13 +4,19 @@ import Foundation
 public enum SpeakerColours {
     public static let count = 6
 
-    /// "you" is always colour 0; the others take colours 1 to 5 in order of first appearance.
+    /// "you" is always colour 0; a label `S<n>` takes colour `1 + (n - 1) % 5`, so a line moving between speakers shifts no
+    /// other speaker's colour. Any other label takes the colours after the numbered ones, in order of first appearance.
     public static func indices(for transcript: Transcript) -> [String: Int] {
         var result = [Transcript.youSpeaker: 0]
+        let highest = transcript.segments.compactMap { TranscriptSpeakers.number(of: $0.speaker) }.max() ?? 0
         var others = 0
         for segment in transcript.segments where result[segment.speaker] == nil {
-            result[segment.speaker] = 1 + (others % (count - 1))
-            others += 1
+            if let number = TranscriptSpeakers.number(of: segment.speaker) {
+                result[segment.speaker] = 1 + (number - 1) % (count - 1)
+            } else {
+                result[segment.speaker] = 1 + (highest + others) % (count - 1)
+                others += 1
+            }
         }
         return result
     }
