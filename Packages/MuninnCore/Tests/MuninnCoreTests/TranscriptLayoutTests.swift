@@ -111,6 +111,38 @@ struct TranscriptLayoutTests {
         #expect(layout.speakerLine(atOffset: layout.segments[1].timestamp.location) == nil)
     }
 
+    @Test func selectionChoosesEveryLineItTouches() {
+        let l = layout(.verbatim)
+        let fromMiddleOfFirst = l.segments[0].text.location + 3
+        #expect(l.segmentIDs(selection: NSRange(location: fromMiddleOfFirst, length: l.segments[2].line.location + 1 - fromMiddleOfFirst), offset: nil) == [0, 1, 2])
+        #expect(l.segmentIDs(selection: NSRange(location: l.segments[1].text.location, length: 2), offset: nil) == [1])
+        let gap = NSMaxRange(l.segments[0].line)
+        #expect(l.segmentIDs(selection: NSRange(location: gap, length: l.segments[1].line.location - gap), offset: l.segments[2].text.location) == [])
+    }
+
+    @Test func selectionOnlyOnANameChoosesNothing() {
+        let l = layout(.verbatim)
+        #expect(l.segmentIDs(selection: l.speakerLines[1].range, offset: nil) == [])
+    }
+
+    @Test func noSelectionChoosesTheLineAtTheOffset() {
+        let l = layout(.verbatim)
+        let empty = NSRange(location: 0, length: 0)
+        #expect(l.segmentIDs(selection: empty, offset: l.segments[1].text.location + 1) == [1])
+        #expect(l.segmentIDs(selection: empty, offset: NSMaxRange(l.segments[1].line)) == [1])
+        #expect(l.segmentIDs(selection: empty, offset: l.speakerLines[1].range.location) == [])
+        #expect(l.segmentIDs(selection: empty, offset: (l.string as NSString).length + 1) == [])
+        #expect(l.segmentIDs(selection: empty, offset: nil) == [])
+    }
+
+    @Test func cleanViewNeverChoosesHiddenSegments() {
+        let hidden = CleanTranscript(segments: [CleanSegment(id: 0, text: "We ship Friday."), CleanSegment(id: 1, text: ""), CleanSegment(id: 2, text: "Next topic.")])
+        let l = layout(.clean, clean: hidden)
+        #expect(l.segments.map(\.segmentID) == [0, 2])
+        let start = l.segments[0].text.location
+        #expect(l.segmentIDs(selection: NSRange(location: start, length: (l.string as NSString).length - start), offset: nil) == [0, 2])
+    }
+
     @Test func aLongUntimedSegmentLaysOutQuicklyInCleanMode() {
         let verbatim = (0..<20_000).map { "w\($0)" }.joined(separator: " ")
         let cleaned = (0..<19_000).map { "w\($0)" }.joined(separator: " ")

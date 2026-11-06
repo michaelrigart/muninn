@@ -70,6 +70,11 @@ public actor ProcessingPipeline {
         activeJobs[id, default: 0] > 0
     }
 
+    /// Runs `body` on the actor with whether the meeting has a job. It never suspends, so no job is admitted, started or reads the meeting's files while it runs.
+    public func withJobState<T: Sendable>(for id: MeetingID, _ body: @Sendable (_ hasJob: Bool) throws -> T) rethrows -> T {
+        try body(hasJob(for: id))
+    }
+
     /// How many callers wait on the meeting's queued job and which engine it forces. A test waits on it to know its requests have arrived.
     func queuedJobState(for id: MeetingID) -> (callers: Int, engine: EngineKind?)? {
         queuedJobs[id].map { ($0.waiters.count, $0.request.forced) }

@@ -177,6 +177,17 @@ public struct TranscriptLayout: Sendable {
         indexByID[id]
     }
 
+    /// The ids of the segments whose lines a selection touches, in layout order. Without a selection, the id of the
+    /// line `offset` is on, a line's end included; none for a speaker name line, a gap, past the end or no offset.
+    public func segmentIDs(selection: NSRange, offset: Int?) -> [Int] {
+        if selection.length > 0 {
+            let end = NSMaxRange(selection)
+            return segments.filter { $0.line.location < end && selection.location < NSMaxRange($0.line) }.map(\.segmentID)
+        }
+        guard let offset else { return [] }
+        return segments.first { $0.line.location <= offset && offset <= NSMaxRange($0.line) }.map { [$0.segmentID] } ?? []
+    }
+
     private func segmentIndex(containing offset: Int) -> Int? {
         var low = 0
         var high = segments.count

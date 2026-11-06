@@ -333,4 +333,12 @@ import Testing
         let encoded = String(decoding: try JSONEncoder().encode(problem), as: UTF8.self)
         #expect(!encoded.contains("Henderson"))
     }
+
+    @Test func refusedSpeakerChangeSaysWhy() {
+        let problem = translate(SpeakerChangeRefused(reason: "Wait until Muninn has finished this meeting"), ProblemContext(stage: .savingEdits))
+        #expect(problem.severity == .warning)
+        #expect(problem.title == "The speaker wasn't changed")
+        #expect(problem.explanation == "Wait until Muninn has finished this meeting.")
+        #expect(problem.actions.isEmpty)
+    }
 }
