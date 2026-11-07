@@ -10,8 +10,8 @@ whether it is compatible with the one before. Each section says what changed.
 ### Added
 
 - Muninn records calls (Teams and others) and in-person conversations without a bot, transcribes
-  them on your Mac in Dutch, French and English, and drafts a recap with action points that you
-  send from Outlook.
+  them on your Mac in Dutch, French and English, and writes a recap with action points that you
+  copy into any mail app.
 - Meetings file into your Obsidian vault.
 - Install with Homebrew: `brew install --cask michaelrigart/tap/muninn`.
 - Releases are signed with a stable certificate, so the permissions you give Muninn survive
@@ -38,9 +38,10 @@ whether it is compatible with the one before. Each section says what changed.
 - When Ollama isn't running on This Mac, a meeting waits instead of failing, and carries on
   within about 15 seconds of starting it.
 - Muninn asks for permission to send notifications the first time it has one to send.
-- The Meetings window has a toolbar for the recap, the transcript, the engine, the Outlook draft
+- The Meetings window has a toolbar for the recap, the transcript, the engine, the email recap
   and Obsidian, and a calmer header, recap and transcript.
-- Recipients are chosen in the Outlook draft sheet, which also shows the subject and a preview.
+- The Email recap sheet copies the recipients, the subject and the recap, each with its own Copy
+  button, to paste into any mail app. Recipients are chosen there too.
 - Meetings move to the Trash instead of being deleted, so they can be put back from Finder, and
   they reappear in Muninn by themselves.
 - Sidebar search also looks in recaps and transcripts, and each row shows the time, duration,

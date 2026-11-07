@@ -265,7 +265,7 @@ private struct Harness {
             id: MeetingID(rawValue: id), title: "Acme sync", startedAt: Date(timeIntervalSince1970: 1_792_000_000), endedAt: nil,
             captureMode: mode, language: "en", accountID: nil, association: nil, client: nil, candidateEvents: [],
             attendees: [], recipients: [], flags: [], speakerNames: [:], status: status, summaryEngine: nil,
-            engineNotice: nil, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics()
+            engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

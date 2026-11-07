@@ -11,11 +11,7 @@ public enum AutoFileDecision: Equatable, Sendable {
 }
 
 public enum MeetingActions {
-    public static func canDraft(_ m: Meeting, accounts: [AccountSettings]) -> Bool {
-        MeetingCommands.draftRefusal(m, accounts: accounts) == nil
-    }
-
-    /// The meeting names an account that is no longer in the settings; it can't draft until another account is chosen.
+    /// The meeting names an account that is no longer in the settings; choose another account.
     public static func accountRemoved(_ m: Meeting, accounts: [AccountSettings]) -> Bool {
         guard let id = m.accountID else { return false }
         return !accounts.contains(where: { $0.id == id })
@@ -31,9 +27,9 @@ public enum MeetingActions {
         }
     }
 
-    /// The event can be changed until a draft or an export exists for the meeting.
+    /// The event can be changed until a note is filed for the meeting.
     public static func canChangeEvent(_ m: Meeting) -> Bool {
-        m.draftWebLink == nil && m.draftID == nil && m.exportedNotePath == nil
+        m.exportedNotePath == nil
     }
 
     /// Choosing `account` would leave the meeting's event behind, because the event belongs to another account.
@@ -65,7 +61,7 @@ public enum MeetingActions {
         settings.hasVault ? nil : Problems.vaultNotChosen()
     }
 
-    /// Applies an event fetched for the meeting, judged against the meeting as it is now: a draft or note created while the
+    /// Applies an event fetched for the meeting, judged against the meeting as it is now: a note created while the
     /// event was being fetched keeps the old event, and the change is dropped (nil).
     public static func changeEvent(_ m: Meeting, to event: CalendarEvent, accounts: [AccountSettings], clientDomains: [String: String]) -> Meeting? {
         guard canChangeEvent(m) else { return nil }
@@ -73,7 +69,7 @@ public enum MeetingActions {
     }
 
     /// How many bullets and action points cite no transcript segment. They are kept in the recap and marked in the editor,
-    /// but a draft or a note should not carry them to a client unnoticed.
+    /// but a copied recap or a note should not carry them to a client unnoticed.
     public static func unsourcedItemCount(in summary: Summary) -> Int {
         summary.subjects.reduce(0) { total, subject in
             total + subject.bullets.filter { $0.sources.isEmpty }.count + subject.actions.filter { $0.sources.isEmpty }.count
@@ -108,6 +104,7 @@ public enum MeetingActions {
     }
 
     public static func addRecipient(_ a: Attendee, to m: Meeting, selfAddresses: [String]) -> Meeting {
+        guard EmailRecipients.isValidAddress(a.email) else { return m }
         let email = a.email.lowercased()
         guard !selfAddresses.contains(where: { $0.lowercased() == email }),
               !m.recipients.contains(where: { $0.attendee.email.lowercased() == email })

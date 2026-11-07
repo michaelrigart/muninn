@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MeetingCommand: CaseIterable, Sendable {
-    case regenerate, outlookDraft, obsidian, previousVersion, moveToTrash
+    case regenerate, emailRecap, obsidian, previousVersion, moveToTrash
 }
 
 /// What the window knows about a meeting when it decides which commands to offer.
@@ -51,7 +51,7 @@ public enum MeetingCommands {
             if c.isBusy { return wait }
             if c.unsavedEdits { return save }
             if c.eventChanging { return eventChange }
-        case .outlookDraft, .obsidian:
+        case .emailRecap, .obsidian:
             if recording || c.isBusy || status != .ready { return "The recap isn't ready yet" }
             if !c.hasRecap { return "There's no recap yet" }
             if c.unsavedEdits { return save }
@@ -80,14 +80,6 @@ public enum MeetingCommands {
         case .none, .failed: break
         }
         return hasJob ? wait : nil
-    }
-
-    /// Why a draft can't be made for the meeting, or nil when it can.
-    public static func draftRefusal(_ m: Meeting, accounts: [AccountSettings]) -> String? {
-        if m.accountID == nil { return "Choose an account in the meeting's details" }
-        if MeetingActions.accountRemoved(m, accounts: accounts) { return MeetingActions.accountRemovedLabel }
-        if !m.recipients.contains(where: \.included) { return "Choose at least one recipient" }
-        return nil
     }
 }
 

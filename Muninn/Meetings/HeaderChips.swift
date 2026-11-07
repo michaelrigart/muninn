@@ -75,7 +75,7 @@ struct EventChip: View {
     }
 
     private var helpText: String {
-        if !canChange { return "The event can't be changed once a draft or note exists" }
+        if !canChange { return "The event can't be changed once the note is filed" }
         if changing { return "Wait for the event change" }
         return "Choose the calendar event for this meeting"
     }

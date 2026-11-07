@@ -366,7 +366,7 @@ private struct AccountsTab: View {
     private static func askForName() -> String? {
         let alert = Alerts.makeAlert()
         alert.messageText = "Add an account"
-        alert.informativeText = "Name it after the organisation whose calendar and mail it signs in to, for example Work or Acme."
+        alert.informativeText = "Name it after the organisation whose calendar it signs in to, for example Work or Acme."
         alert.addButton(withTitle: "Add")
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))

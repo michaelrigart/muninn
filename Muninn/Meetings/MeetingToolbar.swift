@@ -24,7 +24,7 @@ struct MeetingToolbar: ToolbarContent {
     let transcript: TranscriptController
     let hasTranscript: Bool
     let restorePrevious: () -> Void
-    let openDraft: () -> Void
+    let openEmailRecap: () -> Void
 
     private var context: MeetingCommandContext {
         model.commandContext(for: meeting, hasRecap: summary != nil)
@@ -33,7 +33,7 @@ struct MeetingToolbar: ToolbarContent {
     var body: some ToolbarContent {
         let context = context
         let regenerate = MeetingCommands.disabledReason(.regenerate, context)
-        let draft = MeetingCommands.disabledReason(.outlookDraft, context)
+        let emailRecap = MeetingCommands.disabledReason(.emailRecap, context)
         let obsidian = MeetingCommands.disabledReason(.obsidian, context)
         let previous = MeetingCommands.disabledReason(.previousVersion, context)
         let trash = MeetingCommands.disabledReason(.moveToTrash, context)
@@ -92,11 +92,11 @@ struct MeetingToolbar: ToolbarContent {
             .disabled(regenerate != nil)
             .help(regenerate ?? ((summary?.engine ?? meeting.summaryEngine) == nil ? "Write the recap with another engine" : "Write the recap again with another engine"))
 
-            Button(action: openDraft) {
-                Label("Outlook draft", systemImage: "envelope")
+            Button(action: openEmailRecap) {
+                Label("Email recap", systemImage: "envelope")
             }
-            .disabled(draft != nil)
-            .help(draft ?? "Create a draft email with the recap in Outlook")
+            .disabled(emailRecap != nil)
+            .help(emailRecap ?? "Copy the recipients, subject and recap into your mail app")
 
             Button {
                 model.exportToObsidian(meeting.id)

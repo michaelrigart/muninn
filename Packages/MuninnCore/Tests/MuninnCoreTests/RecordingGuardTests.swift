@@ -102,7 +102,7 @@ import Testing
             id: MeetingID(rawValue: "m"), title: "t", startedAt: Date(timeIntervalSince1970: 0), endedAt: nil, captureMode: .micOnly,
             language: nil, accountID: nil, association: nil, client: nil, candidateEvents: [], attendees: [], recipients: [],
             flags: [], speakerNames: [:], status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil,
-            draftWebLink: nil, metrics: ProcessingMetrics()
+            metrics: ProcessingMetrics()
         )
     }
 
@@ -115,15 +115,9 @@ import Testing
         }
     }
 
-    @Test func eventCanChangeUntilADraftOrExportExists() {
+    @Test func eventCanChangeUntilANoteIsFiled() {
         var m = meeting(.ready)
         #expect(MeetingActions.canChangeEvent(m))
-        m.draftID = "d"
-        #expect(!MeetingActions.canChangeEvent(m))
-        m.draftID = nil
-        m.draftWebLink = "https://x"
-        #expect(!MeetingActions.canChangeEvent(m))
-        m.draftWebLink = nil
         m.exportedNotePath = "a.md"
         #expect(!MeetingActions.canChangeEvent(m))
     }

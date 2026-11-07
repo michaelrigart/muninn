@@ -10,7 +10,7 @@ struct NotePlannerTests {
             id: MeetingID(rawValue: id), title: "Sync", startedAt: Date(timeIntervalSince1970: seconds), endedAt: nil,
             captureMode: .micOnly, language: "en", accountID: "work", association: nil, client: client,
             candidateEvents: [], attendees: [], recipients: [], flags: [], speakerNames: [:], status: .ready,
-            summaryEngine: nil, engineNotice: nil, exportedNotePath: exported, draftWebLink: nil, metrics: ProcessingMetrics()
+            summaryEngine: nil, engineNotice: nil, exportedNotePath: exported, metrics: ProcessingMetrics()
         )
     }
 

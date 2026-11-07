@@ -65,7 +65,7 @@ struct AccountManagementTests {
             id: MeetingID(rawValue: id), title: "Sync", startedAt: Date(timeIntervalSince1970: 0), endedAt: nil,
             captureMode: .micOnly, language: "en", accountID: account, association: nil, client: nil,
             candidateEvents: [], attendees: [], recipients: [], flags: [], speakerNames: [:], status: status,
-            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics()
+            summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

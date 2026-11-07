@@ -1,17 +1,18 @@
 import MuninnCore
 import SwiftUI
 
-/// Chooses the sender, recipients and subject of an Outlook draft, previews the recap that goes in it and creates the draft.
-struct DraftSheet: View {
+/// Chooses the recipients and subject of the recap email, previews the recap and copies each part to the pasteboard, to paste into any mail app.
+struct EmailRecapSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let meeting: Meeting
     let summary: Summary?
 
     @State private var subject: String
-    @State private var creating = false
     @State private var editError: Problem?
-    @FocusState private var recipientsFocused: Bool
+    @FocusState private var focusedField: EmailRecapField?
+
+    private static let noRecap = "There's no recap yet"
 
     init(meeting: Meeting, summary: Summary?) {
         self.meeting = meeting
@@ -19,28 +20,49 @@ struct DraftSheet: View {
         _subject = State(initialValue: RecapEmail.subject(title: meeting.title, date: meeting.startedAt, timeZone: .current))
     }
 
-    private var refusal: String? {
-        MeetingCommands.draftRefusal(meeting, accounts: model.settings.accounts)
-    }
-
-    private var account: AccountSettings? {
-        model.settings.accounts.first { $0.id == meeting.accountID }
+    private var trimmedSubject: String {
+        subject.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
-            Text("Outlook draft")
+            Text("Email recap")
                 .font(.headline)
-            fromRow
-            RecipientsEditor(meeting: meeting, edit: edit, focused: $recipientsFocused)
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Subject").modifier(SectionLabel())
+                header(
+                    "Recipients (\(meeting.recipients.filter(\.included).count) of \(meeting.recipients.count))",
+                    part: "recipients",
+                    help: "Copy the recipients",
+                    disabledReason: meeting.recipients.contains(where: \.included) ? nil : "Tick at least one recipient"
+                ) {
+                    RecapPasteboard.copy(EmailRecipients.line(meeting.recipients))
+                    return true
+                }
+                RecipientsEditor(meeting: meeting, edit: edit, focused: $focusedField)
+            }
+            VStack(alignment: .leading, spacing: Space.xs) {
+                header(
+                    "Subject",
+                    part: "subject",
+                    help: "Copy the subject",
+                    disabledReason: trimmedSubject.isEmpty ? "Type a subject" : nil
+                ) {
+                    RecapPasteboard.copy(trimmedSubject)
+                    return true
+                }
                 TextField("Subject", text: $subject)
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
+                    .focused($focusedField, equals: .subject)
             }
             VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Recap").modifier(SectionLabel())
+                header(
+                    "Recap",
+                    part: "recap",
+                    help: "Copy the recap",
+                    disabledReason: summary == nil ? Self.noRecap : nil,
+                    copy: copyRecap
+                )
                 preview
             }
             if let editError {
@@ -53,33 +75,28 @@ struct DraftSheet: View {
                     onDismiss: { self.editError = nil }
                 )
             }
-            if let problem = model.actionErrors[meeting.id] {
-                ProblemCard(
-                    problem: problem,
-                    role: problem.severity == .warning ? .attention : nil,
-                    compact: true,
-                    handlers: model.problemHandlers(),
-                    showInActivity: { model.showInActivity(problem, meeting: meeting.id) },
-                    onDismiss: { model.actionErrors[meeting.id] = nil }
-                )
-            }
             buttons
         }
         .padding(Space.l)
         .frame(minWidth: 520, minHeight: 480)
+        .background(escapeToClose)
     }
 
-    private var fromRow: some View {
+    /// Escape reaches a focused text field's editor before SwiftUI's exit command, so a cancel-action button catches it as a key equivalent. It stays invisible, unclickable and out of VoiceOver.
+    private var escapeToClose: some View {
+        Button("Close") { dismiss() }
+            .keyboardShortcut(.cancelAction)
+            .opacity(0)
+            .allowsHitTesting(false)
+            .focusable(false)
+            .accessibilityHidden(true)
+    }
+
+    private func header(_ label: String, part: String, help: String, disabledReason: String?, copy: @escaping () -> Bool) -> some View {
         HStack(spacing: Space.s) {
-            Text("From").modifier(SectionLabel())
-            if let account {
-                Text(account.displayName)
-                    .font(Theme.interface)
-            } else {
-                Text(meeting.accountID == nil ? "Choose an account in the meeting's details" : MeetingActions.accountRemovedLabel)
-                    .font(Theme.interface)
-                    .foregroundStyle(Theme.attentionText)
-            }
+            Text(label).modifier(SectionLabel())
+            Spacer()
+            CopyButton(part: part, help: help, disabledReason: disabledReason, copy: copy)
         }
     }
 
@@ -87,20 +104,21 @@ struct DraftSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s) {
                 if let summary {
-                    ForEach(Array(summary.subjects.enumerated()), id: \.offset) { _, subject in
+                    let content = RecapEmail.content(summary: summary, speakerNames: meeting.speakerNames)
+                    Text(content.greeting)
+                    Text(content.intro)
+                    ForEach(Array(content.sections.enumerated()), id: \.offset) { _, section in
                         VStack(alignment: .leading, spacing: Space.xs) {
-                            Text(subject.title)
+                            Text(section.title)
                                 .font(Theme.subject)
-                            ForEach(Array(subject.bullets.enumerated()), id: \.offset) { _, bullet in
-                                Text("\u{2022} \(bullet.text)")
-                            }
-                            ForEach(Array(subject.actions.enumerated()), id: \.offset) { _, action in
-                                Text(actionLine(action))
+                            ForEach(Array(section.items.enumerated()), id: \.offset) { _, item in
+                                Text(line(item))
                             }
                         }
                     }
+                    Text(content.closing)
                 } else {
-                    Text("There's no recap yet")
+                    Text(Self.noRecap)
                         .foregroundStyle(Theme.secondaryText)
                 }
             }
@@ -108,45 +126,43 @@ struct DraftSheet: View {
             .foregroundStyle(Theme.primaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Space.s)
-            .textSelection(.enabled)
         }
         .background(Theme.contentBackground, in: RoundedRectangle(cornerRadius: Radius.card))
         .frame(minHeight: 120)
     }
 
-    private func actionLine(_ action: ActionPoint) -> String {
-        let owner = meeting.speakerNames[action.owner] ?? action.owner
-        var line = "\(owner): \(action.text)"
-        if let due = action.due, let formatted = RecapEmail.dueDate(due) {
-            line += " (\(formatted))"
+    private func line(_ item: RecapEmail.Item) -> AttributedString {
+        var line = AttributedString("\u{2022} ")
+        if let owner = item.owner {
+            var name = AttributedString(owner)
+            name.inlinePresentationIntent = .stronglyEmphasized
+            line += name
+            line += AttributedString(": ")
         }
+        line += AttributedString(item.text)
         return line
     }
 
     private var buttons: some View {
         HStack(spacing: Space.s) {
             Spacer()
-            Button("Cancel") { dismiss() }
-                .keyboardShortcut(.cancelAction)
-                .disabled(creating)
-            if creating {
-                ProgressView().controlSize(.small)
-            }
-            Button(creating ? "Creating…" : "Create draft", action: create)
-                .keyboardShortcut(recipientsFocused ? nil : .defaultAction)
-                .disabled(refusal != nil || creating)
-                .help(refusal ?? "Create the draft in Outlook")
+            Button("Done") { dismiss() }
+                .keyboardShortcut(focusedField == nil ? .defaultAction : nil)
         }
     }
 
-    private func create() {
-        creating = true
-        let id = meeting.id
-        let subject = subject
-        Task {
-            let outcome = await model.createDraft(id, subject: subject)
-            creating = false
-            if outcome == .created || outcome == .review { dismiss() }
+    /// Asks about unsourced items first; true only when the recap was copied.
+    private func copyRecap() -> Bool {
+        guard let summary else { return false }
+        switch model.confirmUnsourcedItems(MeetingActions.unsourcedItemCount(in: summary), for: meeting.id) {
+        case .include:
+            RecapPasteboard.copyRecap(summary, speakerNames: meeting.speakerNames)
+            return true
+        case .review:
+            dismiss()
+            return false
+        case .cancel:
+            return false
         }
     }
 
@@ -163,28 +179,65 @@ struct DraftSheet: View {
     }
 }
 
+/// The sheet's text fields that take Return themselves, so Done is not the default action while one has focus.
+private enum EmailRecapField: Hashable {
+    case recipients
+    case subject
+}
+
+/// A borderless Copy button that reads "Copied" for 1.5 s after `copy` returns true.
+private struct CopyButton: View {
+    let part: String
+    let help: String
+    let disabledReason: String?
+    let copy: () -> Bool
+
+    @State private var copied = false
+    @State private var copies = 0
+
+    var body: some View {
+        Button {
+            if copy() {
+                copied = true
+                copies += 1
+                AccessibilityNotification.Announcement("Copied").post()
+            }
+        } label: {
+            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .accessibilityLabel("Copy \(part)")
+        .disabled(disabledReason != nil)
+        .help(disabledReason ?? help)
+        .task(id: copies) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled { copied = false }
+        }
+    }
+}
+
 /// The meeting's recipients as checkboxes, with a field to search people or type an address.
 private struct RecipientsEditor: View {
     @EnvironmentObject private var model: AppModel
     let meeting: Meeting
     let edit: ((inout Meeting) -> Void) -> Void
-    var focused: FocusState<Bool>.Binding
+    var focused: FocusState<EmailRecapField?>.Binding
 
     @State private var query = ""
     @State private var results: [Attendee] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            Text("Recipients (\(meeting.recipients.filter(\.included).count) of \(meeting.recipients.count))")
-                .modifier(SectionLabel())
             if meeting.recipients.count > 6 {
                 ScrollView { rows }.frame(height: 132)
             } else {
                 rows
             }
-            TextField(meeting.accountID == nil ? "Email address" : "Search people or type an email address", text: $query)
+            TextField(searchAccount == nil ? "Email address" : "Search people or type an email address", text: $query)
                 .textFieldStyle(.roundedBorder)
-                .focused(focused)
+                .focused(focused, equals: .recipients)
                 .onSubmit {
                     if let manual { add(manual) }
                 }
@@ -221,19 +274,22 @@ private struct RecipientsEditor: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The account to search people in; nil when the meeting has none or its account was removed from Settings.
+    private var searchAccount: String? {
+        MeetingActions.accountRemoved(meeting, accounts: model.settings.accounts) ? nil : meeting.accountID
+    }
+
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var manual: Attendee? {
-        let value = trimmedQuery
-        guard value.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil else { return nil }
-        return Attendee(name: "", email: value)
+        EmailRecipients.typedAddress(query)
     }
 
     private var candidates: [Attendee] {
         let known = Set(meeting.recipients.map { $0.attendee.email.lowercased() })
-        var list = results.filter { !known.contains($0.email.lowercased()) }
+        var list = results.filter { !known.contains($0.email.lowercased()) && EmailRecipients.isValidAddress($0.email) }
         if let manual, !known.contains(manual.email.lowercased()), !list.contains(where: { $0.email.lowercased() == manual.email.lowercased() }) {
             list.insert(manual, at: 0)
         }
@@ -256,7 +312,7 @@ private struct RecipientsEditor: View {
 
     private func search() async {
         let term = trimmedQuery
-        guard let account = meeting.accountID, term.count >= 2 else {
+        guard let account = searchAccount, term.count >= 2 else {
             results = []
             return
         }

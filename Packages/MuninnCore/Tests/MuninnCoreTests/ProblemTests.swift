@@ -26,7 +26,6 @@ import Testing
             Problems.signInExpired(account: "Work"),
             Problems.signInFailed(account: "Work"),
             Problems.microsoftUnreachable(),
-            Problems.outlookDraftFailed(),
             Problems.calendarUnreadable(account: "Work"),
             Problems.keychainUnreadable(),
             Problems.keychainUnwritable(),
@@ -55,7 +54,6 @@ import Testing
             Problems.vaultNotChosen(),
             Problems.notFiledAutomatically(unsourced: 1),
             Problems.notFiledAutomatically(unsourced: 3),
-            Problems.draftWithoutLink(),
         ]
         for reason in allWaitReasons {
             problems.append(Problems.waiting(reason, api: .ollama, claudeKeyPresent: true))
@@ -80,6 +78,10 @@ import Testing
         #expect(explanation(.openAICompatible, key: false, waiting: false) == "Muninn writes recaps on This Mac with its model server. Start it, then try again.")
         #expect(explanation(.ollama, key: true, waiting: true) == "Open Ollama and Muninn carries on within 15 seconds, or write this recap with another engine.")
         #expect(explanation(.openAICompatible, key: true, waiting: false) == "Muninn writes recaps on This Mac with its model server. Start it, then try again, or write this recap with another engine.")
+    }
+
+    @Test func eventNotChangedNamesTheNote() {
+        #expect(Problems.eventNotChanged().explanation == "A note already exists for this meeting.")
     }
 
     @Test func couldNotDeleteTellsWhereToLookAndOffersNoRetry() {
@@ -187,7 +189,6 @@ import Testing
             (Problems.signInExpired(account: "Work"), .problem, [.signInAgain]),
             (Problems.signInFailed(account: "Work"), .problem, [.tryAgain]),
             (Problems.microsoftUnreachable(), .problem, [.tryAgain]),
-            (Problems.outlookDraftFailed(), .problem, [.tryAgain]),
             (Problems.calendarUnreadable(account: "Work"), .problem, [.tryAgain]),
             (Problems.keychainUnreadable(), .problem, [.engineSettings]),
             (Problems.keychainUnwritable(), .problem, [.tryAgain]),
@@ -214,7 +215,6 @@ import Testing
             (Problems.eventNotChanged(), .info, []),
             (Problems.vaultNotChosen(), .warning, []),
             (Problems.notFiledAutomatically(unsourced: 2), .warning, []),
-            (Problems.draftWithoutLink(), .info, []),
             (Problems.waiting(.studioUnreachable, api: .ollama, claudeKeyPresent: true), .warning, [.writeOnThisMac, .writeWithClaude]),
             (Problems.waiting(.studioUnreachable, api: .ollama, claudeKeyPresent: false), .warning, [.writeOnThisMac]),
             (Problems.waiting(.studioNotConfigured, api: .ollama, claudeKeyPresent: true), .warning, [.engineSettings, .writeOnThisMac, .writeWithClaude]),
@@ -258,7 +258,7 @@ import Testing
     @Test func stagePhrasesAndAreas() {
         #expect(ProblemStage.writingRecap.phrase == "writing the recap")
         #expect(ProblemStage.writingRecap.area == .recap)
-        #expect(ProblemStage.creatingDraft.area == .outlook)
+        #expect(ProblemStage.searchingPeople.area == .outlook)
         #expect(ProblemStage.playingRecording.phrase == "playing the recording")
         #expect(ProblemStage.playingRecording.area == .recording)
         #expect(ProblemStage.trashingMeeting.phrase == "moving the meeting to the Trash")
@@ -298,6 +298,7 @@ import Testing
 
     @Test func accountProblemsCarryTheAccount() {
         #expect(Problems.signInExpired(account: "Work").details.account == "Work")
+        #expect(Problems.signInExpired(account: "Work").explanation == "Sign in again so Muninn can read the calendar and search people.")
         #expect(Problems.signInFailed(account: "Work").details.account == "Work")
         #expect(Problems.calendarUnreadable(account: "Work").details.account == "Work")
         #expect(Problems.signedInProfileUnreadable(account: "Work").details.account == "Work")

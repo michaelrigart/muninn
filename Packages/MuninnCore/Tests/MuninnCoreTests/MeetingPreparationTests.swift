@@ -27,6 +27,11 @@ import Testing
         )
     }
 
+    @Test func addRecipientRefusesAnUnusableAddress() {
+        let m = MeetingActions.addRecipient(Attendee(name: "X", email: "a;b@example.com"), to: prepare(.none), selfAddresses: [])
+        #expect(m.recipients.isEmpty)
+    }
+
     @Test func noEventGivesUntitledAndNoAccount() {
         let m = prepare(.none)
         #expect(m.title == RecipientBuilder.untitledTitle(appName: "Teams", at: start, timeZone: zone))
@@ -103,21 +108,13 @@ import Testing
         #expect(cleared.id == m.id)
     }
 
-    @Test func aFetchedEventIsAppliedOnlyWhileNoDraftOrNoteExists() {
+    @Test func aFetchedEventIsAppliedOnlyWhileNoNoteExists() {
         let original = prepare(.single(event("e1")))
         let other = event("e2", subject: "Retro")
 
         let changed = MeetingActions.changeEvent(original, to: other, accounts: accounts, clientDomains: domains)
         #expect(changed?.title == "Retro")
         #expect(changed?.association?.eventID == "e2")
-
-        var drafted = original
-        drafted.draftID = "d1"
-        #expect(MeetingActions.changeEvent(drafted, to: other, accounts: accounts, clientDomains: domains) == nil)
-
-        var linked = original
-        linked.draftWebLink = "https://outlook.test/d1"
-        #expect(MeetingActions.changeEvent(linked, to: other, accounts: accounts, clientDomains: domains) == nil)
 
         var exported = original
         exported.exportedNotePath = "Work/note.md"
@@ -177,36 +174,24 @@ import Testing
         #expect(chosen.client == "Acme")
     }
 
-    @Test func canDraftRequiresAccountAndRecipient() {
+    @Test func setIncludedTicksAndUnticksByAddressInAnyCase() {
         var m = prepare(.none)
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
-        m.accountID = "work"
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
         m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: [])
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
         m = MeetingActions.setIncluded("JAN@acme.be", false, in: m)
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
+        #expect(m.recipients.map(\.included) == [false])
+        m = MeetingActions.setIncluded("jan@ACME.be", true, in: m)
+        #expect(m.recipients.map(\.included) == [true])
     }
 
-    @Test func aMeetingWhoseAccountWasRemovedCannotDraft() {
+    @Test func accountRemovedNamesAMissingAccount() {
         var m = prepare(.none)
         m.accountID = "gone"
-        m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: [])
         #expect(MeetingActions.accountRemoved(m, accounts: accounts))
-        #expect(!MeetingActions.canDraft(m, accounts: accounts))
         m.accountID = "other"
         #expect(!MeetingActions.accountRemoved(m, accounts: accounts))
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
         m.accountID = nil
         #expect(!MeetingActions.accountRemoved(m, accounts: accounts))
         #expect(MeetingActions.accountRemovedLabel == "Account removed — choose an account")
-    }
-
-    @Test func noEventToDraftable() {
-        var m = prepare(.none)
-        m.accountID = "work"
-        m = MeetingActions.addRecipient(Attendee(name: "Jan", email: "jan@acme.be"), to: m, selfAddresses: ["me@example.com"])
-        #expect(MeetingActions.canDraft(m, accounts: accounts))
     }
 
     @Test func addRecipientIgnoresSelfAndDuplicates() {

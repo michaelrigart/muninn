@@ -228,11 +228,8 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
     /// What went wrong with the transcript itself, such as speakers that couldn't be told apart.
     public var transcriptNotice: Problem?
     public var exportedNotePath: String?
-    public var draftWebLink: String?
     public var metrics: ProcessingMetrics
     public var requestedEngine: EngineKind?
-    /// The Graph id of the recap draft, kept whether or not Graph returned a web link.
-    public var draftID: String?
     /// IANA identifier of the zone the call happened in, so its date stays the same wherever it is summarised.
     public var timeZone: String?
 
@@ -255,10 +252,8 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         summaryEngine: EngineKind?,
         engineNotice: Problem?,
         exportedNotePath: String?,
-        draftWebLink: String?,
         metrics: ProcessingMetrics,
         requestedEngine: EngineKind? = nil,
-        draftID: String? = nil,
         timeZone: String? = nil,
         transcriptNotice: Problem? = nil
     ) {
@@ -280,10 +275,8 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         self.summaryEngine = summaryEngine
         self.engineNotice = engineNotice
         self.exportedNotePath = exportedNotePath
-        self.draftWebLink = draftWebLink
         self.metrics = metrics
         self.requestedEngine = requestedEngine
-        self.draftID = draftID
         self.timeZone = timeZone
         self.transcriptNotice = transcriptNotice
     }
@@ -312,10 +305,8 @@ public struct Meeting: Codable, Hashable, Sendable, Identifiable {
         engineNotice = (try? c.decodeIfPresent(Problem.self, forKey: .engineNotice)) ?? legacy?.engine
         transcriptNotice = storedTranscriptNotice ?? legacy?.transcript
         exportedNotePath = try c.decodeIfPresent(String.self, forKey: .exportedNotePath)
-        draftWebLink = try c.decodeIfPresent(String.self, forKey: .draftWebLink)
         metrics = try c.decode(ProcessingMetrics.self, forKey: .metrics)
         requestedEngine = try c.decodeIfPresent(EngineKind.self, forKey: .requestedEngine)
-        draftID = try c.decodeIfPresent(String.self, forKey: .draftID)
         timeZone = try? c.decodeIfPresent(String.self, forKey: .timeZone)
     }
 }

@@ -74,7 +74,7 @@ public enum ProblemTranslator {
             return Problems.claudeUnreachable()
         case nil:
             switch context.stage {
-            case .creatingDraft, .readingCalendar, .searchingPeople, .signingIn, .changingEvent:
+            case .readingCalendar, .searchingPeople, .signingIn, .changingEvent:
                 return microsoftUnreachable(in: context)
             case .preparingSpeechModel:
                 return Problems.speechModelUnavailable(model: context.model ?? "the speech model")
@@ -102,8 +102,6 @@ public enum ProblemTranslator {
             return Problems.signInFailed(account: account)
         case (.notSignedIn, _), (.auth, _), (.http(401, _, _), _):
             return Problems.signInExpired(account: account)
-        case (.http, .creatingDraft):
-            return Problems.outlookDraftFailed()
         case (.http, .readingCalendar), (.http, .changingEvent):
             return Problems.calendarUnreadable(account: account)
         case (.connection, _):

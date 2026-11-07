@@ -156,7 +156,7 @@ struct GraphTests {
         #expect(sent[0].value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
         let start = try Self.form(sent[0])
         #expect(start["client_id"] == "client-1")
-        #expect(start["scope"] == "offline_access User.Read Calendars.Read Mail.ReadWrite People.Read")
+        #expect(start["scope"] == "offline_access User.Read Calendars.Read People.Read")
 
         for request in sent.dropFirst() {
             #expect(request.url?.absoluteString == "https://login.microsoftonline.com/contoso/oauth2/v2.0/token")
@@ -186,7 +186,7 @@ struct GraphTests {
         #expect(form["grant_type"] == "refresh_token")
         #expect(form["client_id"] == "client-1")
         #expect(form["refresh_token"] == "rt1")
-        #expect(form["scope"] == "offline_access User.Read Calendars.Read Mail.ReadWrite People.Read")
+        #expect(form["scope"] == "offline_access User.Read Calendars.Read People.Read")
     }
 
     @Test func refreshFailureThrowsAuth() async throws {
@@ -475,29 +475,8 @@ struct GraphTests {
         #expect(try await Self.client().me() == ["m@corp.example"])
     }
 
-    @Test func draftRequestShape() async throws {
-        GraphStubProtocol.reset([.init(status: 201, body: #"{"id":"D1","webLink":"https://outlook.office.com/owa/?ItemID=D1"}"#)])
-        let result = try await Self.client().createDraft(
-            subject: "Notes: Standup",
-            html: "<p>Hi</p>",
-            to: [Attendee(name: "Bob", email: "bob@example.com"), Attendee(name: "Olga", email: "olga@example.com")]
-        )
-        #expect(result == DraftResult(id: "D1", webLink: URL(string: "https://outlook.office.com/owa/?ItemID=D1")))
-
-        let sent = try #require(GraphStubProtocol.requests.first)
-        #expect(sent.url?.absoluteString == "https://graph.microsoft.com/v1.0/me/messages")
-        #expect(sent.httpMethod == "POST")
-        #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer tok-1")
-        #expect(sent.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        let body = try LLMClientTests.body(sent)
-        #expect(body["subject"] as? String == "Notes: Standup")
-        let content = try #require(body["body"] as? [String: Any])
-        #expect(content["contentType"] as? String == "HTML")
-        #expect(content["content"] as? String == "<p>Hi</p>")
-        let recipients = try #require(body["toRecipients"] as? [[String: Any]])
-        let addresses = try recipients.map { try #require($0["emailAddress"] as? [String: Any]) }
-        #expect(addresses.map { $0["address"] as? String } == ["bob@example.com", "olga@example.com"])
-        #expect(addresses.map { $0["name"] as? String } == ["Bob", "Olga"])
+    @Test func scopesLeaveOutMailReadWrite() {
+        #expect(!DeviceCodeAuthenticator.scopes.contains("Mail.ReadWrite"))
     }
 
     @Test func peopleSearchParses() async throws {
@@ -544,11 +523,10 @@ struct GraphTests {
     ])
     func graphHTTPErrorKeepsOnlyAKnownCode(body: String, code: String?) async {
         GraphStubProtocol.reset([.init(status: 403, body: body)])
-        let draft = RequestFacts(method: "POST", path: "/v1.0/me/messages", host: "graph.microsoft.com")
         let error = await #expect(throws: GraphError.self) {
-            try await Self.client().createDraft(subject: "s", html: "h", to: [])
+            try await Self.client().searchPeople("x")
         }
-        #expect(error == .http(status: 403, code: code, request: draft))
+        #expect(error == .http(status: 403, code: code, request: Self.graphRequest))
         #expect(!String(reflecting: error!).contains("Henderson"))
     }
 

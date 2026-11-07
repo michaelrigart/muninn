@@ -72,7 +72,6 @@ struct EndToEnd: AsyncParsableCommand {
             summaryEngine: nil,
             engineNotice: nil,
             exportedNotePath: nil,
-            draftWebLink: nil,
             metrics: ProcessingMetrics(),
             requestedEngine: engine
         )

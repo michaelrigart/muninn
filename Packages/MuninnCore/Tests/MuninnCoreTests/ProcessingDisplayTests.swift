@@ -13,7 +13,7 @@ struct ProcessingDisplayTests {
             id: id, title: title, startedAt: t, endedAt: t.addingTimeInterval(600),
             captureMode: .micOnly, language: "en", accountID: nil, association: nil, client: nil, candidateEvents: [],
             attendees: [], recipients: [], flags: [], speakerNames: [:], status: status, summaryEngine: nil,
-            engineNotice: engineNotice, exportedNotePath: nil, draftWebLink: nil, metrics: ProcessingMetrics()
+            engineNotice: engineNotice, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 

@@ -30,7 +30,6 @@ struct ObsidianTests {
             summaryEngine: .claude,
             engineNotice: nil,
             exportedNotePath: nil,
-            draftWebLink: nil,
             metrics: ProcessingMetrics()
         )
     }

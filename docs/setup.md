@@ -44,7 +44,7 @@ terminal app you run it from.
 
 | Host | Port | Who | Why |
 |---|---|---|---|
-| `graph.microsoft.com` | 443 | Muninn | calendar, people, mail drafts |
+| `graph.microsoft.com` | 443 | Muninn | calendar, people |
 | `login.microsoftonline.com` | 443 | Muninn | device-code sign-in and token refresh |
 | `api.anthropic.com` | 443 | Muninn, `muninn-spike` | the Claude engine (only when you pick it) |
 | `<network-mac-host>` | 11434 | Muninn, `muninn-spike` | the Network Mac engine |
@@ -235,12 +235,12 @@ In the Entra admin center (entra.microsoft.com) of the tenant:
    | `offline_access` | refresh tokens, so you sign in once |
    | `User.Read` | your own addresses |
    | `Calendars.Read` | matching a recording to its calendar event |
-   | `Mail.ReadWrite` | creating the Outlook recap draft (a draft only; Muninn never sends) |
    | `People.Read` | recipient lookup |
 
    `User.Read` is added by default; `offline_access` is under OpenId permissions. None of these
    need admin consent by default. If the tenant blocks user consent, press "Grant admin consent
-   for <tenant>" on the same page.
+   for <tenant>" on the same page. An app registered for an earlier version of Muninn can remove
+   `Mail.ReadWrite`; Muninn no longer asks for it.
 
 In Muninn: Settings > Accounts. Muninn starts with one account, "Work". **Add Account** adds
 another one (for example for a second tenant); its ID is derived from its display name

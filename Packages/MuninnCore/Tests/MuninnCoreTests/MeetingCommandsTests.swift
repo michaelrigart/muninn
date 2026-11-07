@@ -11,15 +11,14 @@ struct MeetingCommandsTests {
     private static let eventChange = "Wait for the event change"
 
     private static func meeting(
-        _ status: ProcessingStatus = .ready, accountID: String? = nil, association: EventAssociation? = nil,
-        candidates: [CalendarEventRef] = [], attendees: [Attendee] = [], recipients: [Recipient] = []
+        _ status: ProcessingStatus = .ready, association: EventAssociation? = nil,
+        candidates: [CalendarEventRef] = [], attendees: [Attendee] = []
     ) -> Meeting {
         Meeting(
             id: MeetingID(rawValue: "a"), title: "Sync", startedAt: t, endedAt: t.addingTimeInterval(600),
-            captureMode: .micOnly, language: "en", accountID: accountID, association: association, client: nil,
-            candidateEvents: candidates, attendees: attendees, recipients: recipients, flags: [], speakerNames: [:],
-            status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, draftWebLink: nil,
-            metrics: ProcessingMetrics()
+            captureMode: .micOnly, language: "en", accountID: nil, association: association, client: nil,
+            candidateEvents: candidates, attendees: attendees, recipients: [], flags: [], speakerNames: [:],
+            status: status, summaryEngine: nil, engineNotice: nil, exportedNotePath: nil, metrics: ProcessingMetrics()
         )
     }
 
@@ -76,7 +75,7 @@ struct MeetingCommandsTests {
         Case(name: "no recap before unsaved", context: context(hasRecap: false, unsavedEdits: true), reason: "There's no recap yet"),
     ]
 
-    @Test(arguments: export, [MeetingCommand.outlookDraft, .obsidian])
+    @Test(arguments: export, [MeetingCommand.emailRecap, .obsidian])
     func exportReasons(_ c: Case, _ command: MeetingCommand) {
         #expect(MeetingCommands.disabledReason(command, c.context) == c.reason)
     }
@@ -106,17 +105,6 @@ struct MeetingCommandsTests {
 
     @Test(arguments: trash) func moveToTrashReasons(_ c: Case) {
         #expect(MeetingCommands.disabledReason(.moveToTrash, c.context) == c.reason)
-    }
-
-    @Test func draftRefusalNamesWhatIsMissing() {
-        let account = AccountSettings(id: "work", displayName: "Work", vaultArea: "Work", tenant: "t", clientID: "c", selfAddresses: [])
-        let included = Recipient(attendee: Attendee(name: "Sam", email: "sam@example.com"), included: true)
-        let excluded = Recipient(attendee: Attendee(name: "Sam", email: "sam@example.com"), included: false)
-        #expect(MeetingCommands.draftRefusal(Self.meeting(recipients: [included]), accounts: [account]) == "Choose an account in the meeting's details")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "gone", recipients: [included]), accounts: [account]) == MeetingActions.accountRemovedLabel)
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work", recipients: [excluded]), accounts: [account]) == "Choose at least one recipient")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work"), accounts: [account]) == "Choose at least one recipient")
-        #expect(MeetingCommands.draftRefusal(Self.meeting(accountID: "work", recipients: [included]), accounts: [account]) == nil)
     }
 
     @Test func accountChangeDropsOnlyAnotherAccountsEvent() {

@@ -86,18 +86,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var openSettingsRequest = 0
     /// Bumped to ask an open Meetings window to show the Recap tab.
     @Published private(set) var showRecapRequest = 0
-    /// The last failed draft, export or event change per meeting, shown as that meeting's problem card.
+    /// The last failed export or event change per meeting, shown as that meeting's problem card.
     @Published var actionErrors: [MeetingID: Problem] = [:]
     @Published var actionNotices: [MeetingID: Problem] = [:]
-    /// The last draft or filed note per meeting, shown as that meeting's success card until it is dismissed or another action starts.
+    /// The last filed note per meeting, shown as that meeting's success card until it is dismissed or another action starts.
     @Published var actionSuccesses: [MeetingID: ActionSuccess] = [:]
-    /// What to run again for a failed draft or export, so the problem card can retry it.
+    /// What to run again for a failed export, so the problem card can retry it.
     @Published var failedActions: [MeetingID: RetryableAction] = [:]
     /// Recap edits that couldn't be saved, per meeting, kept until a save succeeds.
     @Published var unsavedSummaries: [MeetingID: UnsavedSummary] = [:]
     /// Accounts whose stored sign-in Microsoft rejected during the last calendar refresh.
     @Published var signInNeeded: Set<String> = []
-    /// Meetings whose event is being fetched for a change. Drafts, exports and regeneration wait for it.
+    /// Meetings whose event is being fetched for a change. Exports and regeneration wait for it.
     @Published var eventChangesInFlight: Set<MeetingID> = []
     /// Why the flag hotkey couldn't be registered, if it couldn't.
     @Published var hotkeyError: Problem?

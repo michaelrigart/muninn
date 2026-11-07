@@ -73,4 +73,79 @@ struct RecapEmailTests {
         let html = RecapEmail.html(summary: Self.summary(language: "en", owner: "S1"), speakerNames: ["S1": "Sara"])
         #expect(html.contains("<b>Sara</b>"))
     }
+
+    @Test func contentOrdersSubjectsThenActions() {
+        var s = Self.summary(language: "en", owner: "S1", due: "2026-11-12")
+        s.subjects.append(Subject(title: "Hiring", bullets: [], actions: [ActionPoint(owner: "Kim", text: "Post the job", due: nil, sources: [1])]))
+        #expect(RecapEmail.content(summary: s, speakerNames: ["S1": "Ann"]) == RecapEmail.Content(
+            greeting: "Hi all,", intro: "Thanks for today. Here are the summary and next steps.",
+            sections: [
+                .init(title: "Pricing", items: [.init(owner: nil, text: "Agreed on tiers")]),
+                .init(title: "Hiring", items: []),
+                .init(title: "Action points", items: [.init(owner: "Ann", text: "Send quote (12/11)"), .init(owner: "Kim", text: "Post the job")]),
+            ],
+            closing: "Best regards,"
+        ))
+    }
+
+    @Test func plainTextLayout() {
+        let s = Self.summary(language: "en", title: "Q1 priorities", bullet: "Ship the import before the audit", owner: "S1", action: "send the revised quote", due: "2026-11-12")
+        #expect(RecapEmail.plainText(summary: s, speakerNames: ["S1": "Ann"]) == """
+        Hi all,
+
+        Thanks for today. Here are the summary and next steps.
+
+        Q1 priorities
+        - Ship the import before the audit
+
+        Action points
+        - Ann: send the revised quote (12/11)
+
+        Best regards,
+        """)
+    }
+
+    @Test func plainTextOmitsAnInvalidDueDate() {
+        let s = Self.summary(language: "en", due: "2026-13-40")
+        #expect(RecapEmail.plainText(summary: s, speakerNames: [:]).contains("- Jan: Send quote\n"))
+        #expect(!RecapEmail.plainText(summary: s, speakerNames: [:]).contains("("))
+    }
+
+    @Test func plainTextCopyPerLanguage() {
+        let nl = RecapEmail.plainText(summary: Self.summary(language: "nl"), speakerNames: [:])
+        #expect(nl.contains("Hallo allemaal,"))
+        #expect(nl.contains("Actiepunten"))
+        #expect(nl.contains("Met vriendelijke groeten,"))
+        let fr = RecapEmail.plainText(summary: Self.summary(language: "fr"), speakerNames: [:])
+        #expect(fr.contains("Merci pour l'échange."))
+        #expect(fr.contains("Points d'action"))
+        let de = RecapEmail.plainText(summary: Self.summary(language: "de"), speakerNames: [:])
+        #expect(de.contains("Hi all,"))
+        #expect(de.contains("Best regards,"))
+    }
+
+    @Test func plainTextEdgeCases() {
+        var s = Self.summary(language: "en")
+        s.subjects[0].bullets = []
+        s.subjects[0].actions = []
+        #expect(RecapEmail.plainText(summary: s, speakerNames: [:]) == "Hi all,\n\nThanks for today. Here are the summary and next steps.\n\nPricing\n\nAction points\n\nBest regards,")
+        s.subjects = []
+        #expect(RecapEmail.plainText(summary: s, speakerNames: [:]) == "Hi all,\n\nThanks for today. Here are the summary and next steps.\n\nAction points\n\nBest regards,")
+    }
+
+    @Test func plainTextKeepsSpecialCharactersLiteral() {
+        let s = Self.summary(language: "en", bullet: "R&D <beta> \"q\"")
+        #expect(RecapEmail.plainText(summary: s, speakerNames: [:]).contains("- R&D <beta> \"q\""))
+    }
+
+    @Test func htmlDocumentDeclaresUTF8AndKeepsAccents() {
+        let s = Self.summary(language: "en", title: "Réunion", bullet: "één afspraak")
+        let document = RecapEmail.htmlDocument(summary: s, speakerNames: [:])
+        #expect(document.hasPrefix("<!DOCTYPE html>"))
+        #expect(document.contains("<meta charset=\"utf-8\">"))
+        #expect(document.contains("<h3>Réunion</h3>"))
+        #expect(document.contains("<li>één afspraak</li>"))
+        #expect(document.contains(RecapEmail.html(summary: s, speakerNames: [:])))
+        #expect(document.hasSuffix("</html>"))
+    }
 }

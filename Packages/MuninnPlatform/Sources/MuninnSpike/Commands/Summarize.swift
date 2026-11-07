@@ -59,7 +59,6 @@ struct Summarize: AsyncParsableCommand {
             summaryEngine: nil,
             engineNotice: nil,
             exportedNotePath: nil,
-            draftWebLink: nil,
             metrics: ProcessingMetrics()
         )
 

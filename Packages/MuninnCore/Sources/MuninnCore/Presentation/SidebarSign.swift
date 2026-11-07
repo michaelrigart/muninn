@@ -3,7 +3,7 @@ import Foundation
 /// What a sidebar row shows beside a meeting's title.
 public enum SidebarSign: Equatable, Sendable {
     case progress(step: Int, label: String)
-    case queued, attention, recording, draftCreated, filed, none
+    case queued, attention, recording, filed, none
 
     public static func sign(for meeting: Meeting, progress: MeetingProgress, needsAttention: Bool) -> SidebarSign {
         switch progress {
@@ -14,7 +14,6 @@ public enum SidebarSign: Equatable, Sendable {
         }
         if needsAttention { return .attention }
         if case .recording = meeting.status { return .recording }
-        if meeting.draftID != nil || meeting.draftWebLink != nil { return .draftCreated }
         if meeting.exportedNotePath != nil { return .filed }
         return .none
     }
