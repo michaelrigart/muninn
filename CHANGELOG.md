@@ -7,6 +7,8 @@ whether it is compatible with the one before. Each section says what changed.
 
 ## [Unreleased]
 
+## [20261108-0006] - 2026-11-08
+
 ### Added
 
 - Muninn records calls (Teams and others) and in-person conversations without a bot, transcribes
@@ -54,4 +56,5 @@ whether it is compatible with the one before. Each section says what changed.
 
 - Muninn's dialogs show the Muninn icon instead of a blank placeholder.
 
-[Unreleased]: https://github.com/michaelrigart/muninn/commits/main
+[Unreleased]: https://github.com/michaelrigart/muninn/compare/20261108-0006...HEAD
+[20261108-0006]: https://github.com/michaelrigart/muninn/releases/tag/20261108-0006
