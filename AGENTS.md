@@ -62,9 +62,10 @@ points at Xcode.
   `project.yml`, `scripts/verify-app` and the cask template carry the literal too;
   `AppIdentityTests` and the verifier catch drift in the Swift constant and in the built bundle,
   but the cask template's `uninstall quit:` line is not checked.
-- Every `xcodebuild` build passes a `-derivedDataPath` that ends in `.noindex`: Spotlight skips
-  those folders, so builds never show up in Spotlight or Alfred. The default is `build/dd.noindex`; a parallel
-  or scratch build uses `build/dd-<name>.noindex`.
+- Every `xcodebuild` run that compiles (`build`, `test`, `archive` and the like) passes a
+  `-derivedDataPath` that ends in `.noindex`: Spotlight skips those folders, so builds never
+  show up in Spotlight or Alfred. The default is `build/dd.noindex`; a parallel or scratch build
+  uses `build/dd-<name>.noindex`.
 - Builds are signed with the maintainer's Personal Team. Ad hoc builds (`CODE_SIGN_IDENTITY=-
   DEVELOPMENT_TEAM=`, which CI and contributors use) are a new app to macOS after every rebuild,
   so the Microphone and System Audio Recording permissions are asked again.
