@@ -16,12 +16,12 @@ points at Xcode.
 - Core tests: `swift test --package-path Packages/MuninnCore`
 - Platform tests: `swift test --package-path Packages/MuninnPlatform`
 - Generate the project: `mise exec -- xcodegen generate` (`Muninn.xcodeproj` is not tracked)
-- Build: `xcodebuild -project Muninn.xcodeproj -scheme Muninn -configuration Debug -derivedDataPath build -quiet build`
+- Build: `xcodebuild -project Muninn.xcodeproj -scheme Muninn -configuration Debug -derivedDataPath build/dd.noindex -quiet build`
 - Release build: the same with `-configuration Release`; `scripts/verify-app` accepts only
   Release builds.
 - Without the signing certificate (ad hoc): add `CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=` to
   either build.
-- Install: `rm -rf /Applications/Muninn.app && ditto build/Build/Products/Debug/Muninn.app /Applications/Muninn.app`
+- Install: `rm -rf /Applications/Muninn.app && ditto build/dd.noindex/Build/Products/Debug/Muninn.app /Applications/Muninn.app`
   (`ditto` merges into an existing bundle and would keep stale files)
 - Run: `open /Applications/Muninn.app`
 - Script tests: `/usr/bin/python3 -m unittest discover -s scripts/tests -p 'test_*.py'` (the
@@ -62,12 +62,16 @@ points at Xcode.
   `project.yml`, `scripts/verify-app` and the cask template carry the literal too;
   `AppIdentityTests` and the verifier catch drift in the Swift constant and in the built bundle,
   but the cask template's `uninstall quit:` line is not checked.
+- Every `xcodebuild` run that compiles (`build`, `test`, `archive` and the like) passes a
+  `-derivedDataPath` that ends in `.noindex`: Spotlight skips those folders, so builds never
+  show up in Spotlight or Alfred. The default is `build/dd.noindex`; a parallel or scratch build
+  uses `build/dd-<name>.noindex`.
 - Builds are signed with the maintainer's Personal Team. Ad hoc builds (`CODE_SIGN_IDENTITY=-
   DEVELOPMENT_TEAM=`, which CI and contributors use) are a new app to macOS after every rebuild,
   so the Microphone and System Audio Recording permissions are asked again.
 - When a permission is granted, macOS may record the signature of any copy of Muninn that Launch
   Services knows, not the one running. Before granting, delete every ad hoc copy, including
-  `build/adhoc` and any ad hoc build under `build/`.
+  `build/dd-adhoc.noindex` and any ad hoc build under `build/`.
 - Start the app with `open`: launched from a terminal, macOS gives the Microphone permission to
   the terminal.
 - A bare `log` is a zsh builtin. Use `/usr/bin/log`; the subsystem is
