@@ -49,9 +49,9 @@ Add `CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=` to `xcodebuild` to sign ad hoc inst
 ```sh
 mise trust mise.toml
 mise exec -- xcodegen generate
-xcodebuild -project Muninn.xcodeproj -scheme Muninn -configuration Release -derivedDataPath build CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet build
+xcodebuild -project Muninn.xcodeproj -scheme Muninn -configuration Release -derivedDataPath build/dd.noindex CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet build
 rm -rf /Applications/Muninn.app
-ditto build/Build/Products/Release/Muninn.app /Applications/Muninn.app
+ditto build/dd.noindex/Build/Products/Release/Muninn.app /Applications/Muninn.app
 open /Applications/Muninn.app
 ```
 
