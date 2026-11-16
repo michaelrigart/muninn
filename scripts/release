@@ -168,7 +168,7 @@ land_release_commit() {
   gh pr merge "$pr_number" --repo "$repo" --merge --admin --match-head-commit "$release_commit" ||
     die "merging pull request #$pr_number failed; it stays open"
 
-  git fetch -q origin main || die "could not fetch origin/main"
+  git fetch -q origin refs/heads/main || die "could not fetch origin/main"
   git merge-base --is-ancestor "$release_commit" FETCH_HEAD ||
     die "pull request #$pr_number is merged, but origin/main does not contain $release_commit"
   echo "Merged pull request #$pr_number."
@@ -186,7 +186,7 @@ recover=0
 if (( resume )); then
   scripts/changelog.py notes "$version" >/dev/null || die "CHANGELOG.md has no section for $version"
   if (( ! dry_run )); then
-    git fetch --quiet origin main || die "could not fetch origin/main"
+    git fetch --quiet origin refs/heads/main || die "could not fetch origin/main"
     fetched_main="$(git rev-parse FETCH_HEAD)"
     if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
       # HEAD is not on origin/main. The only commit that may be pushed from here is the

@@ -129,7 +129,12 @@ case "$1 ${2:-}" in
     fi
     if [[ -e "$STUB_DIR/pr-view-files" ]]; then files="$(cat "$STUB_DIR/pr-view-files")"; fi
     if [[ -e "$STUB_DIR/pr-view-head" ]]; then head_oid="$(cat "$STUB_DIR/pr-view-head")"; fi
-    printf '%s|%s|%s|%s|%s\n' "$state" "$(pr_get "$file" base)" "$head_oid" "$(pr_get "$file" cross)" "$files"
+    base="$(pr_get "$file" base)"
+    cross="$(pr_get "$file" cross)"
+    if [[ -e "$STUB_DIR/pr-view-state" ]]; then state="$(cat "$STUB_DIR/pr-view-state")"; fi
+    if [[ -e "$STUB_DIR/pr-view-base" ]]; then base="$(cat "$STUB_DIR/pr-view-base")"; fi
+    if [[ -e "$STUB_DIR/pr-view-cross" ]]; then cross="$(cat "$STUB_DIR/pr-view-cross")"; fi
+    printf '%s|%s|%s|%s|%s\n' "$state" "$base" "$head_oid" "$cross" "$files"
     ;;
   "pr create")
     head="" base="" body=""
@@ -666,6 +671,7 @@ expect "d: origin's main merges the release commit" origin_merged "$R"
 expect "d: opens one pull request from release/<version> into main" test "$(ls "$STUB_DIR/prs" | wc -l | tr -d ' ')" -eq 1 -a "$(pr_field 1 head)" == "release/$v" -a "$(pr_field 1 base)" == main
 expect "d: titles it after the release" contains "$calls" "--title Release $v"
 expect "d: merges it as admin, pinned to the release commit" contains "$calls" "pr merge 1 --repo $repo --merge --admin --match-head-commit $R"
+expect "d: the push log sees the release branch" contains "$(cat "$dir/pushes.log")" "refs/heads/release/$v"
 expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 expect "d: creates the release" contains "$calls" "release create $v"
 expect "d: uploads the zip" contains "$calls" "release upload $v"
@@ -796,17 +802,37 @@ expect "f4: another head is named" contains "$output" "its head is $snapshot, no
 expect "f4: another head merges nothing" lacks "$(cat "$STUB_DIR/calls.log")" "pr merge"
 expect "f4: another head leaves main unchanged" test "$(git --git-dir="$bare" rev-parse refs/heads/main)" == "$snapshot"
 
+# One scenario per field the pull request check reads besides the files and the head.
+pr_view_refused() {
+  local field="$1" value="$2" problem="$3"
+  new_scenario "view-$field" --fast
+  git -C "$clone" checkout --quiet -B main
+  git -C "$clone" push --quiet --force origin HEAD:main
+  snapshot="$(git -C "$clone" rev-parse HEAD)"
+  printf '%s\n' "$value" >"$STUB_DIR/pr-view-$field"
+  run_release
+  expect "f4: $field $value fails" test "$status" -ne 0
+  expect "f4: $field $value says the pull request is not the release commit alone" contains "$output" "pull request #1 is not the release commit alone"
+  expect "f4: $field $value is named" contains "$output" "$problem"
+  expect "f4: $field $value merges nothing" lacks "$(cat "$STUB_DIR/calls.log")" "pr merge"
+  expect "f4: $field $value leaves main unchanged" test "$(git --git-dir="$bare" rev-parse refs/heads/main)" == "$snapshot"
+}
+pr_view_refused state CLOSED "it is CLOSED, not OPEN"
+pr_view_refused base develop "its base is develop, not main"
+pr_view_refused cross true "it comes from another repository"
+
 echo "== f5: a warning before the pull request's address does not hide its number"
 new_scenario create-warning --fast
 git -C "$clone" checkout --quiet -B main
 git -C "$clone" push --quiet --force origin HEAD:main
 touch "$STUB_DIR/create-warning"
+echo 7 >"$STUB_DIR/next-pr"
 PATH="$fast_build:$PATH" run_release
 if [[ "$status" -ne 0 ]]; then echo "$output" >&2; fi
 expect "f5: exits 0" test "$status" -eq 0
 v="$(git --git-dir="$bare" tag | head -1)"
-expect "f5: merges pull request 1" contains "$(cat "$STUB_DIR/calls.log")" "pr merge 1 --repo $repo --merge --admin --match-head-commit $(git --git-dir="$bare" rev-parse "refs/tags/$v^{commit}")"
-expect "f5: pull request 1 is merged" test "$(pr_field 1 state)" == MERGED
+expect "f5: merges pull request 7, not the 1 of the warning" contains "$(cat "$STUB_DIR/calls.log")" "pr merge 7 --repo $repo --merge --admin --match-head-commit $(git --git-dir="$bare" rev-parse "refs/tags/$v^{commit}")"
+expect "f5: pull request 7 is merged" test "$(pr_field 7 state)" == MERGED
 
 echo "== g: resuming with a local, unpushed release commit"
 # The failing build stops each accepted case right after the push, so none of them builds.
