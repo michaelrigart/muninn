@@ -55,7 +55,7 @@ pull request number, `<b>` is `release/<v>`.
 | problem, lookup | `could not read <login>'s permissions on <repo>` (a failed `gh api repos/<repo>`) |
 | branch exists | `<b> already exists; wait a minute, or resume it with --version <v>` |
 | commit failed, undone | `the release commit failed, so nothing was released; CHANGELOG.md and main are as they were; run scripts/release again` |
-| commit failed, left | `the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on <b> with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D <b>` |
+| commit failed, left | `the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on <b>, with the script's CHANGELOG.md staged and your edits in the working tree; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D <b>` |
 | resume hint (trap) | `release: stopped; resume with: scripts/release --version <v>` |
 | push failed | `the push of <b> failed` |
 | origin branch elsewhere | `origin's <b> is at <sha>, not the release commit <R>; the script merges only the commit it cut` |
