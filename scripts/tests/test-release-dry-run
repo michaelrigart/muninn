@@ -70,7 +70,20 @@ cat >"$bin/gh" <<'STUB'
 set -euo pipefail
 echo "$*" >>"$STUB_DIR/calls.log"
 case "$1 ${2:-}" in
-  "auth status") exit 0 ;;
+  "auth status")
+    if [[ -e "$STUB_DIR/auth-fails" ]]; then
+      echo "unknown flag: --json" >&2
+      exit 1
+    fi
+    printf '%s|%s|%s|%s\n' \
+      "$(cat "$STUB_DIR/gh-state" 2>/dev/null || echo success)" \
+      "$(cat "$STUB_DIR/gh-login" 2>/dev/null || echo release-test)" \
+      "$(cat "$STUB_DIR/token-source" 2>/dev/null || echo keyring)" \
+      "$(cat "$STUB_DIR/scopes" 2>/dev/null || echo 'gist, read:org, repo')"
+    ;;
+  "api repos/"*)
+    if [[ -e "$STUB_DIR/not-admin" ]]; then echo false; else echo true; fi
+    ;;
   "release view")
     if [[ ! -e "$STUB_DIR/release-exists" ]]; then
       echo "release not found" >&2
@@ -149,6 +162,7 @@ new_scenario() {
   git clone --quiet --bare "$root" "$bare"
   git --git-dir="$bare" for-each-ref --format='%(refname)' refs/tags |
     while IFS= read -r tag; do git --git-dir="$bare" update-ref -d "$tag"; done
+  git --git-dir="$bare" config core.hooksPath "$bare/hooks"
   git clone --quiet "$bare" "$clone"
   assert_no_tags
   git -C "$clone" config user.name "Release Test"
@@ -240,7 +254,7 @@ run_release() {
 }
 
 refs() { git --git-dir="$bare" for-each-ref --format='%(refname) %(objectname)'; }
-gh_writes() { grep -Ev '^(auth status|release view|release download|repo clone)' "$STUB_DIR/calls.log" || true; }
+gh_writes() { grep -Ev '^(auth status|api repos/|release view|release download|repo clone)' "$STUB_DIR/calls.log" || true; }
 tap_cask() { git --git-dir="$STUB_DIR/tap.git" show main:Casks/muninn.rb; }
 seed_cask() {
   local edit="$dir/tap-edit"
@@ -320,6 +334,22 @@ expect "a: CHANGELOG.md is untouched" test "$(sha_of "$clone/CHANGELOG.md")" == 
 expect "a: the tree is clean" test -z "$(git -C "$clone" status --porcelain)"
 expect "a: gh is never asked to write" test -z "$(gh_writes)"
 
+echo "== a2: a dry run without merge rights says so and goes on"
+new_scenario dry-scope
+printf 'gist\n' >"$STUB_DIR/scopes"
+git -C "$clone" checkout --quiet -b rehearsal
+tags_before="$(git -C "$clone" tag)"
+log_before="$(git -C "$clone" log --all --format=%H)"
+refs_before="$(refs)"
+run_release --dry-run
+expect "a2: exits 0" test "$status" -eq 0
+if [[ "$status" -ne 0 ]]; then echo "$output" >&2; fi
+expect "a2: says a real release would stop" contains "$output" "Note: a real release would stop here: gh cannot merge the release pull request as release-test"
+expect "a2: no new tag" test "$(git -C "$clone" tag)" == "$tags_before"
+expect "a2: no new commit" test "$(git -C "$clone" log --all --format=%H)" == "$log_before"
+expect "a2: origin is untouched" test "$(refs)" == "$refs_before"
+expect "a2: gh is never asked to write" test -z "$(gh_writes)"
+
 echo "== b: checks refuse before anything is built or written"
 new_scenario checks
 v=20260101-0900
@@ -336,7 +366,7 @@ refs_before="$(refs)"
 
 git -C "$clone" checkout --quiet -b elsewhere
 run_release
-expect_refused "b1: a new release off main" "main"
+expect_refused "b1: a new release off main" "a new release must be cut from main"
 
 git -C "$clone" checkout --quiet -B main
 echo dirty >>"$clone/AGENTS.md"
@@ -348,6 +378,21 @@ git -C "$clone" commit --quiet --allow-empty -m "Not pushed"
 run_release
 expect_refused "b3: main ahead of origin/main" "origin/main"
 git -C "$clone" push --quiet --force origin HEAD:main
+refs_before="$(refs)"
+
+other="$dir/other"
+git clone --quiet --branch main "$bare" "$other"
+git -C "$other" config user.name "Release Test"
+git -C "$other" config user.email "release-test@example.invalid"
+git -C "$other" config commit.gpgsign false
+git -C "$other" config core.hooksPath /dev/null
+git -C "$other" commit --quiet --allow-empty -m "Pushed elsewhere"
+git -C "$other" push --quiet origin HEAD:main
+refs_before="$(refs)"
+run_release
+expect_refused "b3b: main behind origin/main" "main is not level with origin/main"
+expect "b3b: no release branch" test -z "$(git -C "$clone" branch --list 'release/*')"
+git -C "$clone" pull --quiet --ff-only origin main
 refs_before="$(refs)"
 
 (cd "$clone" && scripts/changelog.py release "$v" --repo "$repo") && git -C "$clone" commit --quiet -am "Release $v"
@@ -366,6 +411,20 @@ git -C "$clone" reset --quiet --hard origin/main
 
 PATH="$nosec:$PATH" run_release --dry-run --version "$v"
 expect_refused "b7: no signing identity for the team" "$team"
+
+printf 'gist, read:org\n' >"$STUB_DIR/scopes"; printf 'GH_TOKEN\n' >"$STUB_DIR/token-source"
+run_release
+expect_refused "b8: a token without the repo scope" "has neither the repo nor the public_repo scope"
+expect "b8: names the token's source" contains "$output" "(from GH_TOKEN)"
+expect "b8: says how to run it" contains "$output" "with GH_TOKEN unset"
+expect "b8: no release branch" test -z "$(git -C "$clone" branch --list 'release/*')"
+printf 'public_repo\n' >"$STUB_DIR/scopes"; touch "$STUB_DIR/not-admin"
+run_release
+expect_refused "b9: an account that is not an admin" "release-test is not an admin of $repo"
+rm "$STUB_DIR/not-admin" "$STUB_DIR/scopes" "$STUB_DIR/token-source"
+touch "$STUB_DIR/auth-fails"; run_release
+expect_refused "b10: a gh without auth status --json" "gh is not signed in"
+rm "$STUB_DIR/auth-fails"
 
 echo "== c0: a broken Xcode refuses a new release before anything is committed"
 new_scenario xcode

@@ -83,10 +83,33 @@ remote_tag_commit() {
     END { print (peeled != "" ? peeled : plain) }'
 }
 
+# gh must be signed in, and its token and account must be able to merge a pull request here.
+check_merge_rights() {
+  local line state login source scopes problems=""
+  line="$(gh auth status --active --hostname github.com --json hosts \
+    --jq '.hosts["github.com"][0] | [.state, .login, .tokenSource, (.scopes // "")] | join("|")' 2>/dev/null)" ||
+    die "gh is not signed in; run: gh auth login"
+  IFS='|' read -r state login source scopes <<<"$line"
+  [[ "$state" == success ]] || die "gh is not signed in; run: gh auth login"
+  case ", $scopes, " in
+    *", repo, "* | *", public_repo, "*) ;;
+    *) problems="its token (from $source) has neither the repo nor the public_repo scope" ;;
+  esac
+  if [[ "$(gh api "repos/$repo" --jq .permissions.admin 2>/dev/null || true)" != true ]]; then
+    problems="${problems:+$problems; }$login is not an admin of $repo"
+  fi
+  [[ -n "$problems" ]] || return 0
+  if (( dry_run )); then
+    echo "Note: a real release would stop here: gh cannot merge the release pull request as $login: $problems."
+  else
+    die "gh cannot merge the release pull request as $login: $problems; run from a shell where gh uses a login with the repo scope (gh auth login), with GH_TOKEN unset"
+  fi
+}
+
 # 1. Checks
 [[ -z "$(git status --porcelain)" ]] || die "uncommitted changes; commit or stash them first"
 git remote get-url origin >/dev/null 2>&1 || die "no origin remote"
-gh auth status >/dev/null 2>&1 || die "gh is not signed in; run: gh auth login"
+check_merge_rights
 has_team_identity || die "no valid code-signing identity for team $team in the keychain"
 xcodebuild -version >/dev/null 2>&1 || die "xcodebuild does not work; install Xcode, or point DEVELOPER_DIR at it"
 mise exec -- xcodegen --version >/dev/null 2>&1 || die "xcodegen does not run through mise; check that mise.toml is trusted"
