@@ -3,7 +3,7 @@
 **Date:** 2026-11-16
 **Status:** Approved
 **Canonical for:** the release flow (`scripts/release` and `scripts/tests/test-release-dry-run`) of
-Muninn, Hulder, Linger and Tafl. Their ports reference this document by repository and path.
+Muninn, Hulder, Linger, Tafl and Skald. Their ports reference this document by repository and path.
 **Supersedes in part:** the distribution design
 (`docs/superpowers/specs/2026-11-03-muninn-distribution-design.md`): its anti-goal "The release
 script pushes to `main` only its own release commit, plus the tag", and the recovery of an unpushed
@@ -11,7 +11,7 @@ release commit by a push to `main`.
 
 ## Why
 
-Since 2026-11-14 the default branch of each of the four repositories changes only through a pull
+Since 2026-11-14 the default branch of each of the five repositories changes only through a pull
 request. Two GitHub rulesets hold it:
 
 - `deletion`, `non_fast_forward` and `pull_request` (0 approvals, merge method `merge` only), with
@@ -37,7 +37,7 @@ commit's second parent).
 - A run whose `gh` cannot merge stops before it creates anything, and says why.
 - `--dry-run` creates nothing anywhere: no branch, commit, push, pull request, merge, tag or
   release. It still builds, verifies and packages.
-- The four repositories keep one script, differing only in names.
+- The five repositories keep one script, differing only in names.
 
 ## Non-goals
 
@@ -268,7 +268,7 @@ code reverted.
 
 ## Ports
 
-- Hulder, Linger and Tafl each carry the same change on a branch `fix/release-via-pr`. Each port
+- Hulder, Linger, Tafl and Skald each carry the same change on a branch `fix/release-via-pr`. Each port
   records a short spec in its own repository that names this one as canonical, by forge link
   (`https://github.com/michaelrigart/muninn/blob/main/docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md`)
   and path, and lists only its own differences; and a plan of its own.
@@ -282,7 +282,11 @@ code reverted.
   without the zap cases, together with anything the shared script calls that Linger's lacks. That
   lifts the non-goal for the release script. Rejected: porting only the pull-request flow onto
   Linger's script, which would keep two scripts.
-- All four pull requests are opened before any is merged; Muninn's merges first.
+- **Skald**, added by the maintainer on 2026-11-16, has the shared script and test, but only on
+  `feat/skald-v1`, whose pull request into `main` is still open. Its port branches from
+  `feat/skald-v1` and its pull request targets that branch, so the fix reaches `main` with
+  Skald v1.
+- All five pull requests are opened before any is merged; Muninn's merges first.
 
 ## Residual
 
