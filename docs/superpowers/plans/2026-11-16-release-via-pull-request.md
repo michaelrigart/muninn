@@ -204,7 +204,10 @@ rm "$STUB_DIR/auth-fails"
 - [ ] **Step 2: Add the fast build.** `$work/fast-build/xcodebuild` answers `-version`, and
   for a build writes `build/dd.noindex/Build/Products/Release/Muninn.app/Contents/Info.plist`
   under the current directory. `new_scenario <name> --fast` writes `#!/bin/sh\nexit 0\n` to the
-  clone's `scripts/verify-app` before the snapshot commit. Scenarios that check the real build
+  clone's `scripts/verify-app` before the snapshot commit. A scenario that runs with `fast_build`
+  at any point, in its first run or in a later resume, is created with `--fast`. That covers e,
+  f, f2, f3, f4 and f5 here, and the publishing scenarios of Tasks 4 to 6. The failing build and
+  the rejecting hooks work the same in such a scenario. Scenarios that check the real build
   (a, d) never use it.
 
 - [ ] **Step 3: Write the failing tests.** Rewrite d's push assertions:
@@ -224,7 +227,8 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   it appends each `<old> <new> <ref>` line it reads and accepts. The rejecting hooks of f and g
   replace it. Each scenario truncates `$dir/pushes.log` right before `run_release`, so its own
   setup pushes are not counted. Also:
-  - **e** (fast build is not used; the failing build stops the run after the merge): fails;
+  - **e** (created with `--fast`; its first run uses the failing build, which stops the run
+    after the merge): fails;
     prints `resume with: scripts/release --version $v`; origin's `main` merges the release commit;
     no tag; the clone is still on `release/$v` at the release commit.
   - **f** (rejected branch push): fails; says `the push of release/$v failed` and the resume hint;
@@ -335,9 +339,11 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     origin's `main` merges the release commit, and the other commit is an ancestor of origin's
     `main`.
   - **g7:** dry run: no push, no `pr` call in `calls.log`, HEAD unchanged.
-  - **g8:** a tag elsewhere: refused before any push or `pr` call.
+  - **g8:** a tag elsewhere: refused before any push; `gh` is not asked to write (`gh_writes`
+    empty).
   - **g9:** origin's `release/<v>` at another commit: refused with
-    `origin's release/$v is at`, no `pr` call.
+    `origin's release/$v is at`; `gh` is not asked to write (the landing's `pr list` read is
+    allowed).
   - **g10:** `seed_pr 5 release/$v CLOSED false` and the branch on origin: refused with
     `pull request #5 for release/$v was closed without merging` and
     `gh pr reopen 5 --repo $repo`; no `pr create`.
@@ -383,7 +389,8 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   - **g13:** `release_on_branch`, then a commit on origin's `main` that adds
     `- Later entry merged after the cut.` under `Unreleased`: refused with
     `origin/main changed CHANGELOG.md after the release commit was cut`, lists `git switch main`
-    and `scripts/release`, and has no resume hint. No push, no `pr` call.
+    and `scripts/release`, and has no resume hint. No push; `gh` is not asked to write (the
+    landing's `pr list` read is allowed).
   - **j1:** a new release, fast build, with `before-merge` pushing that same later entry onto the
     bare `main`. The run fails with `the $v section of CHANGELOG.md on origin/main differs`; no
     tag; no `release create`.
@@ -424,7 +431,11 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 
 - [ ] **Step 1: Write the failing tests.**
   - **d:** the clone ends on `main`, equal to origin's `main`. There is no `release/$v` locally
-    or on origin. The output has `Released $v:`.
+    or on origin. The output has `Released $v:`. d's retry of the finished release now starts
+    with `git -C "$clone" checkout --quiet --detach "$R"`, because the resume runs from the
+    release commit and tidy-up left the clone on `main`'s merge commit. The retry's existing
+    "changes nothing" expects stay, and it ends on `main` again, level with origin. This is the
+    Review Focus case of a resume from a detached HEAD.
   - **a:** the last line is the new dry-run line; no `release/*` branch locally or on origin.
   - **l1:** a new release, fast build, whose `before-merge` gives the clone's local `main` a
     commit origin lacks: `git -C "$clone" commit-tree main^{tree} -p main -m Local`, then
@@ -433,9 +444,8 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   - **l2:** a new release, fast build, with a stub switch `after-release-create` (an executable
     the stub runs after `release create`) that moves origin's `release/<v>` to a new commit.
     Expectations: exits 1; reports `release/$v` left on origin; that branch still exists.
-  - **l3:** e's resume run starts from a detached HEAD at the release commit and ends on `main`.
 
-- [ ] **Step 2: Run; d, a, l1, l2 and l3 fail.**
+- [ ] **Step 2: Run; d, a, l1 and l2 fail.**
 
 - [ ] **Step 3: Implement `tidy_up`** as the spec's three steps.
   - Delete the remote branch with
