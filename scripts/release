@@ -48,12 +48,16 @@ if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p 2>/dev/null)" == */CommandLi
 fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/muninn-release.XXXXXX")"
-pushed=0
+committed=0
+published=0
+branch=""
+release_commit=""
+pr_number=""
 finish() {
   local status=$?
   rm -rf "$work"
-  if (( status != 0 && pushed )); then
-    echo "release: failed after pushing the release commit; resume with: scripts/release --version $version" >&2
+  if (( status != 0 && committed && ! published )); then
+    echo "release: stopped; resume with: scripts/release --version $version" >&2
   fi
 }
 trap finish EXIT
@@ -108,6 +112,66 @@ check_merge_rights() {
   else
     die "gh cannot merge the release pull request as $login: $problems; run from a shell where gh uses a login with the repo scope (gh auth login), with GH_TOKEN unset"
   fi
+}
+
+# Puts the release commit on origin's main through its pull request: pushes the release
+# branch, opens the pull request unless one is open, checks it and merges it as admin.
+land_release_commit() {
+  local remote_branch pr_lines out view line n state cross
+  local v_state v_base v_head v_cross v_files problems=""
+  remote_branch="$(git ls-remote origin "refs/heads/$branch")" || die "could not read $branch on origin"
+  remote_branch="${remote_branch%%$'\t'*}"
+  pr_lines="$(gh pr list --repo "$repo" --head "$branch" --base main --state all \
+    --json number,state,isCrossRepository \
+    --jq '.[] | [.number, .state, .isCrossRepository] | map(tostring) | join("|")')" ||
+    die "could not list the pull requests of $branch"
+  pr_number=""
+  while IFS='|' read -r n state cross; do
+    if [[ -z "$pr_number" && "$state" == OPEN && "$cross" == false ]]; then
+      pr_number="$n"
+    fi
+  done <<<"$pr_lines"
+
+  if [[ -z "$remote_branch" ]]; then
+    git push -q origin "$release_commit:refs/heads/$branch" || die "the push of $branch failed"
+  fi
+
+  if [[ -z "$pr_number" ]]; then
+    out="$(gh pr create --repo "$repo" --base main --head "$branch" \
+      --title "Release $version" --body-file "$work/notes.md")" ||
+      die "creating the pull request for $branch failed"
+    line="$(grep -E '/pull/[0-9]+$' <<<"$out" | tail -1 || true)"
+    pr_number="${line##*/pull/}"
+    [[ -n "$line" && "$pr_number" =~ ^[0-9]+$ ]] || die "could not read the pull request number from: $out"
+  fi
+
+  view="$(gh pr view "$pr_number" --repo "$repo" \
+    --json state,baseRefName,headRefOid,isCrossRepository,files \
+    --jq '[.state, .baseRefName, .headRefOid, (.isCrossRepository | tostring), ([.files[].path] | join(","))] | join("|")')" ||
+    die "could not read pull request #$pr_number"
+  IFS='|' read -r v_state v_base v_head v_cross v_files <<<"$view"
+  [[ "$v_state" == OPEN ]] || problems="it is $v_state, not OPEN"
+  if [[ "$v_base" != main ]]; then
+    problems="${problems:+$problems; }its base is $v_base, not main"
+  fi
+  if [[ "$v_cross" != false ]]; then
+    problems="${problems:+$problems; }it comes from another repository"
+  fi
+  if [[ "$v_head" != "$release_commit" ]]; then
+    problems="${problems:+$problems; }its head is $v_head, not $release_commit"
+  fi
+  if [[ "$v_files" != CHANGELOG.md ]]; then
+    problems="${problems:+$problems; }its files are $v_files, not only CHANGELOG.md"
+  fi
+  [[ -z "$problems" ]] || die "pull request #$pr_number is not the release commit alone ($problems); it stays open and unmerged"
+
+  gh pr merge "$pr_number" --repo "$repo" --merge --admin --match-head-commit "$release_commit" ||
+    die "merging pull request #$pr_number failed; it stays open"
+
+  git fetch -q origin main || die "could not fetch origin/main"
+  git merge-base --is-ancestor "$release_commit" FETCH_HEAD ||
+    die "pull request #$pr_number is merged, but origin/main does not contain $release_commit"
+  echo "Merged pull request #$pr_number."
 }
 
 # 1. Checks
@@ -167,6 +231,7 @@ fi
 if (( ! resume )); then
   version="$(date +%Y%m%d-%H%M)"
 fi
+branch="release/$version"
 zip_name="Muninn-$version.zip"
 echo "Version: $version"
 
@@ -203,7 +268,7 @@ if (( resume )); then
     echo "Pushing the unpushed 'Release $version' commit to main."
     git push -q origin HEAD:main ||
       die "the push of 'Release $version' failed, so nothing was released; the local commit is unchanged; run: scripts/release --version $version"
-    pushed=1
+    committed=1
   fi
 elif (( dry_run )); then
   changelog="$work/CHANGELOG.md"
@@ -211,19 +276,17 @@ elif (( dry_run )); then
   scripts/changelog.py release "$version" --repo "$repo" --file "$changelog"
 else
   changelog="$root/CHANGELOG.md"
+  git switch -q -c "$branch"
   scripts/changelog.py release "$version" --repo "$repo"
-  before_release="$(git rev-parse HEAD)"
   git add CHANGELOG.md
   git commit -q -m "Release $version"
-  if ! git push -q origin HEAD:main; then
-    if ! git reset -q --keep "$before_release"; then
-      die "the push of 'Release $version' failed and nothing was released, but the local 'Release $version' commit is still there because CHANGELOG.md has local edits; save those edits, run: git reset --keep $before_release   and then run scripts/release again"
-    fi
-    die "the push of 'Release $version' failed, so nothing was released and the local release commit is gone (any other local edits were kept); run scripts/release again. If origin/main already has 'Release $version' (a push that landed despite the error), pull it and resume with: scripts/release --version $version"
-  fi
-  pushed=1
+  release_commit="$(git rev-parse HEAD)"
+  committed=1
 fi
 scripts/changelog.py notes "$version" --file "$changelog" >"$work/notes.md"
+if (( ! resume && ! dry_run )); then
+  land_release_commit
+fi
 if (( dry_run )); then
   echo
   echo "Changelog section for $version:"
@@ -309,4 +372,5 @@ else
   git -C "$work/tap" commit -q -m "muninn $version"
   git -C "$work/tap" push -q origin HEAD:main
 fi
+published=1
 echo "Released $version: https://github.com/$repo/releases/tag/$version"
