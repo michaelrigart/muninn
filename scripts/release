@@ -51,6 +51,7 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/muninn-release.XXXXXX")"
 committed=0
 published=0
 branch=""
+written=""
 release_commit=""
 pr_number=""
 finish() {
@@ -61,6 +62,18 @@ finish() {
   fi
 }
 trap finish EXIT
+
+# A failed release commit leaves the branch and the staged changelog; put them back unless
+# CHANGELOG.md has changed since the script wrote it.
+undo_release_commit() {
+  if [[ "$(git hash-object CHANGELOG.md)" == "$written" ]]; then
+    git restore --source=HEAD --staged --worktree CHANGELOG.md
+    git switch -q main
+    git branch -q -D "$branch"
+    die "the release commit failed, so nothing was released; CHANGELOG.md and main are as they were; run scripts/release again"
+  fi
+  die "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on $branch with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D $branch"
+}
 
 has_team_identity() {
   local valid pem subject hash
@@ -259,6 +272,11 @@ if (( resume )); then
   fi
 elif [[ -n "$local_tag$remote_tag" ]]; then
   die "tag $version already exists; wait a minute or resume it with --version $version"
+elif (( ! dry_run )); then
+  remote_branch="$(git ls-remote origin "refs/heads/$branch")"
+  if git rev-parse -q --verify "refs/heads/$branch" >/dev/null || [[ -n "$remote_branch" ]]; then
+    die "$branch already exists; wait a minute, or resume it with --version $version"
+  fi
 fi
 
 # 3. Changelog
@@ -278,8 +296,11 @@ else
   changelog="$root/CHANGELOG.md"
   git switch -q -c "$branch"
   scripts/changelog.py release "$version" --repo "$repo"
+  written="$(git hash-object CHANGELOG.md)"
   git add CHANGELOG.md
-  git commit -q -m "Release $version"
+  if ! git commit -q -m "Release $version"; then
+    undo_release_commit
+  fi
   release_commit="$(git rev-parse HEAD)"
   committed=1
 fi

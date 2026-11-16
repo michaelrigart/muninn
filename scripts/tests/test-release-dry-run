@@ -602,6 +602,34 @@ run_release
 expect_refused "b10b: a gh whose login is broken" "gh is not signed in"
 rm "$STUB_DIR/gh-state"
 
+echo "== b11: an existing release branch refuses a new release"
+new_scenario branch-exists --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+datebin="$work/date-stub"
+mkdir -p "$datebin"
+cat >"$datebin/date" <<'STUB'
+#!/bin/sh
+if [ "$*" = "+%Y%m%d-%H%M" ]; then echo 20260303-0303; else exec /bin/date "$@"; fi
+STUB
+chmod +x "$datebin/date"
+v=20260303-0303
+git -C "$clone" push --quiet origin "HEAD:refs/heads/release/$v"
+refs_before="$(refs)"
+PATH="$datebin:$PATH" run_release
+expect_refused "b11: a release branch on origin" "release/$v already exists; wait a minute, or resume it with --version $v"
+expect "b11: no resume hint" lacks "$output" "resume with:"
+expect "b11: no local release branch" test -z "$(git -C "$clone" branch --list 'release/*')"
+expect "b11: no tag" test -z "$(git -C "$clone" tag)"
+git -C "$clone" push --quiet origin --delete "refs/heads/release/$v"
+git -C "$clone" branch "release/$v"
+refs_before="$(refs)"
+PATH="$datebin:$PATH" run_release
+expect_refused "b11: a release branch only on this machine" "release/$v already exists; wait a minute, or resume it with --version $v"
+expect "b11: the local branch is untouched" test "$(git -C "$clone" rev-parse "refs/heads/release/$v")" == "$(git -C "$clone" rev-parse refs/heads/main)"
+expect "b11: still on main" test "$(git -C "$clone" symbolic-ref --short HEAD)" == main
+expect "b11: no tag" test -z "$(git -C "$clone" tag)"
+
 echo "== c0: a broken Xcode refuses a new release before anything is committed"
 new_scenario xcode
 git -C "$clone" checkout --quiet -B main
@@ -1019,6 +1047,50 @@ expect "i1: exits 0" test "$status" -eq 0
 expect "i1: says the cask is newer" contains "$output" "newer than $v"
 expect "i1: the newer cask is unchanged" test "$(tap_cask)" == "$cask_before"
 expect "i1: the tap gets no commit" test "$(git --git-dir="$STUB_DIR/tap.git" rev-list --count main)" == "$tap_commits"
+
+echo "== k1: a failed release commit is undone"
+new_scenario commit-fails --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+mkdir -p "$dir/commit-hooks"
+printf '#!/bin/sh\necho "pre-commit: refused by the test" >&2\nexit 1\n' >"$dir/commit-hooks/pre-commit"
+chmod +x "$dir/commit-hooks/pre-commit"
+git -C "$clone" config core.hooksPath "$dir/commit-hooks"
+main_before="$(git -C "$clone" rev-parse HEAD)"
+changelog_before="$(git -C "$clone" hash-object CHANGELOG.md)"
+refs_before="$(refs)"
+run_release
+expect "k1: fails" test "$status" -ne 0
+expect "k1: says nothing was released" contains "$output" "the release commit failed, so nothing was released; CHANGELOG.md and main are as they were; run scripts/release again"
+expect "k1: no resume hint" lacks "$output" "resume with:"
+expect "k1: on main" test "$(git -C "$clone" symbolic-ref --short HEAD)" == main
+expect "k1: main is at its old commit" test "$(git -C "$clone" rev-parse HEAD)" == "$main_before"
+expect "k1: CHANGELOG.md is unchanged" test "$(git -C "$clone" hash-object CHANGELOG.md)" == "$changelog_before"
+expect "k1: the tree is clean" test -z "$(git -C "$clone" status --porcelain)"
+expect "k1: no local release branch" test -z "$(git -C "$clone" branch --list 'release/*')"
+expect "k1: no release branch on origin" test -z "$(git --git-dir="$bare" for-each-ref 'refs/heads/release/*')"
+expect "k1: origin is untouched" test "$(refs)" == "$refs_before"
+expect "k1: no tag" test -z "$(git -C "$clone" tag)"
+expect "k1: gh is never asked to write" test -z "$(gh_writes)"
+
+echo "== k2: a release commit that failed after CHANGELOG.md was edited is left alone"
+new_scenario commit-edits --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+mkdir -p "$dir/commit-hooks"
+printf '#!/bin/sh\necho "edited by the hook" >>CHANGELOG.md\nexit 1\n' >"$dir/commit-hooks/pre-commit"
+chmod +x "$dir/commit-hooks/pre-commit"
+git -C "$clone" config core.hooksPath "$dir/commit-hooks"
+refs_before="$(refs)"
+run_release
+v="$(sed -n 's/^Version: //p' <<<"$output" | head -1)"
+expect "k2: fails" test "$status" -ne 0
+expect "k2: says nothing was undone" contains "$output" "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on release/$v with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D release/$v"
+expect "k2: no resume hint" lacks "$output" "resume with:"
+expect "k2: still on release/<version>" test "$(git -C "$clone" symbolic-ref --short HEAD)" == "release/$v"
+expect "k2: CHANGELOG.md keeps the appended line" test "$(tail -1 "$clone/CHANGELOG.md")" == "edited by the hook"
+expect "k2: origin is untouched" test "$(refs)" == "$refs_before"
+expect "k2: gh is never asked to write" test -z "$(gh_writes)"
 
 if [[ $failures -ne 0 ]]; then
   echo "$failures of $cases cases failed" >&2
