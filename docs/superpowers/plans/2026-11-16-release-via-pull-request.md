@@ -31,7 +31,7 @@ that test git and GitHub flow rather than the build.
 - The script never pushes `refs/heads/main`. Nothing in it may contain `HEAD:main` or `:main`
   except the tap clone's push, which is unchanged.
 - Repository-specific names stay in the variables at the top (`repo`, `tap_repo`, `team`) and in
-  the existing app, zip and cask names; nothing new is Muninn-specific, because four ports copy
+  the existing app, zip and cask names; nothing new is Muninn-specific, because the other repositories copy
   this file.
 - The repository is public: no personal or workflow details in code, tests, comments or messages.
 - Run `scripts/tests/test-release-dry-run` outside the agent sandbox (`AGENTS.md`: the build
