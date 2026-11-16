@@ -1085,7 +1085,7 @@ refs_before="$(refs)"
 run_release
 v="$(sed -n 's/^Version: //p' <<<"$output" | head -1)"
 expect "k2: fails" test "$status" -ne 0
-expect "k2: says nothing was undone" contains "$output" "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on release/$v with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D release/$v"
+expect "k2: says nothing was undone" contains "$output" "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on release/$v, with the script's CHANGELOG.md staged and your edits in the working tree; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D release/$v"
 expect "k2: no resume hint" lacks "$output" "resume with:"
 expect "k2: still on release/<version>" test "$(git -C "$clone" symbolic-ref --short HEAD)" == "release/$v"
 expect "k2: CHANGELOG.md keeps the appended line" test "$(tail -1 "$clone/CHANGELOG.md")" == "edited by the hook"

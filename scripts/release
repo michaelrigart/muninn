@@ -66,13 +66,14 @@ trap finish EXIT
 # A failed release commit leaves the branch and the staged changelog; put them back unless
 # CHANGELOG.md has changed since the script wrote it.
 undo_release_commit() {
+  local stuck="the release commit failed, and putting things back failed too; you are on $branch (or wherever git left you), with CHANGELOG.md changed; check git status, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D $branch"
   if [[ "$(git hash-object CHANGELOG.md)" == "$written" ]]; then
-    git restore --source=HEAD --staged --worktree CHANGELOG.md
-    git switch -q main
-    git branch -q -D "$branch"
+    git restore --source=HEAD --staged --worktree CHANGELOG.md || die "$stuck"
+    git switch -q main || die "$stuck"
+    git branch -q -D "$branch" || die "$stuck"
     die "the release commit failed, so nothing was released; CHANGELOG.md and main are as they were; run scripts/release again"
   fi
-  die "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on $branch with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D $branch"
+  die "the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on $branch, with the script's CHANGELOG.md staged and your edits in the working tree; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D $branch"
 }
 
 has_team_identity() {
@@ -273,7 +274,7 @@ if (( resume )); then
 elif [[ -n "$local_tag$remote_tag" ]]; then
   die "tag $version already exists; wait a minute or resume it with --version $version"
 elif (( ! dry_run )); then
-  remote_branch="$(git ls-remote origin "refs/heads/$branch")"
+  remote_branch="$(git ls-remote origin "refs/heads/$branch")" || die "could not read $branch on origin"
   if git rev-parse -q --verify "refs/heads/$branch" >/dev/null || [[ -n "$remote_branch" ]]; then
     die "$branch already exists; wait a minute, or resume it with --version $version"
   fi
