@@ -82,6 +82,10 @@ case "$1 ${2:-}" in
       "$(cat "$STUB_DIR/scopes" 2>/dev/null || echo 'gist, read:org, repo')"
     ;;
   "api repos/"*)
+    if [[ -e "$STUB_DIR/api-fails" ]]; then
+      echo "gh stub: HTTP 502" >&2
+      exit 1
+    fi
     if [[ -e "$STUB_DIR/not-admin" ]]; then echo false; else echo true; fi
     ;;
   "release view")
@@ -421,10 +425,17 @@ expect "b8: no release branch" test -z "$(git -C "$clone" branch --list 'release
 printf 'public_repo\n' >"$STUB_DIR/scopes"; touch "$STUB_DIR/not-admin"
 run_release
 expect_refused "b9: an account that is not an admin" "release-test is not an admin of $repo"
-rm "$STUB_DIR/not-admin" "$STUB_DIR/scopes" "$STUB_DIR/token-source"
+touch "$STUB_DIR/api-fails"
+run_release
+expect_refused "b9b: a failed permission lookup" "could not read release-test's permissions on $repo"
+rm "$STUB_DIR/not-admin" "$STUB_DIR/api-fails" "$STUB_DIR/scopes" "$STUB_DIR/token-source"
 touch "$STUB_DIR/auth-fails"; run_release
 expect_refused "b10: a gh without auth status --json" "gh is not signed in"
 rm "$STUB_DIR/auth-fails"
+printf 'error\n' >"$STUB_DIR/gh-state"
+run_release
+expect_refused "b10b: a gh whose login is broken" "gh is not signed in"
+rm "$STUB_DIR/gh-state"
 
 echo "== c0: a broken Xcode refuses a new release before anything is committed"
 new_scenario xcode

@@ -85,7 +85,7 @@ remote_tag_commit() {
 
 # gh must be signed in, and its token and account must be able to merge a pull request here.
 check_merge_rights() {
-  local line state login source scopes problems=""
+  local line state login source scopes admin problems=""
   line="$(gh auth status --active --hostname github.com --json hosts \
     --jq '.hosts["github.com"][0] | [.state, .login, .tokenSource, (.scopes // "")] | join("|")' 2>/dev/null)" ||
     die "gh is not signed in; run: gh auth login"
@@ -95,8 +95,12 @@ check_merge_rights() {
     *", repo, "* | *", public_repo, "*) ;;
     *) problems="its token (from $source) has neither the repo nor the public_repo scope" ;;
   esac
-  if [[ "$(gh api "repos/$repo" --jq .permissions.admin 2>/dev/null || true)" != true ]]; then
-    problems="${problems:+$problems; }$login is not an admin of $repo"
+  if admin="$(gh api "repos/$repo" --jq .permissions.admin 2>/dev/null)"; then
+    if [[ "$admin" != true ]]; then
+      problems="${problems:+$problems; }$login is not an admin of $repo"
+    fi
+  else
+    problems="${problems:+$problems; }could not read $login's permissions on $repo"
   fi
   [[ -n "$problems" ]] || return 0
   if (( dry_run )); then
