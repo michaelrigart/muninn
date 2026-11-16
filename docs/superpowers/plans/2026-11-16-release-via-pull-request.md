@@ -58,9 +58,9 @@ pull request number, `<b>` is `release/<v>`.
 | commit failed, left | `the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on <b>, with the script's CHANGELOG.md staged and your edits in the working tree; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D <b>` |
 | resume hint (trap) | `release: stopped; resume with: scripts/release --version <v>` |
 | push failed | `the push of <b> failed` |
-| origin branch elsewhere | `origin's <b> is at <sha>, not the release commit <R>; the script merges only the commit it cut` |
+| origin branch elsewhere | `origin's <b> is at <sha>, not the release commit <R>; the script merges only the commit it cut; if that branch is not needed, delete it (git push origin --delete <b>) and resume` |
 | closed PR | `pull request #<n> for <b> was closed without merging; reopen it to resume (gh pr reopen <n> --repo <repo>), or abandon <v>:` + abandon commands |
-| merged PR, R not on main | `pull request #<n> for <b> is merged, but the release commit <R> is not on origin/main` |
+| merged PR, R not on main | `pull request #<n> for <b> is merged, but the release commit <R> is not on origin/main` (no resume hint: a resume cannot get past it) |
 | PR check | `pull request #<n> is not the release commit alone (<problems>); it stays open and unmerged` |
 | PR check problems | `it is <state>, not OPEN`; `its base is <base>, not main`; `it comes from another repository`; `its head is <sha>, not <R>`; `its files are <list>, not only CHANGELOG.md` |
 | merge failed | `merging pull request #<n> failed; it stays open` |
