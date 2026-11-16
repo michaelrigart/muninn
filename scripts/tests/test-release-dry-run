@@ -932,6 +932,8 @@ expect_untouched() {
   expect "$1: gh not asked to write" test -z "$(gh_writes)"
   expect "$1: no pull request is opened" lacks "$(cat "$STUB_DIR/calls.log")" "pr create"
 }
+# A refusal before anything can be resumed prints no resume hint.
+expect_no_hint() { expect "$1: prints no resume hint" lacks "$output" "resume with:"; }
 
 new_scenario land-ok --fast
 release_on_branch "$v"
@@ -947,6 +949,7 @@ git -C "$clone" add AGENTS.md
 git -C "$clone" commit --quiet --amend --no-edit
 run_release --version "$v"
 expect_untouched "g2: a Release commit that also changes another file"
+expect_no_hint "g2"
 expect "g2: names the other file" contains "$output" "AGENTS.md"
 expect "g2: says it must change only CHANGELOG.md" contains "$output" "not only CHANGELOG.md"
 
@@ -955,6 +958,7 @@ release_on_branch "$v"
 git -C "$clone" commit --quiet --amend -m "Prepare the release"
 run_release --version "$v"
 expect_untouched "g3: a commit with another message"
+expect_no_hint "g3"
 expect "g3: shows the message it found" contains "$output" "its message is 'Prepare the release', not 'Release $v'"
 
 new_scenario land-two
@@ -962,6 +966,7 @@ release_on_branch "$v"
 git -C "$clone" commit --quiet --allow-empty -m "Another local commit"
 run_release --version "$v"
 expect_untouched "g4: two local commits"
+expect_no_hint "g4"
 expect "g4: says the parent is not on origin/main" contains "$output" "its parent is not on origin/main"
 
 new_scenario land-moved --fast
@@ -985,6 +990,7 @@ git -C "$clone" switch --quiet -c "release/$v"
 git -C "$clone" commit --quiet --allow-empty -m "Release $v"
 run_release --version "$v"
 expect_untouched "g6: an empty Release commit"
+expect_no_hint "g6"
 expect "g6: says it changes nothing" contains "$output" "it changes nothing"
 expect "g6: has no garbled file list" lacks "$output" "it changes ,"
 
@@ -997,6 +1003,7 @@ expect "g7: origin has no new refs or tags" test "$(refs)" == "$refs_before"
 expect "g7: gh is not asked about a pull request" test -z "$(grep '^pr ' "$STUB_DIR/calls.log" || true)"
 expect "g7: local HEAD is unchanged" test "$(git -C "$clone" rev-parse HEAD)" == "$release_commit"
 expect "g7: gh is not asked to write" test -z "$(gh_writes)"
+expect "g7: a dry run prints no resume hint" lacks "$output" "resume with:"
 
 new_scenario land-tagged
 release_on_branch "$v"
@@ -1009,6 +1016,7 @@ expect "g8: says where the tag is" contains "$output" "tag $v is on $head_before
 expect "g8: nothing is pushed before the tag checks" test "$(refs)" == "$refs_before"
 expect "g8: nothing built" test ! -e "$clone/build"
 expect "g8: gh not asked to write" test -z "$(gh_writes)"
+expect "g8: prints no resume hint" lacks "$output" "resume with:"
 
 new_scenario land-branch-elsewhere
 release_on_branch "$v"
@@ -1016,7 +1024,8 @@ git -C "$clone" push --quiet origin "$head_before:refs/heads/release/$v"
 refs_before="$(refs)"
 run_release --version "$v"
 expect_untouched "g9: origin's release branch at another commit"
-expect "g9: names the branch and its commit" contains "$output" "origin's release/$v is at $head_before, not the release commit $release_commit; the script merges only the commit it cut"
+expect "g9: names the branch and its commit" contains "$output" "origin's release/$v is at $head_before, not the release commit $release_commit; the script merges only the commit it cut; if that branch is not needed, delete it (git push origin --delete release/$v) and resume"
+expect "g9: keeps the resume hint" contains "$output" "resume with: scripts/release --version $v"
 
 new_scenario land-closed
 release_on_branch "$v"
@@ -1048,6 +1057,7 @@ seed_pr 5 "release/$v" MERGED false
 run_release --version "$v"
 expect_untouched "g12: a merged pull request whose release commit is not on main"
 expect "g12: says so" contains "$output" "pull request #5 for release/$v is merged, but the release commit $release_commit is not on origin/main"
+expect_no_hint "g12"
 
 echo "== h: an untagged release is tagged only on its own release commit"
 no_tags_anywhere() { test -z "$(git -C "$clone" tag)" -a -z "$(git --git-dir="$bare" tag)"; }
@@ -1059,6 +1069,7 @@ refs_before="$(refs)"
 PATH="$failing_build:$PATH" run_release --version "$v"
 expect "h1: HEAD on the only Release commit goes on to build" contains "$output" "xcodebuild stub: build failed"
 expect "h1: it is not refused for the tag" lacks "$output" "does not exist"
+expect "h1: prints the resume command" contains "$output" "resume with: scripts/release --version $v"
 
 new_scenario untagged-moved
 v=20260101-0900

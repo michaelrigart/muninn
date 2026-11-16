@@ -153,7 +153,7 @@ land_release_commit() {
   remote_branch="$(git ls-remote origin "refs/heads/$branch")" || die "could not read $branch on origin"
   remote_branch="${remote_branch%%$'\t'*}"
   if [[ -n "$remote_branch" && "$remote_branch" != "$release_commit" ]]; then
-    die "origin's $branch is at $remote_branch, not the release commit $release_commit; the script merges only the commit it cut"
+    die "origin's $branch is at $remote_branch, not the release commit $release_commit; the script merges only the commit it cut; if that branch is not needed, delete it (git push origin --delete $branch) and resume"
   fi
   pr_lines="$(gh pr list --repo "$repo" --head "$branch" --base main --state all \
     --json number,state,isCrossRepository \
@@ -171,6 +171,7 @@ land_release_commit() {
   if [[ -z "$pr_number" && -n "$closed_number" ]]; then
     die "pull request #$closed_number for $branch was closed without merging; reopen it to resume (gh pr reopen $closed_number --repo $repo), or abandon $version:"$'\n'"$(abandon_commands "" "$remote_branch")"
   elif [[ -z "$pr_number" && -n "$merged_number" ]]; then
+    committed=0 # a resume cannot get past this, so the trap prints no hint
     die "pull request #$merged_number for $branch is merged, but the release commit $release_commit is not on origin/main"
   fi
 
