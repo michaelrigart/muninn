@@ -52,6 +52,7 @@ pull request number, `<b>` is `release/<v>`.
 | merge rights, dry run | `Note: a real release would stop here: gh cannot merge the release pull request as <login>: <problems>.` |
 | problem, scope | `its token (from <source>) has neither the repo nor the public_repo scope` |
 | problem, role | `<login> is not an admin of <repo>` (problems joined by `; `) |
+| problem, lookup | `could not read <login>'s permissions on <repo>` (a failed `gh api repos/<repo>`) |
 | branch exists | `<b> already exists; wait a minute, or resume it with --version <v>` |
 | commit failed, undone | `the release commit failed, so nothing was released; CHANGELOG.md and main are as they were; run scripts/release again` |
 | commit failed, left | `the release commit failed and CHANGELOG.md changed after the script wrote it, so nothing was undone: you are on <b> with CHANGELOG.md staged; save your edits, then run: git restore --staged --worktree CHANGELOG.md && git switch main && git branch -D <b>` |
