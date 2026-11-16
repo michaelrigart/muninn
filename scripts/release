@@ -48,7 +48,7 @@ if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p 2>/dev/null)" == */CommandLi
 fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/muninn-release.XXXXXX")"
-committed=0
+resume_hint=0
 published=0
 branch=""
 written=""
@@ -57,7 +57,7 @@ pr_number=""
 finish() {
   local status=$?
   rm -rf "$work"
-  if (( status != 0 && committed && ! published )); then
+  if (( status != 0 && resume_hint && ! published )); then
     echo "release: stopped; resume with: scripts/release --version $version" >&2
   fi
 }
@@ -171,8 +171,14 @@ land_release_commit() {
   if [[ -z "$pr_number" && -n "$closed_number" ]]; then
     die "pull request #$closed_number for $branch was closed without merging; reopen it to resume (gh pr reopen $closed_number --repo $repo), or abandon $version:"$'\n'"$(abandon_commands "" "$remote_branch")"
   elif [[ -z "$pr_number" && -n "$merged_number" ]]; then
-    committed=0 # a resume cannot get past this, so the trap prints no hint
+    resume_hint=0 # a resume cannot get past this, so the trap prints no hint
     die "pull request #$merged_number for $branch is merged, but the release commit $release_commit is not on origin/main"
+  fi
+
+  git fetch -q origin refs/heads/main || die "could not fetch origin/main"
+  if ! git diff --quiet "$release_commit^" FETCH_HEAD -- CHANGELOG.md; then
+    resume_hint=0 # a resume cannot get past this, so the trap prints no hint
+    die "origin/main changed CHANGELOG.md after the release commit was cut, so merging it would file those changes under $version; abandon $version and cut a new release:"$'\n'"$(abandon_commands "$pr_number" "$remote_branch")"
   fi
 
   if [[ -z "$remote_branch" ]]; then
@@ -215,6 +221,18 @@ land_release_commit() {
   git merge-base --is-ancestor "$release_commit" FETCH_HEAD ||
     die "pull request #$pr_number is merged, but origin/main does not contain $release_commit"
   echo "Merged pull request #$pr_number."
+}
+
+# Before the tag: the version's section of CHANGELOG.md on origin's main must be the release
+# commit's ($work/notes.md). A change merged into main after step 0 can still add entries to it.
+check_release_section() {
+  git fetch -q origin refs/heads/main || die "could not fetch origin/main"
+  git show FETCH_HEAD:CHANGELOG.md >"$work/main-changelog.md" || die "could not read CHANGELOG.md on origin/main"
+  scripts/changelog.py notes "$version" --file "$work/main-changelog.md" >"$work/main-notes.md" 2>/dev/null ||
+    : >"$work/main-notes.md"
+  if ! cmp -s "$work/notes.md" "$work/main-notes.md"; then
+    die "the $version section of CHANGELOG.md on origin/main differs from the release commit's:"$'\n'"$(diff -u --label "release commit" --label origin/main "$work/notes.md" "$work/main-notes.md" || true)"$'\n'"correct CHANGELOG.md on main through a pull request, then resume"
+  fi
 }
 
 # 1. Checks
@@ -287,7 +305,7 @@ if (( resume )); then
   fi
   if [[ -z "$tagged" ]] && (( ! dry_run && ! land )); then
     # Nothing is tagged yet, so the script is about to tag HEAD: it must be the release commit.
-    release_commits="$(git log "$fetched_main" --format='%H%x09%s' | awk -F'\t' -v subject="Release $version" '$2 == subject { print $1 }')"
+    release_commits="$(git log --no-merges "$fetched_main" --format='%H%x09%s' | awk -F'\t' -v subject="Release $version" '$2 == subject { print $1 }')"
     release_count="$(grep -c . <<<"$release_commits" || true)"
     if [[ "$release_count" -eq 0 ]]; then
       die "tag $version does not exist and origin/main has no 'Release $version' commit to tag"
@@ -310,7 +328,7 @@ fi
 if (( resume )); then
   changelog="$root/CHANGELOG.md"
   if (( ! dry_run )); then
-    committed=1
+    resume_hint=1
   fi
   if (( land )); then
     release_commit="$(git rev-parse HEAD)"
@@ -329,12 +347,15 @@ else
     undo_release_commit
   fi
   release_commit="$(git rev-parse HEAD)"
-  committed=1
+  resume_hint=1
   land=1
 fi
 scripts/changelog.py notes "$version" --file "$changelog" >"$work/notes.md"
 if (( land )); then
   land_release_commit
+fi
+if (( ! dry_run )) && [[ -z "$local_tag$remote_tag" ]]; then
+  check_release_section
 fi
 if (( dry_run )); then
   echo
