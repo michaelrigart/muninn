@@ -1,7 +1,7 @@
 # Releasing through a pull request — design
 
 **Date:** 2026-11-16
-**Status:** Approved
+**Status:** In progress — PR #8
 **Canonical for:** the release flow (`scripts/release` and `scripts/tests/test-release-dry-run`) of
 Muninn, Hulder, Linger, Tafl and Skald. Their ports reference this document by repository and path.
 **Supersedes in part:** the distribution design
