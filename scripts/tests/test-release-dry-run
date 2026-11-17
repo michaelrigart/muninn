@@ -228,7 +228,10 @@ case "$1 ${2:-}" in
       printf 'Muninn-%s.zip\t%s\n' "$3" "$(cat "$STUB_DIR/asset-state" 2>/dev/null || echo uploaded)"
     fi
     ;;
-  "release create") touch "$STUB_DIR/release-exists" ;;
+  "release create")
+    touch "$STUB_DIR/release-exists"
+    if [[ -x "$STUB_DIR/after-release-create" ]]; then "$STUB_DIR/after-release-create"; fi
+    ;;
   "release upload")
     if [[ -e "$STUB_DIR/asset.zip" ]]; then
       echo "a release asset with the same name already exists" >&2
@@ -559,6 +562,9 @@ if [[ "$style_status" -ne 0 ]]; then echo "$style_output" >&2; fi
 
 expect "a: no new tag" test "$(git -C "$clone" tag)" == "$tags_before"
 expect "a: no new commit" test "$(git -C "$clone" log --all --format=%H)" == "$log_before"
+expect "a: no release branch locally" test -z "$(git -C "$clone" branch --list 'release/*')"
+expect "a: no release branch on origin" test -z "$(git --git-dir="$bare" for-each-ref 'refs/heads/release/*')"
+expect "a: ends on the dry run's last line" test "$(tail -1 <<<"$output")" == "Dry run: nothing committed, branched, pushed, merged, tagged or published."
 expect "a: origin is untouched" test "$(refs)" == "$refs_before"
 expect "a: CHANGELOG.md is untouched" test "$(sha_of "$clone/CHANGELOG.md")" == "$changelog_before"
 expect "a: the tree is clean" test -z "$(git -C "$clone" status --porcelain)"
@@ -767,16 +773,26 @@ expect "d: uploads the zip" contains "$calls" "release upload $v"
 expect "d: the uploaded asset is the built zip" test "$(sha_of "$STUB_DIR/asset.zip")" == "$(sha_of "$clone/build/release/Muninn-$v.zip")"
 expect "d: the cask carries the asset's checksum" contains "$(tap_cask)" "sha256 \"$(sha_of "$STUB_DIR/asset.zip")\""
 expect "d: the tap commit is 'muninn <version>'" test "$(git --git-dir="$STUB_DIR/tap.git" log -1 --format=%s main)" == "muninn $v"
+expect "d: says it released the version" contains "$output" "Released $v:"
+expect "d: ends on main" test "$(git -C "$clone" symbolic-ref --short HEAD)" == main
+expect "d: main is level with origin's main" test "$(git -C "$clone" rev-parse refs/heads/main)" == "$(git --git-dir="$bare" rev-parse refs/heads/main)"
+expect "d: no release branch locally" test -z "$(git -C "$clone" branch --list 'release/*')"
+expect "d: no release branch on origin" test -z "$(git --git-dir="$bare" for-each-ref 'refs/heads/release/*')"
+expect "d: no tidy-up problem" lacks "$output" "could not tidy up"
 
 tap_commits="$(git --git-dir="$STUB_DIR/tap.git" rev-list --count main)"
 refs_before="$(refs)"
 : >"$STUB_DIR/calls.log"
+git -C "$clone" checkout --quiet --detach "$R"
 run_release --version "$v"
 if [[ "$status" -ne 0 ]]; then echo "$output" >&2; fi
 expect "d: resuming a finished release exits 0" test "$status" -eq 0
 expect "d: resuming creates and uploads nothing" test -z "$(gh_writes)"
 expect "d: resuming adds no tap commit" test "$(git --git-dir="$STUB_DIR/tap.git" rev-list --count main)" == "$tap_commits"
 expect "d: resuming changes nothing on origin" test "$(refs)" == "$refs_before"
+expect "d: resuming from the release commit ends on main" test "$(git -C "$clone" symbolic-ref --short HEAD)" == main
+expect "d: resuming leaves main level with origin's main" test "$(git -C "$clone" rev-parse refs/heads/main)" == "$(git --git-dir="$bare" rev-parse refs/heads/main)"
+expect "d: resuming leaves no release branch locally" test -z "$(git -C "$clone" branch --list 'release/*')"
 
 echo "== d2: resuming over an incomplete asset replaces it"
 new_scenario incomplete
@@ -1192,9 +1208,11 @@ printf 'published asset\n' >"$dir/fixture.txt"
 seed_cask 20260202-1000 1111111111111111111111111111111111111111111111111111111111111111
 cask_before="$(tap_cask)"
 tap_commits="$(git --git-dir="$STUB_DIR/tap.git" rev-list --count main)"
+later_on_origin add
 run_release --version "$v"
 if [[ "$status" -ne 0 ]]; then echo "$output" >&2; fi
 expect "i1: exits 0" test "$status" -eq 0
+expect "i1: a tagged release is not checked against main's section, which a later change edited" lacks "$output" "differs"
 expect "i1: says the cask is newer" contains "$output" "newer than $v"
 expect "i1: the newer cask is unchanged" test "$(tap_cask)" == "$cask_before"
 expect "i1: the tap gets no commit" test "$(git --git-dir="$STUB_DIR/tap.git" rev-list --count main)" == "$tap_commits"
@@ -1269,6 +1287,51 @@ expect "k2: still on release/<version>" test "$(git -C "$clone" symbolic-ref --s
 expect "k2: CHANGELOG.md keeps the appended line" test "$(tail -1 "$clone/CHANGELOG.md")" == "edited by the hook"
 expect "k2: origin is untouched" test "$(refs)" == "$refs_before"
 expect "k2: gh is never asked to write" test -z "$(gh_writes)"
+
+echo "== l1: a local main that origin lacks commits of is left, and reported after publishing"
+new_scenario tidy-main --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+printf '#!/bin/sh\nlocal_commit="$(git -C "%s" commit-tree "main^{tree}" -p main -m Local)" && git -C "%s" update-ref refs/heads/main "$local_commit"\n' "$clone" "$clone" >"$STUB_DIR/before-merge"
+chmod +x "$STUB_DIR/before-merge"
+PATH="$fast_build:$PATH" run_release
+v="$(sed -n 's/^Version: //p' <<<"$output" | head -1)"
+expect "l1: exits 1" test "$status" -eq 1
+expect "l1: says it released but could not tidy up" contains "$output" "released $v, but could not tidy up"
+expect "l1: says local main keeps commits origin lacks" contains "$output" "local main has commits that origin/main lacks"
+expect "l1: prints no resume hint" lacks "$output" "resume with:"
+expect "l1: the release is published" test -e "$STUB_DIR/release-exists"
+expect "l1: the cask has the version" contains "$(tap_cask)" "version \"$v\""
+expect "l1: local main keeps its extra commit" test "$(git -C "$clone" log -1 --format=%s refs/heads/main)" == Local
+expect "l1: release/$v is deleted on origin" test -z "$(git --git-dir="$bare" for-each-ref "refs/heads/release/$v")"
+
+echo "== l2: an origin branch that moved is not deleted"
+new_scenario tidy-moved --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+cat >"$STUB_DIR/after-release-create" <<'HOOK'
+#!/bin/sh
+set -e
+export GIT_DIR="$STUB_BARE"
+export GIT_AUTHOR_NAME=Elsewhere GIT_AUTHOR_EMAIL=elsewhere@example.invalid
+export GIT_COMMITTER_NAME=Elsewhere GIT_COMMITTER_EMAIL=elsewhere@example.invalid
+ref="$(git for-each-ref --format='%(refname)' 'refs/heads/release/*')"
+tip="$(git rev-parse "$ref")"
+git update-ref "$ref" "$(git commit-tree "$tip^{tree}" -p "$tip" -m Elsewhere)" "$tip"
+HOOK
+chmod +x "$STUB_DIR/after-release-create"
+PATH="$fast_build:$PATH" run_release
+v="$(sed -n 's/^Version: //p' <<<"$output" | head -1)"
+moved="$(git --git-dir="$bare" rev-parse "refs/heads/release/$v")"
+expect "l2: exits 1" test "$status" -eq 1
+expect "l2: says it released but could not tidy up" contains "$output" "released $v, but could not tidy up"
+expect "l2: says release/$v is left on origin" contains "$output" "origin's release/$v is at $moved, not the release commit"
+expect "l2: says how to delete it" contains "$output" "git push origin --delete release/$v"
+expect "l2: prints no resume hint" lacks "$output" "resume with:"
+expect "l2: release/$v is still on origin, where it moved to" test "$(git --git-dir="$bare" rev-parse "refs/heads/release/$v")" == "$moved"
+expect "l2: the release is published" test -e "$STUB_DIR/release-exists"
+expect "l2: ends on main" test "$(git -C "$clone" symbolic-ref --short HEAD)" == main
+expect "l2: no release branch locally" test -z "$(git -C "$clone" branch --list 'release/*')"
 
 if [[ $failures -ne 0 ]]; then
   echo "$failures of $cases cases failed" >&2
