@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** In progress — PR #8
+**Status:** Implemented — PR #8
 
 **Goal:** `scripts/release` lands its release commit through a pull request it opens, checks and
 merges with `--admin`, resumes from every stop point, and ends on `main` with the release branch
@@ -106,12 +106,12 @@ exists locally), `scripts/release`.
   `release-test`), `token-source` (default `keyring`), `scopes` (default `gist, read:org, repo`),
   `not-admin`, `auth-fails`. Read-only calls in `gh_writes`' filter: `auth status`, `api repos/`.
 
-- [ ] **Step 1: Make the suite's hooks independent of the global `core.hooksPath`.** In
+- [x] **Step 1: Make the suite's hooks independent of the global `core.hooksPath`.** In
   `new_scenario`, after the bare clone: `git --git-dir="$bare" config core.hooksPath "$bare/hooks"`.
   Run the suite outside the sandbox: groups f, f2, f3 and g9 now pass on a machine whose global
   config sets `core.hooksPath`. Revert check: without the line they fail there.
 
-- [ ] **Step 2: Write the failing tests.** The stub's `auth status` prints
+- [x] **Step 2: Write the failing tests.** The stub's `auth status` prints
   `<gh-state>|<gh-login>|<token-source>|<scopes>` (exit 1 with `unknown flag: --json` on stderr
   when `auth-fails` exists); `api repos/<repo>` prints `false` when `not-admin` exists, else
   `true`. Cases:
@@ -144,9 +144,9 @@ rm "$STUB_DIR/auth-fails"
   and nothing is written (the same "no new tag/commit/origin untouched/gh not asked to write"
   expects as a, on a fresh scenario `dry-scope`).
 
-- [ ] **Step 3: Run the suite; b8–b10 and a2 fail.**
+- [x] **Step 3: Run the suite; b8–b10 and a2 fail.**
 
-- [ ] **Step 4: Implement `check_merge_rights`.** Replace `gh auth status >/dev/null 2>&1 || die …`
+- [x] **Step 4: Implement `check_merge_rights`.** Replace `gh auth status >/dev/null 2>&1 || die …`
   with one call:
   `gh auth status --active --hostname github.com --json hosts --jq '.hosts["github.com"][0] | [.state, .login, .tokenSource, (.scopes // "")] | join("|")'`,
   split on `|` with `IFS='|' read -r`. A failed call or a state other than `success` keeps
@@ -156,9 +156,9 @@ rm "$STUB_DIR/auth-fails"
   goes on. Call it where the old `gh auth status` line was, so it runs before the signing and
   Xcode checks.
 
-- [ ] **Step 5: Run the suite outside the sandbox; all cases pass.** Revert check on b8, b9, b10, a2.
+- [x] **Step 5: Run the suite outside the sandbox; all cases pass.** Revert check on b8, b9, b10, a2.
 
-- [ ] **Step 6: Commit** `Refuse a release whose gh cannot merge the release pull request`.
+- [x] **Step 6: Commit** `Refuse a release whose gh cannot merge the release pull request`.
 
 ### Task 2: A new release lands through its pull request
 
@@ -183,7 +183,7 @@ rm "$STUB_DIR/auth-fails"
   `pr_field <n> <key>`, `fast_build` (a PATH directory) and `new_scenario <name> --fast`;
   `origin_merged <R>` (true when origin's `main` is a merge commit whose second parent is `R`).
 
-- [ ] **Step 1: Extend the stub.** Projections it prints, matching the script's `--jq` exactly:
+- [x] **Step 1: Extend the stub.** Projections it prints, matching the script's `--jq` exactly:
   - `pr list --head <b> --base <base> …`: one `<n>|<state>|<cross>` line per stored pull request
     with that head and base.
   - `pr view <n> …`: `<state>|<base>|<head oid>|<cross>|<files>`. The head oid is the bare
@@ -203,7 +203,7 @@ rm "$STUB_DIR/auth-fails"
   Author and committer for `commit-tree` come from `GIT_AUTHOR_*`/`GIT_COMMITTER_*` set inside
   the stub. `gh_writes` keeps filtering reads, now also `pr list` and `pr view`.
 
-- [ ] **Step 2: Add the fast build.** `$work/fast-build/xcodebuild` answers `-version`, and
+- [x] **Step 2: Add the fast build.** `$work/fast-build/xcodebuild` answers `-version`, and
   for a build writes `build/dd.noindex/Build/Products/Release/Muninn.app/Contents/Info.plist`
   under the current directory. `new_scenario <name> --fast` writes `#!/bin/sh\nexit 0\n` to the
   clone's `scripts/verify-app` before the snapshot commit. A scenario that runs with `fast_build`
@@ -212,7 +212,7 @@ rm "$STUB_DIR/auth-fails"
   the rejecting hooks work the same in such a scenario. Scenarios that check the real build
   (a, d) never use it.
 
-- [ ] **Step 3: Write the failing tests.** Rewrite d's push assertions:
+- [x] **Step 3: Write the failing tests.** Rewrite d's push assertions:
 
 ```bash
 R="$(git --git-dir="$bare" rev-parse "refs/tags/$v^{commit}")"
@@ -247,9 +247,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 
   Today's f2 and f3 (the `reset --keep` cases) are deleted with the code they test.
 
-- [ ] **Step 4: Run the suite; the new d, e and f cases fail.**
+- [x] **Step 4: Run the suite; the new d, e and f cases fail.**
 
-- [ ] **Step 5: Implement.**
+- [x] **Step 5: Implement.**
   - Section 2: set `branch="release/$version"` with the version.
   - Section 3, new release: `git switch -q -c "$branch"`, then `changelog.py release`,
     `git add`, `git commit` as today, `release_commit="$(git rev-parse HEAD)"`, `committed=1`.
@@ -272,10 +272,10 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     6. **Confirm.** `git fetch -q origin main`, then `git merge-base --is-ancestor`.
   - The tag stays `git tag "$version"` on HEAD, which is the release commit.
 
-- [ ] **Step 6: Run the suite outside the sandbox; all cases pass.** g1 and g9 still test today's
+- [x] **Step 6: Run the suite outside the sandbox; all cases pass.** g1 and g9 still test today's
   recovery push, which Task 4 replaces. Revert check on d's merge assertions, f, f3 and f4.
 
-- [ ] **Step 7: Commit** `Land a new release commit through its pull request`.
+- [x] **Step 7: Commit** `Land a new release commit through its pull request`.
 
 ### Task 3: Undo a failed release commit; refuse an existing release branch
 
@@ -290,7 +290,7 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 - Produces: `undo_release_commit` (no arguments; uses `branch`, `written`, the hash of the
   `CHANGELOG.md` the script wrote; always dies).
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - **k1:** `git -C "$clone" config core.hooksPath "$dir/commit-hooks"` with a `pre-commit` that
     exits 1. The run fails with the "commit failed, undone" text and no resume hint. The clone is
     on `main` at its old commit, `CHANGELOG.md` is unchanged and the tree is clean; there is no
@@ -302,9 +302,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     with `release/20260303-0303 already exists`, nothing created. Then with it only local: the
     same.
 
-- [ ] **Step 2: Run; k1, k2 and b11 fail.**
+- [x] **Step 2: Run; k1, k2 and b11 fail.**
 
-- [ ] **Step 3: Implement.** For a real new release, after the tag check, refuse when
+- [x] **Step 3: Implement.** For a real new release, after the tag check, refuse when
   `refs/heads/$branch` exists locally or `git ls-remote origin "refs/heads/$branch"` prints
   anything. In section 3, record `written="$(git hash-object CHANGELOG.md)"` after
   `changelog.py release`, and call `undo_release_commit` when `git commit` fails. When the hash
@@ -312,9 +312,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   `git switch -q main` and `git branch -q -D "$branch"`, then dies with the "undone" text.
   Otherwise it dies with the "left" text.
 
-- [ ] **Step 4: Run outside the sandbox; all pass.** Revert check on k1, k2, b11.
+- [x] **Step 4: Run outside the sandbox; all pass.** Revert check on k1, k2, b11.
 
-- [ ] **Step 5: Commit** `Undo a failed release commit and refuse an existing release branch`.
+- [x] **Step 5: Commit** `Undo a failed release commit and refuse an existing release branch`.
 
 ### Task 4: Resume lands through the pull request
 
@@ -331,7 +331,7 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   (writes a stub pull request) and `release_on_branch <v>` (on a fresh `main` level with origin,
   creates `release/<v>` with a `Release <v>` commit made by `changelog.py release`).
 
-- [ ] **Step 1: Write the failing tests.** Group g is rewritten around `release_on_branch`:
+- [x] **Step 1: Write the failing tests.** Group g is rewritten around `release_on_branch`:
   - **g1:** a valid unpushed release commit, fast build: exits 0; it lands through pull request 1;
     origin's `main` merges it; the tag is on it.
   - **g2, g3, g6:** another file, another message, an empty commit: refused with today's
@@ -358,9 +358,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     it; f3 merges pull request 1 and opens no second one (`pr create` absent from `calls.log` since
     the stop). Each exits 0, and the cask has the version.
 
-- [ ] **Step 2: Run; the rewritten g cases and the resumes fail.**
+- [x] **Step 2: Run; the rewritten g cases and the resumes fail.**
 
-- [ ] **Step 3: Implement.** Replace the recovery block with the validation the spec gives,
+- [x] **Step 3: Implement.** Replace the recovery block with the validation the spec gives,
   joining problems with `; ` into the "resume validation" text and setting `land=1`. The
   untagged search is skipped when `land` is 1. In section 3, a resume with `land` set sets
   `committed=1` and calls `land_release_commit`. A resume without `land` sets `committed=1` after
@@ -368,10 +368,10 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   closed pull request (no open one), then a merged one, all before any write. Remove the
   `git push -q origin HEAD:main` recovery and its `pushed` flag.
 
-- [ ] **Step 4: Run outside the sandbox; all pass.** Revert check on g4, g5, g9, g10, g11 and f3's
+- [x] **Step 4: Run outside the sandbox; all pass.** Revert check on g4, g5, g9, g10, g11 and f3's
   resume.
 
-- [ ] **Step 5: Commit** `Resume a release through its pull request`.
+- [x] **Step 5: Commit** `Resume a release through its pull request`.
 
 ### Task 5: Changelog guards
 
@@ -387,7 +387,7 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   `check_release_section` (no arguments; uses `version`, `work/notes.md`; runs its own
   `git fetch -q origin main` and reads `FETCH_HEAD` right after it).
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - **g13:** `release_on_branch`, then a commit on origin's `main` that adds
     `- Later entry merged after the cut.` under `Unreleased`: refused with
     `origin/main changed CHANGELOG.md after the release commit was cut`, lists `git switch main`
@@ -402,9 +402,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     subject `Release $v`, pushed. With HEAD detached at the release commit and the failing build,
     it goes on to the build, without `2 'Release`.
 
-- [ ] **Step 2: Run; g13, j1, j2 and h6 fail.**
+- [x] **Step 2: Run; g13, j1, j2 and h6 fail.**
 
-- [ ] **Step 3: Implement.** In `land_release_commit`, after the reads and their refusals:
+- [x] **Step 3: Implement.** In `land_release_commit`, after the reads and their refusals:
   `git fetch -q origin main`, then if
   `! git diff --quiet "$release_commit^" FETCH_HEAD -- CHANGELOG.md`, set `committed=0` and die
   with the step-0 text and `abandon_commands`. The closed-PR refusal also prints
@@ -414,9 +414,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   `$work/main-changelog.md`, runs `changelog.py notes "$version" --file` on it, and compares the
   result with `$work/notes.md` using `cmp -s`. On a difference it prints `diff -u` and dies.
 
-- [ ] **Step 4: Run outside the sandbox; all pass.** Revert check on each of the four.
+- [x] **Step 4: Run outside the sandbox; all pass.** Revert check on each of the four.
 
-- [ ] **Step 5: Commit** `Refuse a release whose changelog section would differ on main`.
+- [x] **Step 5: Commit** `Refuse a release whose changelog section would differ on main`.
 
 ### Task 6: Tidy up after publishing; the dry run's last line
 
@@ -431,7 +431,7 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 - Produces: `tidy_up` (no arguments; returns non-zero after printing the tidy-up text when
   anything is left).
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - **d:** the clone ends on `main`, equal to origin's `main`. There is no `release/$v` locally
     or on origin. The output has `Released $v:`. d's retry of the finished release now starts
     with `git -C "$clone" checkout --quiet --detach "$R"`, because the resume runs from the
@@ -447,9 +447,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
     the stub runs after `release create`) that moves origin's `release/<v>` to a new commit.
     Expectations: exits 1; reports `release/$v` left on origin; that branch still exists.
 
-- [ ] **Step 2: Run; d, a, l1 and l2 fail.**
+- [x] **Step 2: Run; d, a, l1 and l2 fail.**
 
-- [ ] **Step 3: Implement `tidy_up`** as the spec's three steps.
+- [x] **Step 3: Implement `tidy_up`** as the spec's three steps.
   - Delete the remote branch with
     `git push -q --force-with-lease="refs/heads/$branch:$release_commit" origin ":refs/heads/$branch"`,
     and only when `ls-remote` shows it at `release_commit`.
@@ -457,9 +457,9 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
   - Collect each problem as a line saying what is left and the command to finish it.
   - In section 7, set `published=1` and print `Released …`; then, when `tidy_up` fails, exit 1.
 
-- [ ] **Step 4: Run outside the sandbox; all pass.** Revert check on d's end state, l1 and l2.
+- [x] **Step 4: Run outside the sandbox; all pass.** Revert check on d's end state, l1 and l2.
 
-- [ ] **Step 5: Commit** `Return to main and delete the release branch after a release`.
+- [x] **Step 5: Commit** `Return to main and delete the release branch after a release`.
 
 ### Task 7: Documentation
 
@@ -469,17 +469,17 @@ expect "d: never pushes main" lacks "$(cat "$dir/pushes.log")" "refs/heads/main"
 - Modify: `README.md` ("Releasing"), `AGENTS.md` (the Release command line; "Releases and CI"),
   `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md` (one header line)
 
-- [ ] **Step 1: README.** Rewrite the "Releasing" paragraph. The release commit goes on
+- [x] **Step 1: README.** Rewrite the "Releasing" paragraph. The release commit goes on
   `release/<version>`; the script opens its pull request, checks it changes only `CHANGELOG.md`,
   merges it as admin, tags the release commit and publishes. `gh` must use a login with the
   `repo` (or `public_repo`) scope on an admin account. A failed run leaves you on the release
   branch, and `--version <version>` resumes it. `--dry-run` creates nothing.
-- [ ] **Step 2: AGENTS.md.** The Release line becomes "(it needs the signing certificate and a
+- [x] **Step 2: AGENTS.md.** The Release line becomes "(it needs the signing certificate and a
   `gh` login that can merge as admin; it pushes a release branch and merges its pull request,
   never `main`)". Under "Releases and CI", add
   `Release flow: docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md.`
-- [ ] **Step 3: Distribution spec.** Add under its `**Canonical for:**` line:
+- [x] **Step 3: Distribution spec.** Add under its `**Canonical for:**` line:
   `**Release flow:** superseded in part on 2026-11-16 by docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md (the release commit lands through a pull request).`
-- [ ] **Step 4:** `rg -n 'HEAD:main|pushes to .main' README.md AGENTS.md scripts/release` finds
+- [x] **Step 4:** `rg -n 'HEAD:main|pushes to .main' README.md AGENTS.md scripts/release` finds
   nothing but the tap push.
-- [ ] **Step 5: Commit** `Describe releasing through a pull request`.
+- [x] **Step 5: Commit** `Describe releasing through a pull request`.
