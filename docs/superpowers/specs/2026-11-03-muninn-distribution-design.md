@@ -9,7 +9,9 @@ This document repeats what applies to Muninn, so it can be planned on its own, a
 Muninn differs.
 **Canonical for:** the shared build recipe of Muninn, Hulder and Linger. The Hulder and Linger
 changes under "Companion changes" reference this document.
-**Release flow:** superseded in part on 2026-11-16 by docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md (the release commit lands through a pull request).
+**Release flow:** superseded in part on 2026-11-16 by
+docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md (the release commit lands
+through a pull request).
 
 ## Why
 
