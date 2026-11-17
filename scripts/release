@@ -245,7 +245,7 @@ tidy_up() {
     problems="$problems"$'\n'"  could not fetch origin/main; run: $finish"
   }
   if ! git switch -q main; then
-    problems="$problems"$'\n'"  could not switch to main; run: $finish"
+    problems="$problems"$'\n'"  could not switch to main; where main is checked out, run: git pull --ff-only"
   elif (( fetched )) && ! git merge -q --ff-only FETCH_HEAD; then
     problems="$problems"$'\n'"  local main has commits that origin/main lacks, so it is left as it is; once it is reconciled, run: git pull --ff-only"
   fi
@@ -256,7 +256,11 @@ tidy_up() {
   elif [[ "$tip" != "$release_commit" ]]; then
     problems="$problems"$'\n'"  local $branch is at $tip, not the release commit $release_commit, so it is left; if it is not needed, run: git branch -D $branch"
   elif ! git branch -q -d "$branch"; then
-    problems="$problems"$'\n'"  could not delete the local $branch; run: git branch -d $branch"
+    if [[ -n "$problems" ]]; then
+      problems="$problems"$'\n'"  could not delete the local $branch; once main is level with origin/main, run: git branch -d $branch"
+    else
+      problems="$problems"$'\n'"  could not delete the local $branch; run: git branch -d $branch"
+    fi
   fi
 
   if ! tip="$(git ls-remote origin "refs/heads/$branch")"; then
