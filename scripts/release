@@ -15,6 +15,13 @@ die() {
   exit 1
 }
 
+# Refuses with $1 when a local release branch holds the release commit, naming its checkout.
+die_unless_on_release_branch() {
+  if git rev-parse -q --verify "refs/heads/release/$version" >/dev/null; then
+    die "$1; the release commit is on release/$version: run git switch release/$version, then resume with scripts/release --version $version"
+  fi
+}
+
 dry_run=0
 resume=0
 version=""
@@ -291,7 +298,10 @@ mise exec -- xcodegen --version >/dev/null 2>&1 || die "xcodegen does not run th
 
 land=0
 if (( resume )); then
-  scripts/changelog.py notes "$version" >/dev/null || die "CHANGELOG.md has no section for $version"
+  if ! scripts/changelog.py notes "$version" >/dev/null; then
+    die_unless_on_release_branch "CHANGELOG.md has no section for $version here"
+    die "CHANGELOG.md has no section for $version"
+  fi
   if (( ! dry_run )); then
     git fetch --quiet origin refs/heads/main || die "could not fetch origin/main"
     fetched_main="$(git rev-parse FETCH_HEAD)"
@@ -354,6 +364,7 @@ if (( resume )); then
     release_commits="$(git log --no-merges "$fetched_main" --format='%H%x09%s' | awk -F'\t' -v subject="Release $version" '$2 == subject { print $1 }')"
     release_count="$(grep -c . <<<"$release_commits" || true)"
     if [[ "$release_count" -eq 0 ]]; then
+      die_unless_on_release_branch "origin/main has no 'Release $version' commit yet"
       die "tag $version does not exist and origin/main has no 'Release $version' commit to tag"
     elif [[ "$release_count" -gt 1 ]]; then
       die "tag $version does not exist and origin/main has $release_count 'Release $version' commits ($(paste -sd' ' - <<<"$release_commits")); tag the right one yourself, then run again"

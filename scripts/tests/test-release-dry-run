@@ -859,6 +859,11 @@ expect "f: HEAD is the release commit" test "$(git -C "$clone" log -1 --format=%
 expect "f: HEAD is on release/<version>" test "$(git -C "$clone" symbolic-ref --short HEAD)" == "release/$v"
 expect "f: the tree is clean" test -z "$(git -C "$clone" status --porcelain)"
 
+git -C "$clone" switch --quiet main
+run_release --version "$v"
+expect "f: a resume from main names the release branch" contains "$output" "git switch release/$v"
+git -C "$clone" switch --quiet "release/$v"
+
 accept_pushes
 R="$(git -C "$clone" rev-parse HEAD)"
 PATH="$fast_build:$PATH" run_release --version "$v"
