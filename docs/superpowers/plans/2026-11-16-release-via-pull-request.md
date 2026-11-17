@@ -69,7 +69,7 @@ pull request number, `<b>` is `release/<v>`.
 | section check | `the <v> section of CHANGELOG.md on origin/main differs from the release commit's:` + `diff -u` of the two, then `correct CHANGELOG.md on main through a pull request, then resume` |
 | resume validation | `HEAD is not on origin/main, and it is not a 'Release <v>' commit that can land (<problems>); check out the release commit, or a commit on origin/main` |
 | validation problems | `its message is '<m>', not 'Release <v>'`; `it has <k> parents, not one`; `its parent is not on origin/main`; `it changes nothing, not CHANGELOG.md`; `it changes <files>, not only CHANGELOG.md` |
-| resume from elsewhere, release branch exists | `<problem>; the release commit is on <b>: run git switch <b>, then resume with scripts/release --version <v>`, where `<problem>` is `origin/main has no 'Release <v>' commit yet` or `CHANGELOG.md has no section for <v> here` (no resume hint) |
+| resume from main, release branch exists | `CHANGELOG.md has no section for <v> here; the release commit is on <b>: run git switch <b>, then resume with scripts/release --version <v>` (no resume hint) |
 | tidy-up | `release: released <v>, but could not tidy up:` then one indented line per problem |
 | dry run, last line | `Dry run: nothing committed, branched, pushed, merged, tagged or published.` |
 
