@@ -32,9 +32,10 @@ points at Xcode.
   every Debug build), any `LSUIElement` key (Muninn is a regular app), a wrong bundle
   identifier or version, a missing or empty Microphone or Audio Capture usage description, a
   `muninn-spike` inside the bundle, or (with `--team`) a different `TeamIdentifier`.
-- Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, on the maintainer's Mac only (it
-  needs the signing certificate and pushes). Use `--dry-run` to check it; never run it for real
-  unless the maintainer asks. `--version` resumes a failed release.
+- Release: `scripts/release [--dry-run] [--version <YYYYMMDD-HHMM>]`, on the maintainer's Mac
+  only (it needs the signing certificate and a `gh` login that can merge as admin; it pushes a
+  release branch and merges its pull request, never `main`). Use `--dry-run` to check it; never
+  run it for real unless the maintainer asks. `--version` resumes a failed release.
 - Regenerate the app icon and menu bar PNGs from `design/app-icon.svg` and
   `design/menubar.svg`: `design/render` (needs `rsvg-convert`, Homebrew `librsvg`)
 - Spike CLI (`docs/spike.md`): `swift build -c release --product muninn-spike --package-path Packages/MuninnPlatform`,
@@ -48,6 +49,7 @@ points at Xcode.
   stays on the maintainer's Mac. It builds with `CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=`, as anyone
   without the certificate does.
 - Distribution design: `docs/superpowers/specs/2026-11-03-muninn-distribution-design.md`.
+- Release flow: `docs/superpowers/specs/2026-11-16-release-via-pull-request-design.md`.
 
 ## Rules an agent gets wrong
 
