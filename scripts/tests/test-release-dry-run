@@ -1316,6 +1316,29 @@ expect "l1: the cask has the version" contains "$(tap_cask)" "version \"$v\""
 expect "l1: local main keeps its extra commit" test "$(git -C "$clone" log -1 --format=%s refs/heads/main)" == Local
 expect "l1: release/$v is deleted on origin" test -z "$(git --git-dir="$bare" for-each-ref "refs/heads/release/$v")"
 
+echo "== l1b: a local main ahead of origin is left, and reported after publishing"
+new_scenario tidy-ahead --fast
+git -C "$clone" checkout --quiet -B main
+git -C "$clone" push --quiet --force origin HEAD:main
+cat >"$STUB_DIR/after-release-create" <<HOOK
+#!/bin/sh
+set -e
+git -C "$clone" fetch -q origin refs/heads/main
+main_tip="\$(git -C "$clone" rev-parse FETCH_HEAD)"
+git -C "$clone" update-ref refs/heads/main "\$(git -C "$clone" commit-tree "\$main_tip^{tree}" -p "\$main_tip" -m Local)"
+HOOK
+chmod +x "$STUB_DIR/after-release-create"
+PATH="$fast_build:$PATH" run_release
+v="$(sed -n 's/^Version: //p' <<<"$output" | head -1)"
+expect "l1b: exits 1" test "$status" -eq 1
+expect "l1b: says it released but could not tidy up" contains "$output" "released $v, but could not tidy up"
+expect "l1b: says local main keeps commits origin lacks" contains "$output" "local main has commits that origin/main lacks"
+expect "l1b: prints no resume hint" lacks "$output" "resume with:"
+expect "l1b: the release is published" test -e "$STUB_DIR/release-exists"
+expect "l1b: local main keeps its extra commit" test "$(git -C "$clone" log -1 --format=%s refs/heads/main)" == Local
+expect "l1b: local main's parent is origin's main" test "$(git -C "$clone" rev-parse refs/heads/main^)" == "$(git --git-dir="$bare" rev-parse refs/heads/main)"
+expect "l1b: release/$v is deleted on origin" test -z "$(git --git-dir="$bare" for-each-ref "refs/heads/release/$v")"
+
 echo "== l2: an origin branch that moved is not deleted"
 new_scenario tidy-moved --fast
 git -C "$clone" checkout --quiet -B main

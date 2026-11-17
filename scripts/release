@@ -239,14 +239,17 @@ check_release_section() {
 # origin when it is still the release commit. Prints what is left, each with the command that
 # finishes it, and returns 1 when anything is.
 tidy_up() {
-  local problems="" fetched=1 tip level_main="git switch main && git pull --ff-only"
+  local problems="" fetched=1 fetched_tip="" tip level_main="git switch main && git pull --ff-only"
   git fetch -q origin refs/heads/main || {
     fetched=0
     problems="$problems"$'\n'"  could not fetch origin/main; run: $level_main"
   }
+  if (( fetched )); then
+    fetched_tip="$(git rev-parse -q --verify FETCH_HEAD || true)"
+  fi
   if ! git switch -q main; then
     problems="$problems"$'\n'"  could not switch to main; where main is checked out, run: git pull --ff-only"
-  elif (( fetched )) && ! git merge -q --ff-only FETCH_HEAD; then
+  elif (( fetched )) && { ! git merge -q --ff-only FETCH_HEAD || [[ "$(git rev-parse -q --verify refs/heads/main || true)" != "$fetched_tip" ]]; }; then
     problems="$problems"$'\n'"  local main has commits that origin/main lacks, so it is left as it is; once it is reconciled, run: git pull --ff-only"
   fi
 
