@@ -77,11 +77,16 @@ scripts/tests/test-verify-app <Release Muninn.app>
 
 The maintainer cuts a release with `scripts/release`. It needs the signing certificate,
 so it runs on the maintainer's Mac, not in CI. It sets the version (the time it starts,
-`YYYYMMDD-HHMM`), moves the `Unreleased` entries of `CHANGELOG.md` into that version,
-builds, signs, runs `scripts/verify-app`, packages `Muninn-<version>.zip`, tags, publishes
-the GitHub release and updates the cask. `scripts/release --dry-run` does everything up to
-the package and prints the changelog section; `--version <version>` resumes a release that
-failed part way. `design/render` regenerates the app icon and menu bar PNGs from
+`YYYYMMDD-HHMM`) and moves the `Unreleased` entries of `CHANGELOG.md` into that version, in a
+commit on `release/<version>`. It opens a pull request for that commit, checks that it changes
+only `CHANGELOG.md`, merges it as admin, tags the release commit, builds, signs, runs
+`scripts/verify-app`, packages `Muninn-<version>.zip`, publishes the GitHub release and updates
+the cask. It never pushes `main`. `gh` must use a login with the `repo` (or `public_repo`) scope
+on an admin account; the script refuses to start otherwise. A run that fails part way leaves you
+on the release branch, and `scripts/release --version <version>` resumes it.
+`scripts/release --dry-run` creates nothing: no branch, commit, pull request, tag or release. It
+builds, verifies and packages, and prints the changelog section.
+`design/render` regenerates the app icon and menu bar PNGs from
 `design/app-icon.svg` and `design/menubar.svg`; it needs `rsvg-convert` (Homebrew `librsvg`).
 
 ## Limitations
